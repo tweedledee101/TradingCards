@@ -25,6 +25,7 @@ Use the helper script to always install the latest release:
 ```
 
 Or install a specific release manually:
+The package is not published to PyPI, so install from the latest stable GitHub release tag:
 
 ```bash
 pip install "https://github.com/aws/nova-act/archive/refs/tags/v3.0.157.0.tar.gz"
