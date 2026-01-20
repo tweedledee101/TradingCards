@@ -16,13 +16,15 @@ export NOVAACT_BASE_URL="https://api.novaact.example"
 ```
 
 ## Install NovaAct SDK
-Install the NovaAct SDK locally (required when not using `--dry-run`):
+Install the NovaAct SDK locally (required when not using `--dry-run`).
+The package is not published to PyPI, so install from the latest stable GitHub release tag:
 
 ```bash
-pip install nova-act
+pip install "https://github.com/aws/nova-act/archive/refs/tags/v3.0.157.0.tar.gz"
 ```
 
 ## Run
+
 Dry-run (validates config, prints intended actions):
 
 ```bash
