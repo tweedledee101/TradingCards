@@ -15,6 +15,26 @@ Optional:
 export NOVAACT_BASE_URL="https://api.novaact.example"
 ```
 
+## Install NovaAct SDK
+Install the NovaAct SDK locally (required when not using `--dry-run`):
+
+```bash
+pip install nova-act
+```
+
+## Run
+Dry-run (validates config, prints intended actions):
+
+```bash
+python acquisition/facebook_marketplace/novaact_intake.py --dry-run
+```
+
+Live run (requires NovaAct SDK):
+
+```bash
+python acquisition/facebook_marketplace/novaact_intake.py --query "trading cards"
+```
+
 ## Next Steps
 - Wire in the NovaAct SDK or HTTP client calls for:
   - Authentication
