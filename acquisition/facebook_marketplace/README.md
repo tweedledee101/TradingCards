@@ -24,6 +24,15 @@ Use the helper script to always install the latest release:
 ./acquisition/facebook_marketplace/install_novaact.sh
 ```
 
+If GitHub API rate limiting or release metadata lookup fails, you can override the
+release tag or provide a token:
+
+```bash
+export NOVAACT_RELEASE_TAG="v3.0.157.0"
+export GITHUB_TOKEN="ghp_your_token"
+./acquisition/facebook_marketplace/install_novaact.sh
+```
+
 Or install a specific release manually:
 The package is not published to PyPI, so install from the latest stable GitHub release tag:
 
