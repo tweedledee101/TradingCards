@@ -24,6 +24,7 @@ pip install "https://github.com/aws/nova-act/archive/refs/tags/v3.0.157.0.tar.gz
 ```
 
 ## Run
+
 Dry-run (validates config, prints intended actions):
 
 ```bash
