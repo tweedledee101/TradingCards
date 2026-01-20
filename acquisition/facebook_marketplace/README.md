@@ -17,10 +17,27 @@ export NOVAACT_BASE_URL="https://api.novaact.example"
 
 ## Install NovaAct SDK
 Install the NovaAct SDK locally (required when not using `--dry-run`).
+The package is not published to PyPI, so install from the latest stable GitHub release tag.
+Use the helper script to always install the latest release:
+
+```bash
+./acquisition/facebook_marketplace/install_novaact.sh
+```
+
+Or install a specific release manually:
 The package is not published to PyPI, so install from the latest stable GitHub release tag:
 
 ```bash
 pip install "https://github.com/aws/nova-act/archive/refs/tags/v3.0.157.0.tar.gz"
+```
+
+## Sync local repo with GitHub
+From your local clone:
+
+```bash
+git fetch origin
+git checkout main
+git pull origin main
 ```
 
 ## Run

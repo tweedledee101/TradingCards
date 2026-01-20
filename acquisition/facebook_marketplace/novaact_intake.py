@@ -72,6 +72,9 @@ class NovaActClient:
 def ensure_novaact_available() -> None:
     if importlib.util.find_spec("nova_act") is None:
         raise RuntimeError(
+            "NovaAct SDK is not installed. Run "
+            "`./acquisition/facebook_marketplace/install_novaact.sh` "
+            "or install from a GitHub release tarball, for example: "
             "NovaAct SDK is not installed. Install it from the latest stable GitHub release, "
             "for example: "
             "`pip install \"https://github.com/aws/nova-act/archive/refs/tags/v3.0.157.0.tar.gz\"`."

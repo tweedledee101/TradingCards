@@ -54,6 +54,9 @@ Build an acquisition workflow that finds and evaluates trading card deals, guide
    - Acquisition table(s)
    - Lifecycle status fields
 
+6. **Data Flow Diagram**
+   - Keep `acquisition/data-flow.md` updated as the workflow evolves.
+
 ## Open Questions
 - Which marketplaces should be prioritized beyond Facebook Marketplace and eBay?
 - What is the minimum data required to qualify a listing for evaluation?
