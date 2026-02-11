@@ -52,13 +52,17 @@ pip install -r requirements.txt
 
 # Configure environment
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env with your API keys and database credentials
 
 # Setup database
+psql -U postgres -c "CREATE DATABASE trading_cards;"
 psql -U postgres -f backend/models/schema.sql
 
-# Run scrapers
-python -m backend.scrapers.ebay_scraper
+# Test pipeline with mock data
+python backend/test_pipeline.py
+
+# Run pipeline with real eBay data
+python -m backend.run_pipeline --query "Wembanyama rookie" --days 7
 
 # Run tests
 ./run_tests.sh all
