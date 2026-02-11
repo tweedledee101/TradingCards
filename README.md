@@ -57,30 +57,30 @@ setup.bat   # Windows
 cp backend/.env.example backend/.env
 # Edit backend/.env with your API keys and database credentials
 
-# Setup database
+# 3. Setup database
 psql -U postgres -c "CREATE DATABASE trading_cards;"
-psql -U postgres -f backend/models/schema.sql
+psql -U postgres -d trading_cards -f backend/models/schema.sql
 
-# Test pipeline with mock data
-python backend/test_pipeline.py
+# 4. Test pipeline with mock data
+python3 backend/test_pipeline.py
 
-# Run pipeline with real eBay data
-python -m backend.run_pipeline --query "Wembanyama rookie" --days 7
+# 5. Run pipeline with real eBay data
+python3 -m backend.run_pipeline --query "Wembanyama rookie" --days 7
 
-# Start API server
-python -m backend.api.run
+# 6. Start API server
+python3 -m backend.api.run
 # Visit http://localhost:8000/docs for interactive API docs
 
-# Test API
-python backend/test_api.py
+# 7. Test API
+python3 backend/test_api.py
 
-# Run automated collection (test mode)
-python -m backend.run_scheduler --now
+# 8. Run automated collection (test mode)
+python3 -m backend.run_scheduler --now
 
-# Start scheduler (runs daily at 2 AM)
-python -m backend.run_scheduler
+# 9. Start scheduler (runs daily at 2 AM)
+python3 -m backend.run_scheduler
 
-# Run tests
+# 10. Run tests
 ./run_tests.sh all
 ```
 
