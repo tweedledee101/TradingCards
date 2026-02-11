@@ -37,16 +37,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ✅ Trend calculator algorithms
 - ✅ Data pipeline orchestration
 - ✅ End-to-end testing capability
+- ✅ REST API with FastAPI
+- ✅ API endpoints (trending, cards, search)
+- ✅ Interactive API documentation (Swagger)
 
 ### Planned
-- [ ] REST API with FastAPI
-- [ ] API endpoints for trending cards
 - [ ] Nightly scraper scheduler (APScheduler)
 - [ ] PSA population scraper
 - [ ] Card Ladder price scraper
 - [ ] Social media signal scrapers (Twitter/Reddit)
 - [ ] Frontend dashboard (React)
 - [ ] Deployment to jgaffiliates.com subdomain
+- [ ] API authentication
+- [ ] API rate limiting
 
 ## [0.1.0] - 2025-02-11
 
