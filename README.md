@@ -26,14 +26,16 @@ See [Architecture Documentation](./docs/architecture/) for detailed system desig
 
 | Source | Purpose | Status |
 |--------|---------|--------|
-| eBay Browse API | Sold listings, price data | In Progress |
-| eBay Active Listings | Current market supply | Planned |
+| eBay Browse API | Sold listings, price data | ✅ Complete |
+| eBay Active Listings | Current market supply | ✅ Complete |
 | PSA Population | Grading volume trends | Planned |
 | Card Ladder | Price benchmarks | Planned |
 | Twitter/Reddit | Social sentiment | Planned |
 
 ## Documentation
 
+- [Quick Start Guide](./QUICKSTART.md)
+- [Pipeline Documentation](./backend/PIPELINE.md)
 - [System Architecture](./docs/architecture/system-architecture.md)
 - [Database Schema & ERD](./docs/architecture/database-design.md)
 - [Data Flow Diagrams](./docs/architecture/diagrams/)
@@ -42,6 +44,7 @@ See [Architecture Documentation](./docs/architecture/) for detailed system desig
 - [Setup Guide](./docs/setup/installation.md)
 - [Architecture Decisions](./docs/architecture/decisions/)
 - [Project Status](./docs/PROJECT-STATUS.md)
+- [Pipeline Implementation](./docs/PIPELINE-IMPLEMENTATION.md)
 
 ## Quick Start
 
@@ -85,15 +88,17 @@ See [Testing Guide](./docs/TESTING.md) for detailed testing documentation.
 
 ## Project Status
 
-**Current Phase:** Backend Data Pipeline Development
+**Current Phase:** Backend Data Pipeline - COMPLETE ✅
 
 - [x] Database schema design
+- [x] SQLAlchemy ORM models
 - [x] Project structure
 - [x] eBay scraper implementation
+- [x] Trend detection algorithms
+- [x] Data pipeline orchestration
 - [x] Comprehensive test suite
-- [ ] Trend detection algorithms
+- [ ] REST API endpoints
 - [ ] PSA population scraper
-- [ ] API endpoints
 - [ ] Frontend dashboard
 
 ## Domain
