@@ -74,6 +74,12 @@ python -m backend.api.run
 # Test API
 python backend/test_api.py
 
+# Run automated collection (test mode)
+python -m backend.run_scheduler --now
+
+# Start scheduler (runs daily at 2 AM)
+python -m backend.run_scheduler
+
 # Run tests
 ./run_tests.sh all
 ```
@@ -95,7 +101,7 @@ See [Testing Guide](./docs/TESTING.md) for detailed testing documentation.
 
 ## Project Status
 
-**Current Phase:** REST API - COMPLETE ✅
+**Current Phase:** Automation - COMPLETE ✅
 
 - [x] Database schema design
 - [x] SQLAlchemy ORM models
@@ -105,6 +111,9 @@ See [Testing Guide](./docs/TESTING.md) for detailed testing documentation.
 - [x] Data pipeline orchestration
 - [x] Comprehensive test suite
 - [x] REST API endpoints
+- [x] Automated scheduler
+- [x] Target list configuration
+- [x] Daily report generation
 - [ ] PSA population scraper
 - [ ] Frontend dashboard
 

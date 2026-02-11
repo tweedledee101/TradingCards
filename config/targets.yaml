@@ -1,0 +1,84 @@
+# Target List - Players and Queries to Track
+# Add players you want to monitor for trending cards
+
+players:
+  # 2024 NBA Rookies
+  - name: "Victor Wembanyama"
+    sport: "Basketball"
+    rookie_year: 2023
+    queries:
+      - "{name} 2023 prizm rookie"
+      - "{name} 2023 select rookie"
+      - "{name} 2023 optic rookie"
+      - "{name} prizm PSA 10"
+  
+  - name: "Scoot Henderson"
+    sport: "Basketball"
+    rookie_year: 2023
+    queries:
+      - "{name} 2023 prizm rookie"
+      - "{name} 2023 select rookie"
+  
+  - name: "Brandon Miller"
+    sport: "Basketball"
+    rookie_year: 2023
+    queries:
+      - "{name} 2023 prizm rookie"
+      - "{name} 2023 select rookie"
+  
+  # 2024 MLB Rookies
+  - name: "Paul Skenes"
+    sport: "Baseball"
+    rookie_year: 2024
+    queries:
+      - "{name} bowman chrome"
+      - "{name} topps chrome rookie"
+  
+  - name: "Jackson Holliday"
+    sport: "Baseball"
+    rookie_year: 2024
+    queries:
+      - "{name} bowman chrome"
+      - "{name} topps chrome rookie"
+      - "{name} bowman 1st"
+  
+  # 2024 NFL Rookies
+  - name: "Caleb Williams"
+    sport: "Football"
+    rookie_year: 2024
+    queries:
+      - "{name} prizm rookie"
+      - "{name} optic rookie"
+  
+  - name: "Marvin Harrison Jr"
+    sport: "Football"
+    rookie_year: 2024
+    queries:
+      - "{name} prizm rookie"
+      - "{name} select rookie"
+
+# Schedule Configuration
+schedule:
+  # When to run daily imports (24-hour format)
+  daily_import_time: "02:00"  # 2 AM
+  
+  # How many days back to search
+  days_back: 7
+  
+  # Enable/disable specific tasks
+  import_sales: true
+  import_listings: true
+  calculate_trends: true
+  generate_reports: true
+
+# Report Configuration
+reports:
+  # Where to save daily reports
+  output_dir: "reports"
+  
+  # Top N cards to include
+  top_cards_limit: 25
+  
+  # Email notifications (optional)
+  email_enabled: false
+  email_to: "your-email@example.com"
