@@ -8,8 +8,8 @@
 ├──────────┬──────────┬──────────┬──────────┬─────────────────┤
 │  eBay    │   PSA    │  Card    │ Twitter  │    Reddit       │
 │  API     │  Website │  Ladder  │   API    │     API         │
+│  ✅      │   ⏳     │   ⏳     │   ⏳     │     ⏳          │
 └────┬─────┴────┬─────┴────┬─────┴────┬─────┴────┬────────────┘
-     │          │          │          │          │
      │          │          │          │          │
      ▼          ▼          ▼          ▼          ▼
 ┌────────────────────────────────────────────────────────────┐
@@ -17,44 +17,68 @@
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
 │  │  eBay    │  │   PSA    │  │  Card    │  │  Social  │  │
 │  │ Scraper  │  │ Scraper  │  │  Ladder  │  │ Scraper  │  │
+│  │   ✅     │  │   ⏳     │  │   ⏳     │  │   ⏳     │  │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
 └────────┬───────────────────────────────────────────────────┘
          │
          ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                   PostgreSQL Database                        │
-│  ┌──────┐  ┌───────┐  ┌──────────┐  ┌──────────────┐      │
-│  │cards │  │ sales │  │ listings │  │ psa_pop      │      │
-│  └──────┘  └───────┘  └──────────┘  └──────────────┘      │
+│  ┌──────┐  ┌───────┐  ┌──────────┐  ┌───────────┐         │
+│  │cards │  │ sales │  │ listings │  │ inventory │         │
+│  │  ✅  │  │  ✅   │  │   ✅     │  │    ✅     │         │
+│  └──────┘  └───────┘  └──────────┘  └───────────┘         │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐                 │
+│  │  trends  │  │watchlist │  │inv_sales │                 │
+│  │   ✅     │  │   ✅     │  │   ✅     │                 │
+│  └──────────┘  └──────────┘  └──────────┘                 │
 └────────┬────────────────────────────────────────────────────┘
          │
          ▼
 ┌─────────────────────────────────────────────────────────────┐
 │              Trend Detection Engine                          │
-│  ┌────────────────┐  ┌────────────────┐                    │
-│  │  Price Velocity│  │ Hotness Score  │                    │
-│  │  Calculator    │  │  Calculator    │                    │
-│  └────────────────┘  └────────────────┘                    │
+│  ┌────────────────┐  ┌────────────────┐  ┌──────────────┐ │
+│  │  Velocity      │  │  Momentum      │  │  Hotness     │ │
+│  │  Calculator    │  │  Calculator    │  │  Calculator  │ │
+│  │     ✅         │  │     ✅         │  │     ✅       │ │
+│  └────────────────┘  └────────────────┘  └──────────────┘ │
 └────────┬────────────────────────────────────────────────────┘
          │
          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    REST API Layer                            │
+│                    REST API Layer (FastAPI)                  │
 │  ┌────────────────────────────────────────────────────┐    │
-│  │  FastAPI Endpoints                                  │    │
-│  │  - GET /api/trending                               │    │
-│  │  - GET /api/cards/{id}/trends                      │    │
-│  │  - GET /api/rookies/hot                            │    │
+│  │  18 Endpoints - ✅ Complete                        │    │
+│  │  - GET /api/trending (filtering, sorting)         │    │
+│  │  - GET /api/trending/rookies                      │    │
+│  │  - GET /api/stats                                 │    │
+│  │  - GET /api/cards/{id} (price history)           │    │
+│  │  - GET /api/cards (pagination)                    │    │
+│  │  - POST /api/inventory                            │    │
+│  │  - GET /api/inventory (by status)                 │    │
+│  │  - GET /api/inventory/stats                       │    │
+│  │  - POST /api/inventory/sales                      │    │
+│  │  - GET /api/inventory/{id}                        │    │
+│  │  - POST /api/watchlist                            │    │
+│  │  - GET /api/watchlist                             │    │
+│  │  - DELETE /api/watchlist/{id}                     │    │
+│  │  - GET /api/watchlist/alerts                      │    │
+│  │  - GET /health                                    │    │
 │  └────────────────────────────────────────────────────┘    │
 └────────┬────────────────────────────────────────────────────┘
          │
          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                  Frontend Dashboard                          │
-│                  (Future Phase)                              │
-│  - Trending cards visualization                             │
-│  - Price charts                                              │
-│  - Hotness score rankings                                   │
+│              Frontend Dashboard (React + Vite)               │
+│  ┌────────────────────────────────────────────────────┐    │
+│  │  ✅ Complete                                       │    │
+│  │  - Trending cards table with filtering            │    │
+│  │  - Card detail pages with price charts            │    │
+│  │  - Profit calculator with eBay fees               │    │
+│  │  - Inventory dashboard with P&L tracking          │    │
+│  │  - Watchlist with price alerts                    │    │
+│  │  - Navigation between all features                │    │
+│  └────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -65,17 +89,24 @@
 **Purpose:** Collect raw data from multiple sources
 
 **Components:**
-- **eBay Scraper** - Sold listings via Browse API
-- **PSA Scraper** - Population reports via web scraping
-- **Card Ladder Scraper** - Price benchmarks
-- **Social Scraper** - Twitter/Reddit mentions
+- **eBay Scraper** ✅ - Sold listings and active listings via Browse API
+- **PSA Scraper** ⏳ - Population reports via web scraping
+- **Card Ladder Scraper** ⏳ - Price benchmarks
+- **Social Scraper** ⏳ - Twitter/Reddit mentions
 
 **Schedule:**
-- eBay: Nightly at 2 AM EST
-- PSA: Weekly on Sundays
-- Social: Every 4 hours
+- eBay: Daily at 2 AM EST (via APScheduler)
+- PSA: Weekly on Sundays (planned)
+- Social: Every 4 hours (planned)
 
 **Technology:** Python, requests, BeautifulSoup, Selenium
+
+**Features:**
+- Title parsing (player, year, rookie status, grading)
+- Duplicate detection by eBay item ID
+- Error handling and retry logic
+- Target list configuration (YAML)
+- Daily report generation (CSV + text)
 
 ### 2. Database Layer
 
@@ -83,13 +114,16 @@
 
 **Technology:** PostgreSQL 14+
 
-**Key Tables:**
-- `cards` - Master card catalog
-- `sales` - Historical transactions
-- `active_listings` - Current market supply
-- `price_trends` - Pre-computed metrics
-- `psa_population` - Grading data
-- `social_signals` - Social media data
+**Tables (9 total):**
+- `cards` ✅ - Master card catalog
+- `sales` ✅ - Historical transactions
+- `active_listings` ✅ - Current market supply (with title/URL)
+- `price_trends` ✅ - Pre-computed metrics (with momentum_score)
+- `inventory` ✅ - User card ownership
+- `inventory_sales` ✅ - Sales from inventory
+- `watchlist` ✅ - Price monitoring
+- `psa_population` ⏳ - Grading data (planned)
+- `social_signals` ⏳ - Social media data (planned)
 
 See [Database Design](./database-design.md) for detailed schema.
 
@@ -104,7 +138,7 @@ See [Database Design](./database-design.md) for detailed schema.
 velocity = sales_count / active_listings_count
 ```
 
-**Price Momentum:**
+**Momentum Score:**
 ```python
 momentum = (current_avg_price - price_7d_ago) / price_7d_ago * 100
 ```
@@ -121,33 +155,100 @@ hotness = (
 
 **Execution:** Daily batch job at 3 AM EST (after scraping)
 
+**Status:** ✅ Complete
+
 ### 4. REST API Layer
 
 **Purpose:** Expose data to frontend and external consumers
 
 **Technology:** FastAPI, Uvicorn
 
-**Key Endpoints:**
-- `GET /api/trending` - Top trending cards
-- `GET /api/cards/{id}` - Card details
-- `GET /api/cards/{id}/trends` - Historical trends
-- `GET /api/rookies/hot` - Hot rookie cards
-- `GET /api/search?q={query}` - Search cards
+**Endpoints (18 total):**
 
-**Authentication:** API key (future)
+**Trending & Stats:**
+- `GET /api/trending` - Top trending cards with filtering/sorting
+- `GET /api/trending/rookies` - Hot rookie cards
+- `GET /api/stats` - Market statistics
 
-### 5. Frontend Dashboard (Future)
+**Cards:**
+- `GET /api/cards/{id}` - Card details with price history
+- `GET /api/cards` - Search cards with pagination
+
+**Inventory:**
+- `POST /api/inventory` - Add card to inventory
+- `GET /api/inventory` - Get inventory by status
+- `GET /api/inventory/stats` - Portfolio statistics
+- `POST /api/inventory/sales` - Record sale
+- `GET /api/inventory/{id}` - Item details
+
+**Watchlist:**
+- `POST /api/watchlist` - Add to watchlist
+- `GET /api/watchlist` - Get watchlist with alerts
+- `DELETE /api/watchlist/{id}` - Remove from watchlist
+- `GET /api/watchlist/alerts` - Get price alerts
+
+**Health:**
+- `GET /health` - Health check
+
+**Features:**
+- Advanced filtering (price, hotness, sport)
+- Flexible sorting (hotness, velocity, price, volume)
+- Pagination support
+- Swagger documentation
+- CORS enabled
+
+**Authentication:** None (future: API key + OAuth)
+
+**Status:** ✅ Complete
+
+### 5. Frontend Dashboard
 
 **Purpose:** Visualize trending cards and analytics
 
-**Technology:** React, Chart.js, TailwindCSS
+**Technology:** React, Vite, Recharts, TailwindCSS
+
+**Pages:**
+- **Home** (`/`) - Trending cards table
+- **Card Detail** (`/card/:id`) - Price charts, profit calculator
+- **Inventory** (`/inventory`) - Portfolio dashboard
+- **Watchlist** (`/watchlist`) - Price monitoring
+
+**Components:**
+- `TrendingTable` - Sortable table with buy recommendations
+- `PriceChart` - Historical price visualization
+- `ProfitCalculator` - Interactive calculator with eBay fees
 
 **Features:**
-- Real-time trending cards table
-- Price history charts
-- Hotness score visualization
-- Player search
-- Alerts for spike detection
+- Real-time profit/loss calculations
+- ROI percentages
+- Price alerts
+- Status filtering (owned/listed/sold)
+- Navigation between all features
+
+**Status:** ✅ Complete (requires Node.js 16+)
+
+### 6. Automation Layer
+
+**Purpose:** Scheduled data collection and processing
+
+**Technology:** APScheduler
+
+**Jobs:**
+- **Daily Collection** - 2 AM EST
+- **Target Lists** - YAML configuration
+- **Report Generation** - CSV and text reports
+
+**Configuration:**
+```yaml
+players:
+  - name: "Victor Wembanyama"
+    queries: ["Wembanyama rookie", "Wembanyama Prizm"]
+  - name: "Scoot Henderson"
+    queries: ["Henderson rookie"]
+  # ... 6 more players
+```
+
+**Status:** ✅ Complete
 
 ## Data Flow
 
@@ -155,8 +256,9 @@ hotness = (
 
 ```
 1. 2:00 AM - eBay scraper runs
-   ├─> Fetch sold listings (last 24h)
-   ├─> Parse card details
+   ├─> Fetch sold listings (last 7 days)
+   ├─> Parse card details from titles
+   ├─> Find or create card in database
    └─> Insert into `sales` table
 
 2. 2:30 AM - Active listings scraper
@@ -167,31 +269,28 @@ hotness = (
    ├─> Aggregate sales by card
    ├─> Calculate velocity scores
    ├─> Compute price changes
+   ├─> Calculate momentum scores
    ├─> Calculate hotness scores
    └─> Insert into `price_trends` table
 
-4. 3:30 AM - API cache refresh
-   └─> Pre-compute trending cards list
+4. 3:30 AM - Report generator
+   ├─> Query top 25 trending cards
+   ├─> Generate CSV report
+   └─> Generate text report
 ```
 
-### Weekly Pipeline
+### User Actions
 
 ```
-Sunday 1:00 AM - PSA scraper
-   ├─> Scrape population reports
-   ├─> Compare with previous week
-   ├─> Calculate growth rates
-   └─> Insert into `psa_population` table
-```
+Inventory Management:
+   User adds card → POST /api/inventory → Insert into `inventory`
+   User records sale → POST /api/inventory/sales → Calculate profit/ROI
+   User views portfolio → GET /api/inventory/stats → Aggregate P&L
 
-### Hourly Pipeline
-
-```
-Every 4 hours - Social scraper
-   ├─> Fetch Twitter mentions
-   ├─> Fetch Reddit posts
-   ├─> Analyze sentiment
-   └─> Insert into `social_signals` table
+Watchlist:
+   User adds card → POST /api/watchlist → Insert into `watchlist`
+   System checks prices → Compare with target → Trigger alerts
+   User views alerts → GET /api/watchlist/alerts → Return matches
 ```
 
 ## Deployment Architecture
@@ -205,15 +304,18 @@ Every 4 hours - Social scraper
 │  │                                   │ │
 │  │  ┌──────────┐    ┌─────────────┐ │ │
 │  │  │ Frontend │    │  API Server │ │ │
-│  │  │  (Nginx) │◄───┤  (FastAPI)  │ │ │
-│  │  └──────────┘    └──────┬──────┘ │ │
-│  │                          │        │ │
+│  │  │  (React) │◄───┤  (FastAPI)  │ │ │
+│  │  │  Port    │    │  Port 8000  │ │ │
+│  │  │  3000    │    └──────┬──────┘ │ │
+│  │  └──────────┘           │        │ │
 │  │                  ┌───────▼──────┐ │ │
 │  │                  │  PostgreSQL  │ │ │
+│  │                  │  Port 5432   │ │ │
 │  │                  └──────────────┘ │ │
 │  │                                   │ │
 │  │  ┌────────────────────────────┐  │ │
-│  │  │  Cron Jobs (Scrapers)      │  │ │
+│  │  │  APScheduler (Cron Jobs)   │  │ │
+│  │  │  - Daily at 2 AM           │  │ │
 │  │  └────────────────────────────┘  │ │
 │  └───────────────────────────────────┘ │
 └─────────────────────────────────────────┘
@@ -221,19 +323,23 @@ Every 4 hours - Social scraper
 
 ## Technology Stack
 
-| Layer | Technology | Justification |
-|-------|-----------|---------------|
-| Database | PostgreSQL | Robust, time-series support, JSON fields |
-| Backend | Python 3.11+ | Rich scraping libraries, data processing |
-| API | FastAPI | Fast, async, auto-documentation |
-| Scraping | Requests, BeautifulSoup, Selenium | Industry standard |
-| Scheduling | APScheduler | Python-native, flexible |
-| Frontend | React | Modern, component-based |
-| Hosting | TBD | AWS/DigitalOcean/Vercel |
+| Layer | Technology | Version | Status |
+|-------|-----------|---------|--------|
+| Database | PostgreSQL | 14+ | ✅ |
+| Backend | Python | 3.11+ | ✅ |
+| API | FastAPI | Latest | ✅ |
+| ORM | SQLAlchemy | Latest | ✅ |
+| Scraping | Requests | Latest | ✅ |
+| Scheduling | APScheduler | Latest | ✅ |
+| Frontend | React | 18 | ✅ |
+| Build Tool | Vite | Latest | ✅ |
+| Styling | TailwindCSS | Latest | ✅ |
+| Charts | Recharts | Latest | ✅ |
+| Hosting | TBD | - | ⏳ |
 
 ## Scalability Considerations
 
-**Current Phase:** Single server, ~1000 cards tracked
+**Current Phase:** Single server, unlimited cards tracked
 
 **Future Scaling:**
 - Database read replicas for API queries
@@ -244,12 +350,12 @@ Every 4 hours - Social scraper
 
 ## Security
 
-- API rate limiting
-- Database connection pooling
-- Secrets in environment variables
-- HTTPS only
-- Input sanitization
-- SQL injection prevention (SQLAlchemy ORM)
+- API rate limiting (planned)
+- Database connection pooling ✅
+- Secrets in environment variables ✅
+- HTTPS only (production)
+- Input sanitization ✅
+- SQL injection prevention (SQLAlchemy ORM) ✅
 
 ## Monitoring
 
@@ -265,12 +371,17 @@ Every 4 hours - Social scraper
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0.0 | 2025-02-11 | Initial architecture design |
+| 2.0.0 | 2025-02-11 | Added inventory, watchlist, frontend |
 
 ## Next Steps
 
 1. ✅ Database schema
-2. ✅ Documentation structure
-3. 🔄 eBay scraper implementation
-4. ⏳ Trend detection algorithms
-5. ⏳ REST API endpoints
-6. ⏳ Frontend dashboard
+2. ✅ eBay scraper implementation
+3. ✅ Trend detection algorithms
+4. ✅ REST API endpoints
+5. ✅ Inventory tracking
+6. ✅ Watchlist management
+7. ✅ Frontend dashboard
+8. ✅ Automation system
+9. ⏳ PSA population scraper
+10. ⏳ Production deployment

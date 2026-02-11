@@ -39,26 +39,30 @@ graph TD
     
     C --> D[Calculate Metrics]
     D --> D1[Average Price]
-    D --> D2[Sales Count]
-    D --> D3[Price Change 7d]
-    D --> D4[Price Change 30d]
+    D --> D2[Median Price]
+    D --> D3[Sales Count]
+    D --> D4[Price Change 7d]
     
     D1 --> E[Query active_listings]
     D2 --> E
+    D3 --> E
     E --> F[Calculate Velocity Score]
     F --> G[velocity = sales / listings]
     
-    G --> H[Query psa_population]
-    H --> I[Calculate PSA Growth Rate]
+    G --> H[Calculate Momentum Score]
+    H --> I[momentum = price change %]
     
-    I --> J[Query social_signals]
-    J --> K[Get Sentiment Score]
+    I --> J[Query psa_population]
+    J --> K[Calculate PSA Growth Rate]
     
-    K --> L[Compute Hotness Score]
-    L --> M[hotness = velocity*0.4 + momentum*0.3 + psa*0.2 + social*0.1]
+    K --> L[Query social_signals]
+    L --> M[Get Sentiment Score]
     
-    M --> N[Insert into price_trends table]
-    N --> O[Update API Cache]
+    M --> N[Compute Hotness Score]
+    N --> O[hotness = velocity*0.4 + momentum*0.3 + psa*0.2 + social*0.1]
+    
+    O --> P[Insert into price_trends table]
+    P --> Q[Update API Cache]
 ```
 
 ## 3. API Request Flow
@@ -68,22 +72,84 @@ graph LR
     A[Client Request] --> B[FastAPI Endpoint]
     B --> C{Endpoint Type}
     
-    C -->|/trending| D[Query price_trends]
-    C -->|/cards/:id| E[Query cards + sales]
-    C -->|/rookies/hot| F[Query price_trends WHERE is_rookie=true]
+    C -->|/trending| D[Query price_trends with filters]
+    C -->|/cards/:id| E[Query cards + sales + trends]
+    C -->|/inventory| F[Query inventory + cards + trends]
+    C -->|/watchlist| G[Query watchlist + cards + trends]
     
-    D --> G[ORDER BY hotness_score DESC]
-    E --> H[JOIN with price_trends]
-    F --> I[LIMIT 50]
+    D --> H[Apply filters & sorting]
+    E --> I[Join with price history]
+    F --> J[Calculate P&L]
+    G --> K[Check alerts]
     
-    G --> J[Format JSON Response]
-    H --> J
-    I --> J
+    H --> L[Format JSON Response]
+    I --> L
+    J --> L
+    K --> L
     
-    J --> K[Return to Client]
+    L --> M[Return to Client]
 ```
 
-## 4. Complete Data Pipeline
+## 4. Inventory Management Flow
+
+```mermaid
+graph TD
+    A[User Action] --> B{Action Type}
+    
+    B -->|Add to Inventory| C[POST /api/inventory]
+    C --> D[Validate card_id exists]
+    D --> E[Insert into inventory table]
+    E --> F[Set status = owned]
+    F --> G[Return inventory_id]
+    
+    B -->|Record Sale| H[POST /api/inventory/sales]
+    H --> I[Get inventory item]
+    I --> J[Calculate net_profit]
+    J --> K[Calculate ROI %]
+    K --> L[Insert into inventory_sales]
+    L --> M[Update inventory status = sold]
+    M --> N[Return profit metrics]
+    
+    B -->|View Portfolio| O[GET /api/inventory/stats]
+    O --> P[Sum purchase prices]
+    P --> Q[Get current values from price_trends]
+    Q --> R[Calculate unrealized profit]
+    R --> S[Sum realized profit from sales]
+    S --> T[Calculate total ROI]
+    T --> U[Return portfolio stats]
+```
+
+## 5. Watchlist & Alert Flow
+
+```mermaid
+graph TD
+    A[User Action] --> B{Action Type}
+    
+    B -->|Add to Watchlist| C[POST /api/watchlist]
+    C --> D[Validate card_id]
+    D --> E[Insert into watchlist table]
+    E --> F[Set target_price & threshold]
+    F --> G[Return watchlist_id]
+    
+    B -->|Check Alerts| H[GET /api/watchlist/alerts]
+    H --> I[Query watchlist + price_trends]
+    I --> J{For each card}
+    J --> K[Get current_price]
+    K --> L[Compare with target_price]
+    L --> M{Within threshold?}
+    M -->|Yes| N[Add to alerts list]
+    M -->|No| O[Skip]
+    N --> P[Return alerts]
+    O --> P
+    
+    B -->|View Watchlist| Q[GET /api/watchlist]
+    Q --> R[Join watchlist + cards + trends]
+    R --> S[Calculate price differences]
+    S --> T[Check alert status]
+    T --> U[Return watchlist with alerts]
+```
+
+## 6. Complete Data Pipeline
 
 ```mermaid
 graph TB
@@ -96,32 +162,37 @@ graph TB
     end
     
     subgraph "Scrapers"
-        B1[eBay Scraper]
-        B2[PSA Scraper]
-        B3[Card Ladder Scraper]
-        B4[Social Scraper]
+        B1[eBay Scraper ✅]
+        B2[PSA Scraper ⏳]
+        B3[Card Ladder Scraper ⏳]
+        B4[Social Scraper ⏳]
     end
     
     subgraph "Database Tables"
         C1[(cards)]
         C2[(sales)]
         C3[(active_listings)]
-        C4[(psa_population)]
-        C5[(social_signals)]
-        C6[(price_trends)]
+        C4[(price_trends)]
+        C5[(inventory)]
+        C6[(inventory_sales)]
+        C7[(watchlist)]
+        C8[(psa_population)]
+        C9[(social_signals)]
     end
     
     subgraph "Processing"
         D1[Trend Calculator]
         D2[Hotness Score Engine]
+        D3[P&L Calculator]
+        D4[Alert Checker]
     end
     
     subgraph "API Layer"
-        E1[FastAPI Endpoints]
+        E1[FastAPI - 18 Endpoints]
     end
     
     subgraph "Clients"
-        F1[Frontend Dashboard]
+        F1[React Frontend]
         F2[Mobile App]
         F3[External API Users]
     end
@@ -135,28 +206,38 @@ graph TB
     B1 --> C1
     B1 --> C2
     B1 --> C3
-    B2 --> C4
-    B4 --> C5
+    B2 --> C8
+    B4 --> C9
     
     C1 --> D1
     C2 --> D1
     C3 --> D1
-    C4 --> D1
-    C5 --> D1
+    C8 --> D1
+    C9 --> D1
     
     D1 --> D2
-    D2 --> C6
+    D2 --> C4
     
-    C6 --> E1
+    C5 --> D3
+    C6 --> D3
+    C4 --> D3
+    
+    C7 --> D4
+    C4 --> D4
+    
     C1 --> E1
     C2 --> E1
+    C4 --> E1
+    C5 --> E1
+    C6 --> E1
+    C7 --> E1
     
     E1 --> F1
     E1 --> F2
     E1 --> F3
 ```
 
-## 5. Hotness Score Calculation Detail
+## 7. Hotness Score Calculation Detail
 
 ```mermaid
 graph TD
@@ -164,7 +245,7 @@ graph TD
     B --> C[Calculate Average Price]
     
     C --> D[Get Price 7 Days Ago]
-    D --> E[Calculate Price Momentum]
+    D --> E[Calculate Momentum Score]
     E --> F[momentum = current - old / old * 100]
     
     A --> G[Get Active Listings Count]
@@ -193,7 +274,7 @@ graph TD
     T --> U[Store in price_trends]
 ```
 
-## 6. Error Handling Flow
+## 8. Error Handling Flow
 
 ```mermaid
 graph TD
@@ -220,12 +301,6 @@ graph TD
     N -->|Yes| P[Update Last Run Timestamp]
 ```
 
-## Diagram Notes
-
-- **Mermaid Format:** These diagrams can be rendered in GitHub, GitLab, or any Markdown viewer that supports Mermaid
-- **Live Editing:** Use [Mermaid Live Editor](https://mermaid.live/) to modify diagrams
-- **Export:** Can export to PNG/SVG for documentation
-
 ## Timing Schedule
 
 | Job | Frequency | Duration | Dependencies |
@@ -233,9 +308,10 @@ graph TD
 | eBay Sold Scraper | Daily 2:00 AM | ~15 min | None |
 | eBay Active Scraper | Daily 2:30 AM | ~10 min | None |
 | Trend Calculator | Daily 3:00 AM | ~20 min | Sales + Listings data |
+| Report Generator | Daily 3:30 AM | ~5 min | Trend Calculator |
 | PSA Scraper | Weekly Sunday 1:00 AM | ~30 min | None |
 | Social Scraper | Every 4 hours | ~5 min | None |
-| API Cache Refresh | Daily 3:30 AM | ~2 min | Trend Calculator |
+| Alert Checker | Hourly | ~2 min | Watchlist + Trends |
 
 ## Data Retention
 
@@ -244,10 +320,14 @@ graph TD
 | sales | 2 years | Move to sales_archive after 2 years |
 | active_listings | 90 days | Delete after 90 days |
 | price_trends | Indefinite | Keep all historical trends |
+| inventory | Indefinite | Keep all records |
+| inventory_sales | Indefinite | Keep all sales history |
+| watchlist | Indefinite | User-managed |
 | psa_population | Indefinite | Keep all snapshots |
 | social_signals | 6 months | Aggregate and delete raw data |
 
 ## Version
 
 **Last Updated:** 2025-02-11  
-**Diagram Version:** 1.0.0
+**Diagram Version:** 2.0.0  
+**Status:** ✅ Current

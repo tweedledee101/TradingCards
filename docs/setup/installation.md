@@ -50,7 +50,11 @@ GRANT ALL PRIVILEGES ON DATABASE trading_cards TO carduser;
 ## Step 4: Run Database Schema
 
 ```bash
+# Apply base schema
 psql -U carduser -d trading_cards -f backend/models/schema.sql
+
+# Apply inventory migration
+psql -U carduser -d trading_cards -f backend/models/migration_001.sql
 ```
 
 Verify tables were created:
@@ -58,11 +62,14 @@ Verify tables were created:
 psql -U carduser -d trading_cards -c "\dt"
 ```
 
-You should see:
+You should see 9 tables:
 - cards
 - sales
 - active_listings
 - price_trends
+- inventory
+- inventory_sales
+- watchlist
 - psa_population
 - social_signals
 
@@ -147,15 +154,43 @@ print(f"Found {len(results)} sales")
 print(results[0] if results else "No results")
 ```
 
-## Step 10: Run Development Server (Future)
+## Step 10: Run API Server
 
-Once API is built:
 ```bash
 cd backend
+python3 -m api.run
+# Or with uvicorn directly:
 uvicorn api.main:app --reload --port 8000
 ```
 
 Visit: http://localhost:8000/docs for API documentation
+
+## Step 11: Setup Frontend (Optional)
+
+### Prerequisites
+- Node.js 16+ and npm
+
+### Install and Run
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Visit: http://localhost:3000
+
+**Note:** If Node.js version is < 16, update first:
+```bash
+# Ubuntu/WSL
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# macOS
+brew install node@18
+
+# Verify
+node --version  # Should be 16+
+```
 
 ## Project Structure
 
@@ -304,10 +339,11 @@ git log --oneline
 ## Next Steps
 
 1. ✅ Complete this setup
-2. ⏳ Implement trend detection engine
-3. ⏳ Build REST API endpoints
-4. ⏳ Add more scrapers (PSA, social media)
-5. ⏳ Create frontend dashboard
+2. ✅ Run API server
+3. ✅ Test API endpoints
+4. ✅ Setup frontend (optional)
+5. ⏳ Add more scrapers (PSA, social media)
+6. ⏳ Deploy to production
 
 ## Resources
 
@@ -325,4 +361,4 @@ git log --oneline
 ---
 
 **Last Updated:** 2025-02-11  
-**Version:** 1.0.0
+**Version:** 2.0.0

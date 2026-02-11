@@ -19,8 +19,10 @@ See [Architecture Documentation](./docs/architecture/) for detailed system desig
 
 1. **Backend Data Pipeline** - Scrapers and aggregators for multiple data sources
 2. **Trend Detection Engine** - Algorithms to compute hotness scores
-3. **REST API** - Expose trending cards and analytics
-4. **Frontend Dashboard** - Visualization (future phase)
+3. **REST API** - Advanced filtering, inventory tracking, watchlist management
+4. **Frontend Dashboard** - React app with portfolio analytics
+5. **Inventory System** - Track purchases, sales, and profits
+6. **Watchlist** - Monitor target cards with price alerts
 
 ## Data Sources
 
@@ -32,9 +34,43 @@ See [Architecture Documentation](./docs/architecture/) for detailed system desig
 | Card Ladder | Price benchmarks | Planned |
 | Twitter/Reddit | Social sentiment | Planned |
 
+## Features
+
+### 🔥 Trend Detection
+- **Hotness Score Algorithm** - Multi-factor scoring system
+- **Price Velocity** - Week-over-week price changes
+- **Momentum Tracking** - Sales volume trends
+- **Advanced Filtering** - Filter by price, sport, hotness threshold
+- **Flexible Sorting** - Sort by any metric
+
+### 💼 Portfolio Management
+- **Inventory Tracking** - Record all card purchases
+- **Profit/Loss Tracking** - Real-time P&L calculations
+- **ROI Analytics** - Portfolio-wide ROI metrics
+- **Sales Recording** - Track sales with automatic profit calculation
+- **Storage Management** - Know where each card is stored
+
+### 👀 Watchlist
+- **Price Monitoring** - Set target prices for cards
+- **Price Alerts** - Get notified when cards hit targets
+- **Trend Monitoring** - Track hotness scores for watchlist cards
+
+### 📊 Analytics
+- **Market Statistics** - Overall market overview
+- **Price History** - Historical price trends
+- **Volume Analysis** - Sales volume tracking
+- **Portfolio Stats** - Total invested, current value, profits
+
+### 🤖 Automation
+- **Daily Collection** - Automated data collection at 2 AM
+- **Target Lists** - Configure players to track
+- **Daily Reports** - CSV and text reports of trending cards
+
 ## Documentation
 
 - [Quick Start Guide](./QUICKSTART.md)
+- [New Features Quick Start](./docs/QUICKSTART-NEW-FEATURES.md) ⭐ NEW
+- [API Enhancements Guide](./docs/API-ENHANCEMENTS.md) ⭐ NEW
 - [API Documentation](./backend/api/README.md)
 - [Pipeline Documentation](./backend/PIPELINE.md)
 - [System Architecture](./docs/architecture/system-architecture.md)
@@ -45,6 +81,9 @@ See [Architecture Documentation](./docs/architecture/) for detailed system desig
 - [Architecture Decisions](./docs/architecture/decisions/)
 - [Project Status](./docs/PROJECT-STATUS.md)
 - [Pipeline Implementation](./docs/PIPELINE-IMPLEMENTATION.md)
+- [Deployment Architecture](./docs/DEPLOYMENT-ARCHITECTURE.md)
+- [User Authentication Roadmap](./docs/USER-AUTH-ROADMAP.md)
+- [Automation Guide](./docs/AUTOMATION.md)
 
 ## Quick Start
 
@@ -61,27 +100,37 @@ cp backend/.env.example backend/.env
 psql -U postgres -c "CREATE DATABASE trading_cards;"
 psql -U postgres -d trading_cards -f backend/models/schema.sql
 
-# 4. Test pipeline with mock data
+# 4. Apply latest migration (inventory system)
+./migrate.sh  # Linux/Mac
+migrate.bat   # Windows
+
+# 5. Test pipeline with mock data
 python3 backend/test_pipeline.py
 
-# 5. Run pipeline with real eBay data
+# 6. Run pipeline with real eBay data
 python3 -m backend.run_pipeline --query "Wembanyama rookie" --days 7
 
-# 6. Start API server
+# 7. Start API server
 python3 -m backend.api.run
 # Visit http://localhost:8000/docs for interactive API docs
 
-# 7. Test API
+# 8. Test API
 python3 backend/test_api.py
 
-# 8. Run automated collection (test mode)
+# 9. Run automated collection (test mode)
 python3 -m backend.run_scheduler --now
 
-# 9. Start scheduler (runs daily at 2 AM)
+# 10. Start scheduler (runs daily at 2 AM)
 python3 -m backend.run_scheduler
 
-# 10. Run tests
+# 11. Run tests
 ./run_tests.sh all
+
+# 12. Start frontend (requires Node.js 16+)
+cd frontend
+npm install
+npm run dev
+# Visit http://localhost:3000
 ```
 
 ## Testing
@@ -101,7 +150,7 @@ See [Testing Guide](./docs/TESTING.md) for detailed testing documentation.
 
 ## Project Status
 
-**Current Phase:** Automation - COMPLETE ✅
+**Current Phase:** Inventory & Portfolio Management - COMPLETE ✅
 
 - [x] Database schema design
 - [x] SQLAlchemy ORM models
@@ -114,8 +163,14 @@ See [Testing Guide](./docs/TESTING.md) for detailed testing documentation.
 - [x] Automated scheduler
 - [x] Target list configuration
 - [x] Daily report generation
+- [x] Advanced API filtering & sorting
+- [x] Inventory tracking system
+- [x] Portfolio analytics
+- [x] Watchlist management
+- [x] Frontend dashboard (React)
 - [ ] PSA population scraper
-- [ ] Frontend dashboard
+- [ ] Enhanced profit calculator
+- [ ] Production deployment
 
 ## Domain
 

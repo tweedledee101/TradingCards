@@ -25,6 +25,8 @@ class Card(Base):
     sales = relationship("Sale", back_populates="card")
     active_listings = relationship("ActiveListing", back_populates="card")
     price_trends = relationship("PriceTrend", back_populates="card")
+    inventory = relationship("Inventory", back_populates="card")
+    watchlist = relationship("Watchlist", back_populates="card")
 
 
 class Sale(Base):
@@ -53,6 +55,8 @@ class ActiveListing(Base):
     card_id = Column(Integer, ForeignKey('cards.id'))
     listing_price = Column(DECIMAL(10, 2), nullable=False)
     listing_type = Column(String(20))
+    listing_title = Column(Text)
+    listing_url = Column(Text)
     ebay_item_id = Column(String(50), unique=True)
     snapshot_date = Column(Date, nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
@@ -73,6 +77,7 @@ class PriceTrend(Base):
     price_change_7d = Column(DECIMAL(5, 2))
     price_change_30d = Column(DECIMAL(5, 2))
     velocity_score = Column(DECIMAL(5, 2))
+    momentum_score = Column(DECIMAL(5, 2))
     hotness_score = Column(DECIMAL(5, 2))
     created_at = Column(TIMESTAMP, server_default=func.now())
     
@@ -100,3 +105,57 @@ class SocialSignal(Base):
     sentiment_score = Column(DECIMAL(3, 2))
     signal_date = Column(Date, nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class Inventory(Base):
+    __tablename__ = 'inventory'
+    
+    id = Column(Integer, primary_key=True)
+    card_id = Column(Integer, ForeignKey('cards.id'))
+    purchase_date = Column(Date, nullable=False)
+    purchase_price = Column(DECIMAL(10, 2), nullable=False)
+    purchase_source = Column(String(100))
+    quantity = Column(Integer, default=1)
+    condition = Column(String(50))
+    graded = Column(Boolean, default=False)
+    grade_company = Column(String(20))
+    grade_value = Column(DECIMAL(3, 1))
+    storage_location = Column(String(100))
+    notes = Column(Text)
+    status = Column(String(20), default='owned')
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+    
+    card = relationship("Card", back_populates="inventory")
+    sales = relationship("InventorySale", back_populates="inventory_item")
+
+
+class InventorySale(Base):
+    __tablename__ = 'inventory_sales'
+    
+    id = Column(Integer, primary_key=True)
+    inventory_id = Column(Integer, ForeignKey('inventory.id'))
+    sale_date = Column(Date, nullable=False)
+    sale_price = Column(DECIMAL(10, 2), nullable=False)
+    sale_platform = Column(String(100))
+    fees = Column(DECIMAL(10, 2), default=0)
+    shipping_cost = Column(DECIMAL(10, 2), default=0)
+    net_profit = Column(DECIMAL(10, 2))
+    roi_percentage = Column(DECIMAL(5, 2))
+    notes = Column(Text)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    
+    inventory_item = relationship("Inventory", back_populates="sales")
+
+
+class Watchlist(Base):
+    __tablename__ = 'watchlist'
+    
+    id = Column(Integer, primary_key=True)
+    card_id = Column(Integer, ForeignKey('cards.id'))
+    target_price = Column(DECIMAL(10, 2))
+    alert_threshold = Column(DECIMAL(5, 2))
+    notes = Column(Text)
+    added_at = Column(TIMESTAMP, server_default=func.now())
+    
+    card = relationship("Card", back_populates="watchlist")
