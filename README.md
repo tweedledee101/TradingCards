@@ -26,22 +26,30 @@ See [Architecture Documentation](./docs/architecture/) for detailed system desig
 
 ## Data Sources
 
-| Source | Purpose | Status |
-|--------|---------|--------|
-| eBay Browse API | Sold listings, price data | ✅ Complete |
-| eBay Active Listings | Current market supply | ✅ Complete |
-| PSA Population | Grading volume trends | Planned |
-| Card Ladder | Price benchmarks | Planned |
-| Twitter/Reddit | Social sentiment | Planned |
+| Source | Purpose | Status | Priority |
+|--------|---------|--------|----------|
+| eBay Browse API | Sold listings, price data | ✅ Complete | - |
+| eBay Active Listings | Current market supply | ✅ Complete | - |
+| Terapeak | Sell-through rates | ⏳ Planned | High |
+| Card Ladder | Price velocity, benchmarks | ⏳ Planned | High |
+| PSA Population | Grading spikes | ⏳ Planned | Critical |
+| Twitter/Reddit | Social sentiment | ⏳ Planned | Medium |
+| Release Calendars | Topps/Panini releases | ⏳ Planned | Low |
+
+**Data Coverage:** 2/7 sources (29%) - See [Gap Analysis](./docs/TRADING-WORKFLOW-GAP-ANALYSIS.md)
 
 ## Features
 
 ### 🔥 Trend Detection
-- **Hotness Score Algorithm** - Multi-factor scoring system
-- **Price Velocity** - Week-over-week price changes
-- **Momentum Tracking** - Sales volume trends
-- **Advanced Filtering** - Filter by price, sport, hotness threshold
-- **Flexible Sorting** - Sort by any metric
+- **Hotness Score Algorithm** - Multi-factor scoring system (15-90 range)
+- **Price Velocity** - Week-over-week price changes with historical trends
+- **Momentum Tracking** - Sales volume trends over 14 days
+- **Advanced Filtering** - Filter by price, sport, hotness threshold, budget
+- **Flexible Sorting** - Sort by hotness, velocity, price, volume, or profit margin
+- **Budget Filter** - Only see cards within your budget
+- **Profit Margin Display** - See potential profit % at a glance
+- **Pagination** - Browse 100 cards (25 per page)
+- **Column Tooltips** - Hover explanations for all metrics
 
 ### 💼 Portfolio Management
 - **Inventory Tracking** - Record all card purchases
@@ -57,33 +65,48 @@ See [Architecture Documentation](./docs/architecture/) for detailed system desig
 
 ### 📊 Analytics
 - **Market Statistics** - Overall market overview
-- **Price History** - Historical price trends
+- **Price History** - Historical price trends (14-day data)
 - **Volume Analysis** - Sales volume tracking
 - **Portfolio Stats** - Total invested, current value, profits
+- **Card Detail Pages** - Full metadata with placeholder images
+- **Buy Zone Calculator** - Velocity-adjusted buy recommendations
+- **Row Color Coding** - Green (buy), yellow (watch), white (skip)
 
 ### 🤖 Automation
 - **Daily Collection** - Automated data collection at 2 AM
-- **Target Lists** - Configure players to track
+- **Target Lists** - Configure players to track (25 pre-configured)
 - **Daily Reports** - CSV and text reports of trending cards
+- **Sample Data Generator** - 25 realistic cards for testing
 
 ## Documentation
 
+### Getting Started
 - [Quick Start Guide](./QUICKSTART.md)
-- [New Features Quick Start](./docs/QUICKSTART-NEW-FEATURES.md) ⭐ NEW
-- [API Enhancements Guide](./docs/API-ENHANCEMENTS.md) ⭐ NEW
-- [API Documentation](./backend/api/README.md)
-- [Pipeline Documentation](./backend/PIPELINE.md)
+- [Setup Guide](./docs/setup/installation.md)
+- [Testing Guide](./docs/TESTING.md)
+
+### Architecture & Design
 - [System Architecture](./docs/architecture/system-architecture.md)
 - [Database Schema & ERD](./docs/architecture/database-design.md)
 - [Data Flow Diagrams](./docs/architecture/diagrams/)
-- [Testing Guide](./docs/TESTING.md)
-- [Setup Guide](./docs/setup/installation.md)
 - [Architecture Decisions](./docs/architecture/decisions/)
-- [Project Status](./docs/PROJECT-STATUS.md)
+
+### Features & API
+- [API Documentation](./backend/api/README.md)
+- [API Enhancements Guide](./docs/API-ENHANCEMENTS.md)
+- [New Features Quick Start](./docs/QUICKSTART-NEW-FEATURES.md)
+- [Pipeline Documentation](./backend/PIPELINE.md)
+- [Automation Guide](./docs/AUTOMATION.md)
+
+### Project Planning
+- [Project Status](./docs/PROJECT-STATUS.md) - Current phase & metrics
+- [Gap Analysis](./docs/TRADING-WORKFLOW-GAP-ANALYSIS.md) ⭐ - What's missing & roadmap
+- [UI Enhancements](./docs/UI-ENHANCEMENTS-BUDGET-MARGIN.md) ⭐ NEW - Budget filter & profit margin
+- [Quick Reference](./docs/QUICK-REFERENCE-BUDGET-MARGIN.md) ⭐ NEW - Feature guide
+- [Visual Guide](./docs/VISUAL-GUIDE-BEFORE-AFTER.md) ⭐ NEW - Before/after comparison
 - [Pipeline Implementation](./docs/PIPELINE-IMPLEMENTATION.md)
 - [Deployment Architecture](./docs/DEPLOYMENT-ARCHITECTURE.md)
 - [User Authentication Roadmap](./docs/USER-AUTH-ROADMAP.md)
-- [Automation Guide](./docs/AUTOMATION.md)
 
 ## Quick Start
 
@@ -104,14 +127,17 @@ psql -U postgres -d trading_cards -f backend/models/schema.sql
 ./migrate.sh  # Linux/Mac
 migrate.bat   # Windows
 
-# 5. Test pipeline with mock data
+# 5. Generate sample data (25 realistic cards)
+/usr/bin/python3 -m backend.generate_sample_data
+
+# 6. Test pipeline with mock data
 python3 backend/test_pipeline.py
 
 # 6. Run pipeline with real eBay data
 python3 -m backend.run_pipeline --query "Wembanyama rookie" --days 7
 
 # 7. Start API server
-python3 -m backend.api.run
+/usr/bin/python3 -m backend.api.run
 # Visit http://localhost:8000/docs for interactive API docs
 
 # 8. Test API
@@ -150,27 +176,65 @@ See [Testing Guide](./docs/TESTING.md) for detailed testing documentation.
 
 ## Project Status
 
-**Current Phase:** Inventory & Portfolio Management - COMPLETE ✅
+**Current Phase:** Phase 1 Complete + UI Enhancements ✅  
+**Next Phase:** CSV Export, Budget Presets, PSA Scraper (NovaAct)
 
-- [x] Database schema design
+### ✅ Phase 1: Foundation (COMPLETE)
+- [x] Database schema design (9 tables)
 - [x] SQLAlchemy ORM models
-- [x] Project structure
 - [x] eBay scraper implementation
-- [x] Trend detection algorithms
+- [x] Trend detection algorithms (velocity, momentum, hotness)
 - [x] Data pipeline orchestration
-- [x] Comprehensive test suite
-- [x] REST API endpoints
-- [x] Automated scheduler
-- [x] Target list configuration
+- [x] REST API endpoints (18 total)
+- [x] Automated scheduler (daily at 2 AM)
+- [x] Target list configuration (25 players)
 - [x] Daily report generation
 - [x] Advanced API filtering & sorting
 - [x] Inventory tracking system
 - [x] Portfolio analytics
 - [x] Watchlist management
 - [x] Frontend dashboard (React)
-- [ ] PSA population scraper
-- [ ] Enhanced profit calculator
+- [x] Comprehensive test suite
+- [x] Complete documentation
+- [x] Budget filter & profit margin display
+- [x] Pagination (100 cards)
+- [x] Column tooltips
+- [x] Sample data generator (25 realistic cards)
+- [x] Card detail pages with metadata
+- [x] Varied hotness scores (15-90 range)
+- [x] Historical price trends (14-day data)
+
+### 🎯 Phase 1.5: Quick Wins (IN PROGRESS)
+- [ ] CSV export with share functionality
+- [ ] Budget presets ($25, $50, $100, $250, $500, $1000)
+- [ ] Advanced filters (sport, year range, hotness range)
+- [ ] Keyboard shortcuts
+- [ ] Portfolio dashboard enhancements
+
+### ⏳ Phase 2: Multi-Source Intelligence (PLANNED - NovaAct Integration)
+- [ ] PSA population scraper (grading spikes) - NovaAct agent
+- [ ] Card Ladder scraper (price benchmarks) - NovaAct agent
+- [ ] 130point scraper (market data) - NovaAct agent
+- [ ] Webhook endpoints for NovaAct data
+- [ ] Intelligence aggregation engine
+- [ ] Enhanced opportunity scoring algorithm (multi-factor)
+
+### ⏳ Phase 3: Decision Engines (PLANNED)
+- [ ] Buy decision engine (optimal entry prices)
+- [ ] Sell strategy engine (grade vs. raw ROI)
+- [ ] Morning intelligence report generator
+- [ ] Price alert system
+- [ ] Auto-watchlist population
+- [ ] ROI projections
+
+### ⏳ Phase 4: Production & Scale (PLANNED)
+- [ ] Enhanced profit calculator (shipping, grading fees)
 - [ ] Production deployment
+- [ ] User authentication
+- [ ] Email alerts
+- [ ] Mobile optimization
+
+**See [Gap Analysis](./docs/TRADING-WORKFLOW-GAP-ANALYSIS.md) for detailed roadmap.**
 
 ## Domain
 

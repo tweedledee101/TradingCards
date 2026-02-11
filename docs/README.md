@@ -9,6 +9,7 @@ Complete documentation for the Trading Card Platform. All documents are current 
 |----------|---------|--------|
 | [README.md](../README.md) | Project overview and quick start | ✅ Current |
 | [PROJECT-STATUS.md](./PROJECT-STATUS.md) | Current project status | ✅ Current |
+| [TRADING-WORKFLOW-GAP-ANALYSIS.md](./TRADING-WORKFLOW-GAP-ANALYSIS.md) | Gap analysis & roadmap | ✅ Current ⭐ NEW |
 | [QUICKSTART-NEW-FEATURES.md](./QUICKSTART-NEW-FEATURES.md) | New features guide | ✅ Current |
 | [API-ENHANCEMENTS.md](./API-ENHANCEMENTS.md) | API documentation | ✅ Current |
 
@@ -69,7 +70,11 @@ Complete documentation for the Trading Card Platform. All documents are current 
 
 | Document | Description | Status |
 |----------|-------------|--------|
+| [TRADING-WORKFLOW-GAP-ANALYSIS.md](./TRADING-WORKFLOW-GAP-ANALYSIS.md) | Complete gap analysis & roadmap | ✅ Current ⭐ NEW |
+| [TODO-E2E-TESTING.md](./TODO-E2E-TESTING.md) | End-to-end testing strategy | 📋 TODO ⭐ NEW |
 | [USER-AUTH-ROADMAP.md](./USER-AUTH-ROADMAP.md) | User authentication plan | ✅ Current |
+| [backend/scrapers/README.md](../backend/scrapers/README.md) | Future scrapers (Phase 2) | ✅ Current ⭐ NEW |
+| [backend/services/README.md](../backend/services/README.md) | Future services (Phase 3) | ✅ Current ⭐ NEW |
 
 ## 📊 Current System State
 
@@ -83,18 +88,21 @@ Complete documentation for the Trading Card Platform. All documents are current 
 - **Watchlist**: Price monitoring with alerts
 
 ### Planned Features ⏳
-- PSA population scraper
-- Card Ladder integration
-- Social media scrapers
-- Enhanced profit calculator
-- Production deployment
+- **Phase 2**: Multi-source intelligence (PSA, Card Ladder, Terapeak, Twitter, Reddit)
+- **Phase 3**: Decision engines (buy/sell recommendations, morning reports)
+- **Phase 4**: Production deployment, user auth, email alerts
+
+**See [Gap Analysis](./TRADING-WORKFLOW-GAP-ANALYSIS.md) for complete roadmap.**
 
 ## 🔄 Documentation Updates Needed
 
 ### High Priority
-1. **data-flow.md** - Add inventory and watchlist flows
-2. **QUICKSTART.md** - Add inventory and watchlist setup
-3. **installation.md** - Add migration steps
+1. ✅ **TRADING-WORKFLOW-GAP-ANALYSIS.md** - Complete gap analysis (DONE)
+2. ✅ **backend/scrapers/README.md** - Future scrapers documentation (DONE)
+3. ✅ **backend/services/README.md** - Future services documentation (DONE)
+4. **data-flow.md** - Add inventory and watchlist flows
+5. **QUICKSTART.md** - Add inventory and watchlist setup
+6. **installation.md** - Add migration steps
 
 ### Medium Priority
 4. **API-IMPLEMENTATION.md** - Update with new endpoints
@@ -110,29 +118,36 @@ Complete documentation for the Trading Card Platform. All documents are current 
 ```
 docs/
 ├── README.md (this file)
-├── PROJECT-STATUS.md              ✅ Current
-├── QUICKSTART-NEW-FEATURES.md     ✅ Current
-├── API-ENHANCEMENTS.md            ✅ Current
-├── API-IMPLEMENTATION.md          ⚠️ Needs Update
-├── AUTOMATION.md                  ✅ Current
-├── AUTOMATION-IMPLEMENTATION.md   ✅ Current
-├── DEPLOYMENT-ARCHITECTURE.md     ✅ Current
-├── DEPLOYMENT-DIAGRAMS.md         ✅ Current
-├── PIPELINE-IMPLEMENTATION.md     ⚠️ Needs Update
-├── TESTING.md                     ✅ Current
-├── TESTING-SUMMARY.md             ✅ Current
-├── USER-AUTH-ROADMAP.md           ✅ Current
+├── PROJECT-STATUS.md                    ✅ Current
+├── TRADING-WORKFLOW-GAP-ANALYSIS.md     ✅ Current ⭐ NEW
+├── QUICKSTART-NEW-FEATURES.md           ✅ Current
+├── API-ENHANCEMENTS.md                  ✅ Current
+├── API-IMPLEMENTATION.md                ⚠️ Needs Update
+├── AUTOMATION.md                        ✅ Current
+├── AUTOMATION-IMPLEMENTATION.md         ✅ Current
+├── DEPLOYMENT-ARCHITECTURE.md           ✅ Current
+├── DEPLOYMENT-DIAGRAMS.md               ✅ Current
+├── PIPELINE-IMPLEMENTATION.md           ⚠️ Needs Update
+├── TESTING.md                           ✅ Current
+├── TESTING-SUMMARY.md                   ✅ Current
+├── USER-AUTH-ROADMAP.md                 ✅ Current
 ├── architecture/
-│   ├── system-architecture.md     ✅ Current
-│   ├── database-design.md         ✅ Current
+│   ├── system-architecture.md           ✅ Current
+│   ├── database-design.md               ✅ Current
 │   ├── decisions/
 │   │   ├── ADR-001-postgresql-database.md      ✅ Current
 │   │   ├── ADR-002-ebay-primary-source.md      ✅ Current
 │   │   └── ADR-003-testing-strategy.md         ✅ Current
 │   └── diagrams/
-│       └── data-flow.md           ⚠️ Needs Update
+│       └── data-flow.md                 ⚠️ Needs Update
 └── setup/
-    └── installation.md            ⚠️ Needs Update
+    └── installation.md                  ⚠️ Needs Update
+
+backend/
+├── scrapers/
+│   └── README.md                        ✅ Current ⭐ NEW (Phase 2 plans)
+└── services/
+    └── README.md                        ✅ Current ⭐ NEW (Phase 3 plans)
 ```
 
 ## 🎯 Documentation Standards
@@ -160,4 +175,5 @@ docs/
 
 **Date**: 2025-02-11  
 **Version**: 2.0.0  
-**Phase**: Inventory & Portfolio Management - Complete
+**Phase**: Phase 1 Complete - eBay-Only System ✅  
+**Next Phase**: Phase 2 - Multi-Source Intelligence ⏳

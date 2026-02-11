@@ -67,7 +67,7 @@ def get_card_details(card_id: int, days: int = Query(default=30, description="Da
                 {
                     "date": trend.trend_date.isoformat(),
                     "avg_price": float(trend.avg_price),
-                    "median_price": float(trend.median_price),
+                    "median_price": float(trend.median_price) if trend.median_price else None,
                     "sales_count": trend.sales_count,
                     "velocity_score": float(trend.velocity_score),
                     "hotness_score": float(trend.hotness_score)
@@ -76,10 +76,10 @@ def get_card_details(card_id: int, days: int = Query(default=30, description="Da
             ],
             "current_trend": {
                 "avg_price": float(latest_trend.avg_price) if latest_trend else None,
-                "median_price": float(latest_trend.median_price) if latest_trend else None,
+                "median_price": float(latest_trend.median_price) if latest_trend and latest_trend.median_price else None,
                 "sales_count": latest_trend.sales_count if latest_trend else 0,
                 "velocity_score": float(latest_trend.velocity_score) if latest_trend else None,
-                "momentum_score": float(latest_trend.momentum_score) if latest_trend else None,
+                "momentum_score": float(latest_trend.momentum_score) if latest_trend and latest_trend.momentum_score else None,
                 "hotness_score": float(latest_trend.hotness_score) if latest_trend else None,
                 "trend_date": latest_trend.trend_date.isoformat() if latest_trend else None
             },

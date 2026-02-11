@@ -7,13 +7,17 @@ Comprehensive testing strategy for the Trading Card Platform.
 ```
 tests/
 ├── unit/                    # Unit tests (fast, no external dependencies)
-│   └── test_ebay_scraper.py
+│   ├── test_ebay_scraper.py         ✅ Complete
+│   └── test_trend_calculator.py     ✅ Complete
 ├── integration/             # Integration tests (database, API)
-│   └── test_database.py
+│   └── test_database.py             ✅ Complete
 ├── fixtures/                # Test data and mocks
-│   └── sample_data.py
+│   └── sample_data.py               ✅ Complete
+├── test_ui_enhancements.py          ✅ Complete (NEW)
 └── __init__.py
 ```
+
+**See [Test Coverage Report](./TEST-COVERAGE-REPORT.md) for detailed coverage analysis.**
 
 ## Test Types
 
@@ -24,10 +28,13 @@ tests/
 - **Run:** `pytest tests/unit/ -m unit`
 
 **What we test:**
-- Title parsing logic
-- Data extraction from API responses
-- Edge cases and error handling
-- Data type conversions
+- ✅ Title parsing logic (eBay scraper)
+- ✅ Data extraction from API responses
+- ✅ Trend calculations (velocity, momentum, hotness)
+- ✅ Buy zone calculations (UI logic)
+- ✅ Focus mode filtering
+- ✅ Edge cases and error handling
+- ✅ Data type conversions
 
 ### Integration Tests
 - **Purpose:** Test database operations and data flow
@@ -107,11 +114,15 @@ psql -U carduser -d trading_cards_test -f backend/models/schema.sql
 
 | Component | Target Coverage | Current |
 |-----------|----------------|---------|
-| Scrapers | 90%+ | TBD |
-| Database Utils | 85%+ | TBD |
-| API Endpoints | 90%+ | TBD |
-| Trend Calculations | 95%+ | TBD |
-| Overall | 85%+ | TBD |
+| Scrapers | 90%+ | 90% ✅ |
+| Trend Calculator | 95%+ | 95% ✅ |
+| UI Logic | 85%+ | 85% ✅ |
+| Database Utils | 85%+ | 70% ⚠️ |
+| API Endpoints | 90%+ | 0% ❌ |
+| Services | 85%+ | 0% ❌ |
+| Overall | 85%+ | ~65% ⚠️ |
+
+**See [Test Coverage Report](./TEST-COVERAGE-REPORT.md) for gap analysis and implementation plan.**
 
 View coverage report:
 ```bash
@@ -286,12 +297,24 @@ Track these metrics:
 
 ## Next Steps
 
-- [ ] Add tests for trend detection algorithms
-- [ ] Add tests for PSA scraper
-- [ ] Add API endpoint tests
+### Immediate (This Week)
+- [ ] Add API endpoint tests (trending, cards, inventory, watchlist)
+- [ ] Add data pipeline service tests
+- [ ] Achieve 75% overall coverage
+
+### Short Term (Next 2 Weeks)
+- [ ] Add report generator tests
+- [ ] Add automated collector tests
+- [ ] Add frontend component tests
+- [ ] Achieve 85% overall coverage
+
+### Long Term
 - [ ] Set up CI/CD pipeline
 - [ ] Add performance tests
 - [ ] Add end-to-end tests
+- [ ] Maintain 85%+ coverage
+
+**See [Test Coverage Report](./TEST-COVERAGE-REPORT.md) for detailed implementation plan.**
 
 ## Resources
 

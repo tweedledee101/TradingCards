@@ -90,9 +90,11 @@
 
 **Components:**
 - **eBay Scraper** ✅ - Sold listings and active listings via Browse API
-- **PSA Scraper** ⏳ - Population reports via web scraping
-- **Card Ladder Scraper** ⏳ - Price benchmarks
-- **Social Scraper** ⏳ - Twitter/Reddit mentions
+- **PSA Scraper** ⏳ - Population reports via web scraping (Phase 2)
+- **Card Ladder Scraper** ⏳ - Price benchmarks (Phase 2)
+- **Terapeak Scraper** ⏳ - Sell-through rates (Phase 2)
+- **Social Scraper** ⏳ - Twitter/Reddit mentions (Phase 2)
+- **Release Calendar Scraper** ⏳ - Topps/Panini releases (Phase 2)
 
 **Schedule:**
 - eBay: Daily at 2 AM EST (via APScheduler)
@@ -114,7 +116,7 @@
 
 **Technology:** PostgreSQL 14+
 
-**Tables (9 total):**
+**Tables (9 total, 5 more planned):**
 - `cards` ✅ - Master card catalog
 - `sales` ✅ - Historical transactions
 - `active_listings` ✅ - Current market supply (with title/URL)
@@ -122,8 +124,13 @@
 - `inventory` ✅ - User card ownership
 - `inventory_sales` ✅ - Sales from inventory
 - `watchlist` ✅ - Price monitoring
-- `psa_population` ⏳ - Grading data (planned)
-- `social_signals` ⏳ - Social media data (planned)
+- `psa_population` ⏳ - Grading data (table exists, scraper needed - Phase 2)
+- `social_signals` ⏳ - Social media data (table exists, scrapers needed - Phase 2)
+- `sell_through_rates` ⏳ - Terapeak data (Phase 2)
+- `price_benchmarks` ⏳ - Card Ladder data (Phase 2)
+- `release_calendar` ⏳ - Product releases (Phase 2)
+- `buy_recommendations` ⏳ - Optimal entry prices (Phase 3)
+- `sell_strategies` ⏳ - Exit recommendations (Phase 3)
 
 See [Database Design](./database-design.md) for detailed schema.
 
@@ -143,19 +150,38 @@ velocity = sales_count / active_listings_count
 momentum = (current_avg_price - price_7d_ago) / price_7d_ago * 100
 ```
 
-**Hotness Score:**
+**Hotness Score (Current - Phase 1):**
 ```python
+# eBay-only scoring (~60% accuracy)
 hotness = (
-    velocity * 0.4 +
-    momentum * 0.3 +
-    psa_growth_rate * 0.2 +
-    social_sentiment * 0.1
+    velocity * 0.4 +      # eBay sales/listings
+    momentum * 0.35 +     # eBay price change
+    social * 0.25         # Placeholder (0)
+)
+```
+
+**Opportunity Score (Target - Phase 2):**
+```python
+# Multi-source scoring (~85-90% accuracy)
+opportunity = (
+    hotness * 0.25 +           # eBay trends
+    sell_through * 0.20 +      # Terapeak
+    price_velocity * 0.15 +    # Card Ladder
+    grading_spike * 0.15 +     # PSA
+    social_momentum * 0.15 +   # Twitter/Reddit
+    release_timing * 0.10      # Calendar
 )
 ```
 
 **Execution:** Daily batch job at 3 AM EST (after scraping)
 
-**Status:** ✅ Complete
+**Status:** ✅ Complete (Phase 1 - eBay only)
+
+**Planned Enhancements (Phase 2-3):**
+- Multi-source opportunity scoring
+- Buy decision engine
+- Sell strategy engine
+- Morning intelligence report
 
 ### 4. REST API Layer
 
@@ -375,13 +401,44 @@ Watchlist:
 
 ## Next Steps
 
-1. ✅ Database schema
-2. ✅ eBay scraper implementation
-3. ✅ Trend detection algorithms
-4. ✅ REST API endpoints
-5. ✅ Inventory tracking
-6. ✅ Watchlist management
-7. ✅ Frontend dashboard
-8. ✅ Automation system
-9. ⏳ PSA population scraper
-10. ⏳ Production deployment
+### Phase 1: Foundation ✅ COMPLETE
+- ✅ All 18 endpoints operational
+- ✅ Frontend dashboard deployed
+- ✅ eBay data collection automated
+- ✅ Documentation complete
+
+### Phase 2: Multi-Source Intelligence ⏳ PLANNED
+1. **PSA Population Scraper** (Week 1-2)
+   - Web scraping implementation
+   - Grading spike detection
+   - PSA 10 rate calculations
+
+2. **Card Ladder & Terapeak** (Week 3-4)
+   - Price benchmark scraper
+   - Sell-through rate integration
+   - Velocity calculations
+
+3. **Social Signals** (Week 5-6)
+   - Twitter/Reddit API integration
+   - Sentiment analysis
+   - Social momentum scoring
+
+### Phase 3: Decision Engines ⏳ PLANNED
+4. **Intelligence Engine** (Week 7-8)
+   - Multi-source aggregation
+   - Opportunity scoring (7-factor)
+   - Anomaly detection
+
+5. **Buy/Sell Engines** (Week 9-10)
+   - Buy decision engine (optimal prices)
+   - Sell strategy engine (grade vs. raw)
+   - Morning intelligence report
+
+### Phase 4: Production ⏳ PLANNED
+6. **Deployment** (Week 11-13)
+   - Production hosting
+   - User authentication
+   - Email alerts
+   - Mobile optimization
+
+**See [Gap Analysis](../TRADING-WORKFLOW-GAP-ANALYSIS.md) for detailed implementation plan.**

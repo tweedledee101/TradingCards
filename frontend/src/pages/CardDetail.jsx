@@ -27,7 +27,8 @@ const CardDetail = () => {
   if (loading) return <div className="flex justify-center items-center h-screen">Loading...</div>;
   if (!card) return <div className="flex justify-center items-center h-screen">Card not found</div>;
 
-  const buyPrice = (card.trend.avg_price * 0.93).toFixed(2);
+  const buyPrice = (card.current_trend.avg_price * 0.93).toFixed(2);
+  const cardImageUrl = `https://via.placeholder.com/300x420/1e40af/ffffff?text=${encodeURIComponent(card.player_name + '\n' + card.card_year + ' ' + card.card_set)}`;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -37,21 +38,37 @@ const CardDetail = () => {
         </Link>
 
         <div className="bg-white p-6 rounded-lg shadow mb-6">
-          <h1 className="text-3xl font-bold mb-2">
-            {card.player_name} - {card.card_year} {card.card_set}
-          </h1>
-          {card.is_rookie && <span className="text-green-600 font-semibold">🏆 ROOKIE CARD</span>}
-          <p className="text-gray-600">{card.sport}</p>
+          <div className="flex gap-6">
+            <div className="flex-shrink-0">
+              <img 
+                src={cardImageUrl} 
+                alt={`${card.player_name} ${card.card_year} ${card.card_set}`}
+                className="w-64 h-auto rounded-lg shadow-lg"
+              />
+            </div>
+            <div className="flex-1">
+              <h1 className="text-3xl font-bold mb-2">
+                {card.player_name}
+              </h1>
+              <div className="space-y-2 text-lg">
+                <div><span className="font-semibold">Year:</span> {card.card_year}</div>
+                <div><span className="font-semibold">Set:</span> {card.card_set}</div>
+                {card.card_number && <div><span className="font-semibold">Card #:</span> {card.card_number}</div>}
+                <div><span className="font-semibold">Sport:</span> {card.sport}</div>
+                {card.is_rookie && <div className="inline-block bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm font-semibold">Rookie Card</div>}
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
           <div className="bg-white p-6 rounded-lg shadow">
             <div className="text-sm text-gray-600">Average Price</div>
-            <div className="text-3xl font-bold">${card.trend.avg_price.toFixed(2)}</div>
+            <div className="text-3xl font-bold">${card.current_trend.avg_price?.toFixed(2) || 'N/A'}</div>
           </div>
           <div className="bg-white p-6 rounded-lg shadow">
             <div className="text-sm text-gray-600">Hotness Score</div>
-            <div className="text-3xl font-bold text-orange-600">{card.trend.hotness_score.toFixed(1)}</div>
+            <div className="text-3xl font-bold text-orange-600">{card.current_trend.hotness_score?.toFixed(1) || 'N/A'}</div>
           </div>
           <div className="bg-white p-6 rounded-lg shadow">
             <div className="text-sm text-gray-600">🎯 Buy Under</div>
@@ -61,7 +78,7 @@ const CardDetail = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           <PriceChart sales={card.recent_sales} />
-          <ProfitCalculator avgPrice={card.trend.avg_price} />
+          <ProfitCalculator avgPrice={card.current_trend.avg_price || 0} />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

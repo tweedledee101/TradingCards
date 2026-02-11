@@ -73,22 +73,23 @@ def get_inventory(
     """Get user's inventory"""
     db = SessionLocal()
     try:
-        query = db.query(Inventory, Card, PriceTrend).join(Card).outerjoin(
-            PriceTrend, 
-            PriceTrend.card_id == Card.id
-        ).filter(Inventory.status == status)
-        
-        # Get latest trend for each card
-        subquery = db.query(
+        # Get latest trend date for each card
+        latest_trends = db.query(
             PriceTrend.card_id,
             func.max(PriceTrend.trend_date).label('max_date')
         ).group_by(PriceTrend.card_id).subquery()
         
-        query = query.filter(
-            (PriceTrend.trend_date == subquery.c.max_date) | (PriceTrend.id == None)
-        )
-        
-        results = query.order_by(desc(Inventory.purchase_date)).limit(limit).all()
+        # Query inventory with cards and latest trends
+        results = db.query(Inventory, Card, PriceTrend).select_from(Inventory).join(
+            Card, Inventory.card_id == Card.id
+        ).outerjoin(
+            latest_trends, Card.id == latest_trends.c.card_id
+        ).outerjoin(
+            PriceTrend,
+            (PriceTrend.card_id == Card.id) & (PriceTrend.trend_date == latest_trends.c.max_date)
+        ).filter(
+            Inventory.status == status
+        ).order_by(desc(Inventory.purchase_date)).limit(limit).all()
         
         inventory = []
         for inv, card, trend in results:
@@ -184,11 +185,19 @@ def get_inventory_stats():
         # Realized profits from sales
         realized_profit = db.query(func.sum(InventorySale.net_profit)).scalar() or 0
         
-        # Get current values for unrealized profit
-        owned_items = db.query(Inventory, PriceTrend).join(
+        # Get latest trends for current values
+        latest_trends = db.query(
+            PriceTrend.card_id,
+            func.max(PriceTrend.trend_date).label('max_date')
+        ).group_by(PriceTrend.card_id).subquery()
+        
+        owned_items = db.query(Inventory, PriceTrend).select_from(Inventory).join(
             Card, Inventory.card_id == Card.id
         ).outerjoin(
-            PriceTrend, PriceTrend.card_id == Card.id
+            latest_trends, Card.id == latest_trends.c.card_id
+        ).outerjoin(
+            PriceTrend,
+            (PriceTrend.card_id == Card.id) & (PriceTrend.trend_date == latest_trends.c.max_date)
         ).filter(Inventory.status == 'owned').all()
         
         current_value = 0

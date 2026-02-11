@@ -52,9 +52,10 @@ def get_watchlist():
     db = SessionLocal()
     try:
         # Get watchlist items with latest trends
-        items = db.query(Watchlist, Card, PriceTrend).join(Card).outerjoin(
-            PriceTrend,
-            PriceTrend.card_id == Card.id
+        items = db.query(Watchlist, Card, PriceTrend).select_from(Watchlist).join(
+            Card, Watchlist.card_id == Card.id
+        ).outerjoin(
+            PriceTrend, PriceTrend.card_id == Card.id
         ).filter(
             PriceTrend.trend_date >= date.today() - timedelta(days=7)
         ).order_by(desc(Watchlist.added_at)).all()
@@ -117,9 +118,10 @@ def get_watchlist_alerts():
     """Get cards that have hit target prices"""
     db = SessionLocal()
     try:
-        items = db.query(Watchlist, Card, PriceTrend).join(Card).join(
-            PriceTrend,
-            PriceTrend.card_id == Card.id
+        items = db.query(Watchlist, Card, PriceTrend).select_from(Watchlist).join(
+            Card, Watchlist.card_id == Card.id
+        ).join(
+            PriceTrend, PriceTrend.card_id == Card.id
         ).filter(
             PriceTrend.trend_date >= date.today() - timedelta(days=7)
         ).all()

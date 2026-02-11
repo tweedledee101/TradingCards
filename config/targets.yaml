@@ -2,60 +2,55 @@
 # Add players you want to monitor for trending cards
 
 players:
-  # 2024 NBA Rookies
+  # High-Value Players (Any Year)
   - name: "Victor Wembanyama"
     sport: "Basketball"
-    rookie_year: 2023
     queries:
-      - "{name} 2023 prizm rookie"
-      - "{name} 2023 select rookie"
-      - "{name} 2023 optic rookie"
-      - "{name} prizm PSA 10"
+      - "{name} prizm"
+      - "{name} select"
+      - "{name} optic"
+      - "{name} PSA 10"
   
-  - name: "Scoot Henderson"
+  - name: "Michael Jordan"
     sport: "Basketball"
-    rookie_year: 2023
     queries:
-      - "{name} 2023 prizm rookie"
-      - "{name} 2023 select rookie"
+      - "{name} prizm"
+      - "{name} fleer"
+      - "{name} upper deck"
+      - "{name} PSA 10"
   
-  - name: "Brandon Miller"
+  - name: "LeBron James"
     sport: "Basketball"
-    rookie_year: 2023
     queries:
-      - "{name} 2023 prizm rookie"
-      - "{name} 2023 select rookie"
+      - "{name} prizm"
+      - "{name} topps chrome"
+      - "{name} PSA 10"
   
-  # 2024 MLB Rookies
+  - name: "Shohei Ohtani"
+    sport: "Baseball"
+    queries:
+      - "{name} bowman chrome"
+      - "{name} topps chrome"
+      - "{name} prizm"
+  
   - name: "Paul Skenes"
     sport: "Baseball"
-    rookie_year: 2024
     queries:
       - "{name} bowman chrome"
-      - "{name} topps chrome rookie"
+      - "{name} topps chrome"
   
-  - name: "Jackson Holliday"
-    sport: "Baseball"
-    rookie_year: 2024
+  - name: "Patrick Mahomes"
+    sport: "Football"
     queries:
-      - "{name} bowman chrome"
-      - "{name} topps chrome rookie"
-      - "{name} bowman 1st"
+      - "{name} prizm"
+      - "{name} optic"
+      - "{name} select"
   
-  # 2024 NFL Rookies
   - name: "Caleb Williams"
     sport: "Football"
-    rookie_year: 2024
     queries:
-      - "{name} prizm rookie"
-      - "{name} optic rookie"
-  
-  - name: "Marvin Harrison Jr"
-    sport: "Football"
-    rookie_year: 2024
-    queries:
-      - "{name} prizm rookie"
-      - "{name} select rookie"
+      - "{name} prizm"
+      - "{name} optic"
 
 # Schedule Configuration
 schedule:

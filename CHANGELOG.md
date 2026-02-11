@@ -5,6 +5,72 @@ All notable changes to the Trading Card Platform will be documented in this file
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2025-02-XX
+
+### Added - Budget Filter & Profit Margin
+- **Budget filter** - Filter cards by maximum affordable buy zone price
+- **Profit margin column** - Shows potential profit % if bought at buy zone
+- **Sort by profit margin** - Prioritize best profit opportunities
+- **Pagination controls** - Navigate through 25 cards per page (up to 100 total)
+- **Column tooltips** - Hover explanations for all table columns
+- **25 realistic sample cards** - Diverse test data covering all scenarios
+- **Sample data generator** - Script to populate database with realistic cards
+
+### Changed
+- **Table structure** - Reorganized columns (Avg Price before Buy Zone, added Margin %)
+- **Fetch limit** - Increased from 25 to 100 cards for pagination
+- **Column padding** - Reduced from px-6 to px-4 for better fit
+- **Buy zone indicator** - Changed from "✅ BUY NOW" to "✅ BUY" (shorter)
+
+### Fixed
+- **Volume column confusion** - Was showing price ($382.50), now shows sales count
+- **Column order** - Avg Price and Buy Zone now adjacent for easy comparison
+
+### Documentation
+- Created `docs/UI-ENHANCEMENTS-BUDGET-MARGIN.md` - Comprehensive guide
+- Explained watchlist purpose (vs. trending page)
+- Clarified alert threshold meaning
+- Documented all 7 enhancements with examples
+
+## [2.1.0] - 2025-02-XX
+
+### Added - Budget Filter & Profit Margin
+- **Budget filter** - Filter cards by maximum affordable buy zone price
+- **Profit margin column** - Shows potential profit % if bought at buy zone
+- **Sort by profit margin** - Prioritize best profit opportunities
+- **Pagination controls** - Navigate through 25 cards per page (up to 100 total)
+- **Column tooltips** - Hover explanations for all table columns
+- **25 realistic sample cards** - Diverse test data covering all scenarios
+- **Sample data generator** - Script to populate database with realistic cards
+- **Historical price trends** - 14-day sales data with price momentum
+- **Varied hotness scores** - Range from 15-90 based on price trends
+- **Card detail page enhancements** - Card image placeholder + full metadata display
+
+### Changed
+- **Table structure** - Reorganized columns (Avg Price before Buy Zone, added Margin %)
+- **Fetch limit** - Increased from 25 to 100 cards for pagination
+- **Column padding** - Reduced from px-6 to px-4 for better fit
+- **Buy zone indicator** - Changed from "✅ BUY NOW" to "✅ BUY" (shorter)
+- **Sample data** - Now includes price trends (up/down/flat) for realistic hotness
+- **Hotness calculation** - Now factors in momentum from historical prices
+
+### Fixed
+- **Volume column confusion** - Was showing price ($382.50), now shows sales count
+- **Column order** - Avg Price and Buy Zone now adjacent for easy comparison
+- **Watchlist SQLAlchemy errors** - Added explicit select_from() and join conditions
+- **Card detail API errors** - Handle null median_price and momentum_score values
+- **Sample data foreign keys** - Delete tables in correct order (inventory, watchlist, trends, sales, cards)
+
+### Documentation
+- Created `docs/UI-ENHANCEMENTS-BUDGET-MARGIN.md` - Comprehensive guide (all 7 enhancements)
+- Created `docs/QUICK-REFERENCE-BUDGET-MARGIN.md` - Quick start & FAQ
+- Created `docs/IMPLEMENTATION-SUMMARY-BUDGET-MARGIN.md` - Technical details
+- Created `docs/VISUAL-GUIDE-BEFORE-AFTER.md` - Before/after comparison
+- Updated `README.md` - Added Phase 1.5 and NovaAct integration plans
+- Explained watchlist purpose (vs. trending page)
+- Clarified alert threshold meaning
+- Documented all 7 enhancements with examples
+
 ## [2.0.0] - 2025-02-11
 
 ### Added - Inventory & Portfolio Management
