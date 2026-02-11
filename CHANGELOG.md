@@ -19,10 +19,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Environment variable template (.env.example)
 - Python requirements.txt with core dependencies
 - Project README with overview and quick start
+- eBay Browse API scraper with title parsing
+- Comprehensive test suite (unit + integration tests)
+- Test fixtures with sample eBay API responses
+- Test runner script (run_tests.sh)
+- Testing documentation and guide
+- pytest configuration with coverage reporting
 
 ### In Progress
-- eBay Browse API scraper implementation
 - Trend detection algorithms (velocity, momentum, hotness score)
+- Database connection and ORM setup
 
 ### Planned
 - [ ] Complete eBay scraper with title parsing
