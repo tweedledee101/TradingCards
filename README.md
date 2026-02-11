@@ -37,9 +37,11 @@ See [Architecture Documentation](./docs/architecture/) for detailed system desig
 - [System Architecture](./docs/architecture/system-architecture.md)
 - [Database Schema & ERD](./docs/architecture/database-design.md)
 - [Data Flow Diagrams](./docs/architecture/diagrams/)
+- [Testing Guide](./docs/TESTING.md)
 - [API Documentation](./docs/api/)
 - [Setup Guide](./docs/setup/installation.md)
 - [Architecture Decisions](./docs/architecture/decisions/)
+- [Project Status](./docs/PROJECT-STATUS.md)
 
 ## Quick Start
 
@@ -57,7 +59,25 @@ psql -U postgres -f backend/models/schema.sql
 
 # Run scrapers
 python -m backend.scrapers.ebay_scraper
+
+# Run tests
+./run_tests.sh all
 ```
+
+## Testing
+
+```bash
+# Run all tests
+./run_tests.sh all
+
+# Run unit tests only (fast)
+./run_tests.sh unit
+
+# Run with coverage report
+./run_tests.sh coverage
+```
+
+See [Testing Guide](./docs/TESTING.md) for detailed testing documentation.
 
 ## Project Status
 
@@ -65,7 +85,8 @@ python -m backend.scrapers.ebay_scraper
 
 - [x] Database schema design
 - [x] Project structure
-- [ ] eBay scraper implementation
+- [x] eBay scraper implementation
+- [x] Comprehensive test suite
 - [ ] Trend detection algorithms
 - [ ] PSA population scraper
 - [ ] API endpoints
