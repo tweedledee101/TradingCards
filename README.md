@@ -35,12 +35,12 @@ See [Architecture Documentation](./docs/architecture/) for detailed system desig
 ## Documentation
 
 - [Quick Start Guide](./QUICKSTART.md)
+- [API Documentation](./backend/api/README.md)
 - [Pipeline Documentation](./backend/PIPELINE.md)
 - [System Architecture](./docs/architecture/system-architecture.md)
 - [Database Schema & ERD](./docs/architecture/database-design.md)
 - [Data Flow Diagrams](./docs/architecture/diagrams/)
 - [Testing Guide](./docs/TESTING.md)
-- [API Documentation](./docs/api/)
 - [Setup Guide](./docs/setup/installation.md)
 - [Architecture Decisions](./docs/architecture/decisions/)
 - [Project Status](./docs/PROJECT-STATUS.md)
@@ -67,6 +67,13 @@ python backend/test_pipeline.py
 # Run pipeline with real eBay data
 python -m backend.run_pipeline --query "Wembanyama rookie" --days 7
 
+# Start API server
+python -m backend.api.run
+# Visit http://localhost:8000/docs for interactive API docs
+
+# Test API
+python backend/test_api.py
+
 # Run tests
 ./run_tests.sh all
 ```
@@ -88,7 +95,7 @@ See [Testing Guide](./docs/TESTING.md) for detailed testing documentation.
 
 ## Project Status
 
-**Current Phase:** Backend Data Pipeline - COMPLETE ✅
+**Current Phase:** REST API - COMPLETE ✅
 
 - [x] Database schema design
 - [x] SQLAlchemy ORM models
@@ -97,7 +104,7 @@ See [Testing Guide](./docs/TESTING.md) for detailed testing documentation.
 - [x] Trend detection algorithms
 - [x] Data pipeline orchestration
 - [x] Comprehensive test suite
-- [ ] REST API endpoints
+- [x] REST API endpoints
 - [ ] PSA population scraper
 - [ ] Frontend dashboard
 
