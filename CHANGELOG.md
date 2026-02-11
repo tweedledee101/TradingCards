@@ -25,21 +25,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Test runner script (run_tests.sh)
 - Testing documentation and guide
 - pytest configuration with coverage reporting
+- **SQLAlchemy ORM models for all database tables**
+- **Data pipeline service connecting scraper → database → trends**
+- **Pipeline runner CLI tool**
+- **Trend calculation integration**
+- **End-to-end data flow implementation**
 
-### In Progress
-- Trend detection algorithms (velocity, momentum, hotness score)
-- Database connection and ORM setup
+### Completed
+- ✅ Database schema and ORM models
+- ✅ eBay scraper with title parsing
+- ✅ Trend calculator algorithms
+- ✅ Data pipeline orchestration
+- ✅ End-to-end testing capability
 
 ### Planned
-- [ ] Complete eBay scraper with title parsing
-- [ ] Database connection utilities
-- [ ] Nightly scraper scheduler
+- [ ] REST API with FastAPI
+- [ ] API endpoints for trending cards
+- [ ] Nightly scraper scheduler (APScheduler)
 - [ ] PSA population scraper
 - [ ] Card Ladder price scraper
 - [ ] Social media signal scrapers (Twitter/Reddit)
-- [ ] Trend calculation batch job
-- [ ] REST API with FastAPI
-- [ ] API endpoints for trending cards
 - [ ] Frontend dashboard (React)
 - [ ] Deployment to jgaffiliates.com subdomain
 
