@@ -49,13 +49,13 @@ See [Architecture Documentation](./docs/architecture/) for detailed system desig
 ## Quick Start
 
 ```bash
-# Install dependencies
-cd backend
-pip install -r requirements.txt
+# 1. Install all dependencies
+./setup.sh  # Linux/Mac
+setup.bat   # Windows
 
-# Configure environment
-cp .env.example .env
-# Edit .env with your API keys and database credentials
+# 2. Configure environment
+cp backend/.env.example backend/.env
+# Edit backend/.env with your API keys and database credentials
 
 # Setup database
 psql -U postgres -c "CREATE DATABASE trading_cards;"
