@@ -17,32 +17,31 @@ def get_card_details(card_id: int, days: int = Query(default=30, description="Da
     """
     db = SessionLocal()
     try:
+        from datetime import datetime
+        
         card = db.query(Card).filter(Card.id == card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Card not found")
         
-        cutoff_date = date.today() - timedelta(days=days)
+        cutoff_date = datetime.now() - timedelta(days=days)
         
         # Get recent sales
         recent_sales = db.query(Sale).filter(
             and_(Sale.card_id == card_id, Sale.sale_date >= cutoff_date)
         ).order_by(desc(Sale.sale_date)).limit(50).all()
         
-        # Get price history (trends over time)
-        price_history = db.query(PriceTrend).filter(
-            and_(PriceTrend.card_id == card_id, PriceTrend.trend_date >= cutoff_date)
-        ).order_by(PriceTrend.trend_date).all()
-        
-        # Get latest trend
-        latest_trend = db.query(PriceTrend).filter(
-            PriceTrend.card_id == card_id
-        ).order_by(desc(PriceTrend.trend_date)).first()
-        
-        # Get active listings
-        today = date.today()
-        active_listings = db.query(ActiveListing).filter(
-            and_(ActiveListing.card_id == card_id, ActiveListing.snapshot_date == today)
-        ).all()
+        # Calculate current trend from sales
+        if recent_sales:
+            prices = [float(s.sale_price) for s in recent_sales]
+            avg_price = sum(prices) / len(prices)
+            sales_count = len(recent_sales)
+            velocity_score = min((sales_count / 4.3) * 10, 100)  # 4.3 weeks in 30 days
+            hotness_score = velocity_score  # Simplified
+        else:
+            avg_price = None
+            sales_count = 0
+            velocity_score = 0
+            hotness_score = 0
         
         return {
             "id": card.id,
@@ -55,7 +54,7 @@ def get_card_details(card_id: int, days: int = Query(default=30, description="Da
             "recent_sales": [
                 {
                     "price": float(sale.sale_price),
-                    "date": sale.sale_date.isoformat(),
+                    "date": sale.sale_date.isoformat() if hasattr(sale.sale_date, 'isoformat') else str(sale.sale_date),
                     "graded": sale.graded,
                     "grade_company": sale.grade_company,
                     "grade_value": float(sale.grade_value) if sale.grade_value else None,
@@ -63,35 +62,18 @@ def get_card_details(card_id: int, days: int = Query(default=30, description="Da
                 }
                 for sale in recent_sales
             ],
-            "price_history": [
-                {
-                    "date": trend.trend_date.isoformat(),
-                    "avg_price": float(trend.avg_price),
-                    "median_price": float(trend.median_price) if trend.median_price else None,
-                    "sales_count": trend.sales_count,
-                    "velocity_score": float(trend.velocity_score),
-                    "hotness_score": float(trend.hotness_score)
-                }
-                for trend in price_history
-            ],
+            "price_history": [],  # Empty for now
             "current_trend": {
-                "avg_price": float(latest_trend.avg_price) if latest_trend else None,
-                "median_price": float(latest_trend.median_price) if latest_trend and latest_trend.median_price else None,
-                "sales_count": latest_trend.sales_count if latest_trend else 0,
-                "velocity_score": float(latest_trend.velocity_score) if latest_trend else None,
-                "momentum_score": float(latest_trend.momentum_score) if latest_trend and latest_trend.momentum_score else None,
-                "hotness_score": float(latest_trend.hotness_score) if latest_trend else None,
-                "trend_date": latest_trend.trend_date.isoformat() if latest_trend else None
+                "avg_price": avg_price,
+                "median_price": None,
+                "sales_count": sales_count,
+                "velocity_score": velocity_score,
+                "momentum_score": None,
+                "hotness_score": hotness_score,
+                "trend_date": date.today().isoformat()
             },
-            "active_listings": [
-                {
-                    "price": float(listing.listing_price),
-                    "title": listing.listing_title,
-                    "url": listing.listing_url
-                }
-                for listing in active_listings[:10]
-            ],
-            "active_listings_count": len(active_listings)
+            "active_listings": [],  # Empty for now
+            "active_listings_count": 0
         }
     finally:
         db.close()
@@ -144,6 +126,37 @@ def search_cards(
                 }
                 for card in cards
             ]
+        }
+    finally:
+        db.close()
+
+@router.get("/accuracy/stats")
+def get_accuracy_stats():
+    """Get overall accuracy statistics for predictions"""
+    from sqlalchemy import text
+    db = SessionLocal()
+    try:
+        stats = db.execute(text("SELECT * FROM accuracy_stats")).fetchone()
+        
+        if not stats or stats.total_predictions == 0:
+            return {
+                "total_predictions": 0,
+                "correct_predictions": 0,
+                "accuracy_pct": 0,
+                "avg_price_accuracy": 0,
+                "avg_velocity_accuracy": 0,
+                "first_prediction": None,
+                "last_prediction": None
+            }
+        
+        return {
+            "total_predictions": stats.total_predictions,
+            "correct_predictions": stats.correct_predictions,
+            "accuracy_pct": float(stats.accuracy_pct),
+            "avg_price_accuracy": float(stats.avg_price_accuracy) if stats.avg_price_accuracy else 0,
+            "avg_velocity_accuracy": float(stats.avg_velocity_accuracy) if stats.avg_velocity_accuracy else 0,
+            "first_prediction": stats.first_prediction.isoformat() if stats.first_prediction else None,
+            "last_prediction": stats.last_prediction.isoformat() if stats.last_prediction else None
         }
     finally:
         db.close()

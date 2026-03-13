@@ -1,79 +1,47 @@
-# Target List - Players and Queries to Track
-# Add players you want to monitor for trending cards
-
 players:
-  # High-Value Players (Any Year)
-  - name: "Victor Wembanyama"
-    sport: "Basketball"
-    queries:
-      - "{name} prizm"
-      - "{name} select"
-      - "{name} optic"
-      - "{name} PSA 10"
-  
-  - name: "Michael Jordan"
-    sport: "Basketball"
-    queries:
-      - "{name} prizm"
-      - "{name} fleer"
-      - "{name} upper deck"
-      - "{name} PSA 10"
-  
-  - name: "LeBron James"
-    sport: "Basketball"
-    queries:
-      - "{name} prizm"
-      - "{name} topps chrome"
-      - "{name} PSA 10"
-  
-  - name: "Shohei Ohtani"
-    sport: "Baseball"
-    queries:
-      - "{name} bowman chrome"
-      - "{name} topps chrome"
-      - "{name} prizm"
-  
-  - name: "Paul Skenes"
-    sport: "Baseball"
-    queries:
-      - "{name} bowman chrome"
-      - "{name} topps chrome"
-  
-  - name: "Patrick Mahomes"
-    sport: "Football"
-    queries:
-      - "{name} prizm"
-      - "{name} optic"
-      - "{name} select"
-  
-  - name: "Caleb Williams"
-    sport: "Football"
-    queries:
-      - "{name} prizm"
-      - "{name} optic"
-
-# Schedule Configuration
+- name: Bo Bichette
+  sport: Baseball
+  queries:
+  - '{name} rookie'
+  - '{name} Bowman'
+  - '{name} Topps'
+- name: Randy Arozarena
+  sport: Baseball
+  queries:
+  - '{name} rookie'
+  - '{name} Bowman'
+  - '{name} Topps'
+- name: Julio Rodriguez
+  sport: Baseball
+  queries:
+  - '{name} rookie'
+  - '{name} Bowman'
+  - '{name} Topps'
+- name: Bobby Witt Jr
+  sport: Baseball
+  queries:
+  - '{name} rookie'
+  - '{name} Bowman'
+  - '{name} Topps'
+- name: Gunnar Henderson
+  sport: Baseball
+  queries:
+  - '{name} rookie'
+  - '{name} Bowman'
+  - '{name} Topps'
 schedule:
-  # When to run daily imports (24-hour format)
-  daily_import_time: "02:00"  # 2 AM
-  
-  # How many days back to search
+  daily_import_time: 02:00
   days_back: 7
-  
-  # Enable/disable specific tasks
   import_sales: true
   import_listings: true
   calculate_trends: true
   generate_reports: true
-
-# Report Configuration
 reports:
-  # Where to save daily reports
-  output_dir: "reports"
-  
-  # Top N cards to include
+  output_dir: reports
   top_cards_limit: 25
-  
-  # Email notifications (optional)
   email_enabled: false
-  email_to: "your-email@example.com"
+  email_to: your-email@example.com
+metadata:
+  last_updated: '2026-02-13T21:00:00'
+  auto_discovery_enabled: false
+  total_targets: 5

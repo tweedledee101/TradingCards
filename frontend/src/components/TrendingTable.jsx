@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useState } from 'react';
 import { addToWatchlist, addToInventory } from '../api/client';
+import ScoreExplainer from './ScoreExplainer';
 
 const TrendingTable = ({ cards }) => {
   const [actionLoading, setActionLoading] = useState({});
@@ -22,9 +23,18 @@ const TrendingTable = ({ cards }) => {
     return (avgPrice * multiplier).toFixed(2);
   };
 
-  const getProfitMargin = (avgPrice, velocity) => {
+  const getNetProfit = (avgPrice, velocity) => {
     const buyZone = parseFloat(getBuyZone(avgPrice, velocity));
-    return (((avgPrice - buyZone) / buyZone) * 100).toFixed(1);
+    const ebayFees = avgPrice * 0.1315; // 13.15%
+    const shipping = 5.00;
+    const netProfit = avgPrice - buyZone - ebayFees - shipping;
+    return netProfit;
+  };
+
+  const getRealROI = (avgPrice, velocity) => {
+    const buyZone = parseFloat(getBuyZone(avgPrice, velocity));
+    const netProfit = getNetProfit(avgPrice, velocity);
+    return ((netProfit / buyZone) * 100).toFixed(1);
   };
 
   const getRowColor = (avgPrice, velocity) => {
@@ -81,12 +91,15 @@ const TrendingTable = ({ cards }) => {
       <table className="min-w-full bg-white border border-gray-200">
         <thead className="bg-gray-100">
           <tr>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase" title="Card image">Image</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase" title="Card ranking by hotness score">Rank</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase" title="Player name and sport">Player</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase" title="Card year and set name">Year / Set</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase" title="Average sold price (last 7 days)">Avg Price</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase" title="Recommended buy price (velocity-adjusted)">Buy Zone</th>
-            <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase" title="Potential profit % if bought at buy zone">Margin %</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase" title="Net profit after eBay fees (13%), shipping ($5)">Net Profit</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase" title="ROI % after all fees and costs">ROI</th>
+            <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase" title="Average days from listing to sale">Days to Sell</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase" title="Number of sales (last 7 days)">Volume</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase" title="Price change velocity (higher = hotter)">Velocity</th>
             <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 uppercase" title="Overall hotness score (0-100)">Hotness</th>
@@ -99,6 +112,14 @@ const TrendingTable = ({ cards }) => {
             const isInBuyZone = card.avg_price <= buyZone * 1.05;
             return (
               <tr key={index} className={`hover:bg-gray-100 ${getRowColor(card.avg_price, card.velocity_score)}`}>
+                <td className="px-4 py-4 whitespace-nowrap">
+                  <img 
+                    src={card.image_url || 'https://via.placeholder.com/80x112/1e40af/ffffff?text=No+Image'} 
+                    alt={`${card.player_name} ${card.card_year}`}
+                    className="w-20 h-28 object-cover rounded shadow"
+                    onError={(e) => e.target.src = 'https://via.placeholder.com/80x112/1e40af/ffffff?text=No+Image'}
+                  />
+                </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                   {index + 1}
                 </td>
@@ -106,11 +127,20 @@ const TrendingTable = ({ cards }) => {
                   <Link to={`/card/${card.card_id || index + 1}`} className="text-blue-600 hover:underline">
                     <div className="text-sm font-medium text-gray-900">{card.player_name}</div>
                     <div className="text-xs text-gray-500">{card.sport}</div>
+                    {card.card_number && (
+                      <div className="text-xs font-semibold text-blue-600">#{card.card_number}</div>
+                    )}
                   </Link>
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-900">
                   <div className="font-medium">{card.card_year}</div>
                   <div className="text-xs text-gray-500">{card.card_set}</div>
+                  {card.parallel && card.parallel !== 'Base' && (
+                    <div className="text-xs font-semibold text-purple-600">{card.parallel}</div>
+                  )}
+                  {card.grade_company && card.grade_value && (
+                    <div className="text-xs font-semibold text-green-600">{card.grade_company} {card.grade_value}</div>
+                  )}
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold text-gray-900">
                   ${card.avg_price.toFixed(2)}
@@ -121,8 +151,26 @@ const TrendingTable = ({ cards }) => {
                     <div className="text-xs text-green-700 font-bold">✅ BUY</div>
                   )}
                 </td>
+                <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold">
+                  <div className={getNetProfit(card.avg_price, card.velocity_score) > 10 ? 'text-green-600' : 'text-yellow-600'}>
+                    ${getNetProfit(card.avg_price, card.velocity_score).toFixed(2)}
+                  </div>
+                  <div className="text-xs text-gray-500">after fees</div>
+                </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm font-semibold text-blue-600">
-                  +{getProfitMargin(card.avg_price, card.velocity_score)}%
+                  {getRealROI(card.avg_price, card.velocity_score)}%
+                </td>
+                <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
+                  {card.avg_days_to_sell ? (
+                    <>
+                      <div className="font-semibold">{Math.round(card.avg_days_to_sell)}d</div>
+                      <div className="text-xs">
+                        {card.avg_days_to_sell <= 7 ? '⚡ Fast' : card.avg_days_to_sell <= 14 ? '📊 Moderate' : '🐌 Slow'}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-gray-400">~14d</div>
+                  )}
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm text-gray-500">
                   {card.sales_count}
@@ -140,6 +188,7 @@ const TrendingTable = ({ cards }) => {
                 </td>
                 <td className="px-4 py-4 whitespace-nowrap text-sm">
                   <div className="flex gap-1">
+                    <ScoreExplainer card={card} />
                     <button
                       onClick={() => handleAddToWatchlist(card)}
                       disabled={actionLoading[`watch-${card.card_id}`]}

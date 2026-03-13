@@ -11,6 +11,8 @@ from backend.services.data_pipeline import DataPipeline
 def main():
     parser = argparse.ArgumentParser(description='Run trading card data pipeline')
     parser.add_argument('--query', type=str, required=True, help='Search query (e.g., "Wembanyama rookie")')
+    parser.add_argument('--player', type=str, help='Player name (validated, e.g., "Victor Wembanyama")')
+    parser.add_argument('--sport', type=str, help='Sport (e.g., "Basketball")')
     parser.add_argument('--days', type=int, default=7, help='Days back to search (default: 7)')
     parser.add_argument('--skip-listings', action='store_true', help='Skip active listings import')
     parser.add_argument('--skip-trends', action='store_true', help='Skip trend calculation')
@@ -20,11 +22,13 @@ def main():
     pipeline = DataPipeline()
     
     print(f"🔍 Searching eBay for: {args.query}")
+    if args.player:
+        print(f"👤 Player: {args.player} ({args.sport or 'Sport not specified'})")
     print(f"📅 Looking back: {args.days} days\n")
     
     # Import sales
     print("📥 Importing sold listings...")
-    sales_imported = pipeline.import_sales(args.query, args.days)
+    sales_imported = pipeline.import_sales(args.query, args.days, args.player, args.sport)
     print(f"✅ Imported {sales_imported} sales\n")
     
     # Import active listings

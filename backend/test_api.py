@@ -61,12 +61,13 @@ def test_api():
             response = requests.get(f"{BASE_URL}/api/cards/{card_id}")
             if response.status_code == 200:
                 card = response.json()
-                print(f"   ✅ Card details retrieved")
+                print(f"   Card details retrieved")
                 print(f"   Player: {card['player_name']}")
                 print(f"   Recent sales: {len(card['recent_sales'])}")
-                print(f"   Avg price: ${card['trend']['avg_price']}")
+                if 'trend' in card and card['trend']:
+                    print(f"   Avg price: ${card['trend'].get('avg_price', 'N/A')}")
             else:
-                print(f"   ❌ Failed: {response.status_code}")
+                print(f"   Failed: {response.status_code}")
         else:
             print("   ⚠️  No cards in database. Import data first.\n")
     else:

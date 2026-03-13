@@ -1,5 +1,17 @@
 # Deployment Architecture
 
+**⚠️ NOTE:** This document describes the original deployment options. For the current AWS deployment plan, see [AWS Deployment Guide](./AWS-DEPLOYMENT-GUIDE.md).
+
+**Current Plan:** Deploy to AWS using CloudFormation
+- **Domain:** `cardpulse.jgaffiliated.com`
+- **Infrastructure:** Lambda, ECS, RDS, CloudFront
+- **Cost:** $34-252/month depending on scale
+- **Status:** CloudFormation templates ready
+
+---
+
+## Original Deployment Options (For Reference)
+
 ## Current State (Development)
 
 **Everything runs locally on your machine:**

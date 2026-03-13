@@ -3,6 +3,7 @@ import Home from './pages/Home';
 import CardDetail from './pages/CardDetail';
 import Inventory from './pages/Inventory';
 import Watchlist from './pages/Watchlist';
+import Opportunities from './pages/Opportunities';
 import './index.css';
 
 function App() {
@@ -20,6 +21,9 @@ function App() {
                 <Link to="/" className="text-gray-700 hover:text-blue-600">
                   Trending
                 </Link>
+                <Link to="/opportunities" className="text-gray-700 hover:text-blue-600 font-semibold">
+                  💰 Opportunities
+                </Link>
                 <Link to="/inventory" className="text-gray-700 hover:text-blue-600">
                   Inventory
                 </Link>
@@ -34,6 +38,7 @@ function App() {
         {/* Routes */}
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/opportunities" element={<Opportunities />} />
           <Route path="/card/:id" element={<CardDetail />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/watchlist" element={<Watchlist />} />

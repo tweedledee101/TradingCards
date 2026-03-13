@@ -5,46 +5,46 @@ Creates 25 diverse cards with different price points, velocities, and hotness sc
 from datetime import datetime, date, timedelta
 import random
 from backend.utils.database import SessionLocal, init_db
-from backend.models import Card, Sale, ActiveListing, PriceTrend, Watchlist, Inventory, InventorySale
+from backend.models import Card, Sale, ActiveListing, PriceTrend, Watchlist, Inventory, InventorySale, GradingPopulation, PriceBenchmark
 from backend.services.data_pipeline import DataPipeline
 
 SAMPLE_CARDS = [
     # GREEN ZONE - Buy Now (affordable, high margin, rising prices)
-    {"player": "Paul Skenes", "year": 2024, "set": "Bowman Chrome", "sport": "Baseball", "price": 45, "velocity": 85, "sales": 28, "price_trend": 1.25},  # Up 25%
-    {"player": "Caitlin Clark", "year": 2024, "set": "Prizm", "sport": "Basketball", "price": 32, "velocity": 78, "sales": 35, "price_trend": 1.30},  # Up 30%
-    {"player": "Caleb Williams", "year": 2024, "set": "Prizm", "sport": "Football", "price": 28, "velocity": 72, "sales": 42, "price_trend": 1.20},  # Up 20%
-    {"player": "Anthony Edwards", "year": 2020, "set": "Prizm Silver", "sport": "Basketball", "price": 65, "velocity": 68, "sales": 18, "price_trend": 1.15},  # Up 15%
+    {"player": "Paul Skenes", "year": 2024, "set": "Bowman Chrome", "card_number": "150", "parallel": "Base", "grade_company": "PSA", "grade_value": 10, "sport": "Baseball", "price": 45, "velocity": 85, "sales": 28, "price_trend": 1.25},
+    {"player": "Caitlin Clark", "year": 2024, "set": "Prizm", "card_number": "1", "parallel": "Silver", "grade_company": "PSA", "grade_value": 9, "sport": "Basketball", "price": 32, "velocity": 78, "sales": 35, "price_trend": 1.30},
+    {"player": "Caleb Williams", "year": 2024, "set": "Prizm", "card_number": "301", "parallel": "Base", "grade_company": "Raw", "grade_value": None, "sport": "Football", "price": 28, "velocity": 72, "sales": 42, "price_trend": 1.20},
+    {"player": "Anthony Edwards", "year": 2020, "set": "Prizm", "card_number": "258", "parallel": "Silver", "grade_company": "PSA", "grade_value": 10, "sport": "Basketball", "price": 65, "velocity": 68, "sales": 18, "price_trend": 1.15},
     
     # YELLOW ZONE - Watch (moderate momentum)
-    {"player": "Victor Wembanyama", "year": 2023, "set": "Prizm", "sport": "Basketball", "price": 450, "velocity": 55, "sales": 12, "price_trend": 1.10},  # Up 10%
-    {"player": "CJ Stroud", "year": 2023, "set": "Prizm", "sport": "Football", "price": 85, "velocity": 48, "sales": 22, "price_trend": 1.08},  # Up 8%
-    {"player": "Gunnar Henderson", "year": 2023, "set": "Topps Chrome", "sport": "Baseball", "price": 38, "velocity": 42, "sales": 15, "price_trend": 1.05},  # Up 5%
-    {"player": "Jahmyr Gibbs", "year": 2023, "set": "Optic", "sport": "Football", "price": 22, "velocity": 45, "sales": 31, "price_trend": 1.12},  # Up 12%
+    {"player": "Victor Wembanyama", "year": 2023, "set": "Prizm", "card_number": "1", "parallel": "Red Ice", "grade_company": "PSA", "grade_value": 9, "sport": "Basketball", "price": 450, "velocity": 55, "sales": 12, "price_trend": 1.10},
+    {"player": "CJ Stroud", "year": 2023, "set": "Prizm", "card_number": "301", "parallel": "Base", "grade_company": "BGS", "grade_value": 9.5, "sport": "Football", "price": 85, "velocity": 48, "sales": 22, "price_trend": 1.08},
+    {"player": "Gunnar Henderson", "year": 2023, "set": "Topps Chrome", "card_number": "75", "parallel": "Base", "grade_company": "PSA", "grade_value": 10, "sport": "Baseball", "price": 38, "velocity": 42, "sales": 15, "price_trend": 1.05},
+    {"player": "Jahmyr Gibbs", "year": 2023, "set": "Optic", "card_number": "125", "parallel": "Purple", "grade_company": "Raw", "grade_value": None, "sport": "Football", "price": 22, "velocity": 45, "sales": 31, "price_trend": 1.12},
     
     # WHITE ZONE - Skip (flat or declining)
-    {"player": "Michael Jordan", "year": 1986, "set": "Fleer", "sport": "Basketball", "price": 8500, "velocity": 25, "sales": 3, "price_trend": 1.02},  # Up 2%
-    {"player": "LeBron James", "year": 2003, "set": "Topps Chrome", "sport": "Basketball", "price": 3200, "velocity": 18, "sales": 5, "price_trend": 0.98},  # Down 2%
-    {"player": "Patrick Mahomes", "year": 2017, "set": "Prizm", "sport": "Football", "price": 1850, "velocity": 32, "sales": 7, "price_trend": 1.00},  # Flat
-    {"player": "Shohei Ohtani", "year": 2018, "set": "Topps Chrome", "sport": "Baseball", "price": 425, "velocity": 28, "sales": 9, "price_trend": 0.95},  # Down 5%
+    {"player": "Michael Jordan", "year": 1986, "set": "Fleer", "card_number": "57", "parallel": "Base", "grade_company": "PSA", "grade_value": 8, "sport": "Basketball", "price": 8500, "velocity": 25, "sales": 3, "price_trend": 1.02},
+    {"player": "LeBron James", "year": 2003, "set": "Topps Chrome", "card_number": "111", "parallel": "Base", "grade_company": "BGS", "grade_value": 9, "sport": "Basketball", "price": 3200, "velocity": 18, "sales": 5, "price_trend": 0.98},
+    {"player": "Patrick Mahomes", "year": 2017, "set": "Prizm", "card_number": "252", "parallel": "Silver", "grade_company": "PSA", "grade_value": 10, "sport": "Football", "price": 1850, "velocity": 32, "sales": 7, "price_trend": 1.00},
+    {"player": "Shohei Ohtani", "year": 2018, "set": "Topps Chrome", "card_number": "700", "parallel": "Base", "grade_company": "PSA", "grade_value": 9, "sport": "Baseball", "price": 425, "velocity": 28, "sales": 9, "price_trend": 0.95},
     
     # MID-RANGE - Mixed signals
-    {"player": "Brock Purdy", "year": 2022, "set": "Prizm", "sport": "Football", "price": 48, "velocity": 62, "sales": 25, "price_trend": 1.18},  # Up 18%
-    {"player": "Paolo Banchero", "year": 2022, "set": "Prizm", "sport": "Basketball", "price": 95, "velocity": 38, "sales": 14, "price_trend": 1.06},  # Up 6%
-    {"player": "Julio Rodriguez", "year": 2022, "set": "Bowman Chrome", "sport": "Baseball", "price": 72, "velocity": 44, "sales": 19, "price_trend": 1.04},  # Up 4%
-    {"player": "Jalen Hurts", "year": 2020, "set": "Prizm", "sport": "Football", "price": 125, "velocity": 51, "sales": 16, "price_trend": 1.09},  # Up 9%
+    {"player": "Brock Purdy", "year": 2022, "set": "Prizm", "card_number": "362", "parallel": "Base", "grade_company": "Raw", "grade_value": None, "sport": "Football", "price": 48, "velocity": 62, "sales": 25, "price_trend": 1.18},
+    {"player": "Paolo Banchero", "year": 2022, "set": "Prizm", "card_number": "1", "parallel": "Silver", "grade_company": "PSA", "grade_value": 9, "sport": "Basketball", "price": 95, "velocity": 38, "sales": 14, "price_trend": 1.06},
+    {"player": "Julio Rodriguez", "year": 2022, "set": "Bowman Chrome", "card_number": "100", "parallel": "Base", "grade_company": "PSA", "grade_value": 10, "sport": "Baseball", "price": 72, "velocity": 44, "sales": 19, "price_trend": 1.04},
+    {"player": "Jalen Hurts", "year": 2020, "set": "Prizm", "card_number": "345", "parallel": "Silver", "grade_company": "BGS", "grade_value": 9.5, "sport": "Football", "price": 125, "velocity": 51, "sales": 16, "price_trend": 1.09},
     
     # BUDGET FRIENDLY - Good for small bankroll
-    {"player": "Marvin Harrison Jr", "year": 2024, "set": "Prizm", "sport": "Football", "price": 18, "velocity": 75, "sales": 38, "price_trend": 1.28},  # Up 28%
-    {"player": "Jayden Daniels", "year": 2024, "set": "Prizm", "sport": "Football", "price": 24, "velocity": 71, "sales": 33, "price_trend": 1.22},  # Up 22%
-    {"player": "Elly De La Cruz", "year": 2023, "set": "Topps Chrome", "sport": "Baseball", "price": 35, "velocity": 58, "sales": 21, "price_trend": 1.14},  # Up 14%
-    {"player": "Brandon Miller", "year": 2023, "set": "Prizm", "sport": "Basketball", "price": 42, "velocity": 47, "sales": 17, "price_trend": 1.07},  # Up 7%
+    {"player": "Marvin Harrison Jr", "year": 2024, "set": "Prizm", "card_number": "305", "parallel": "Base", "grade_company": "Raw", "grade_value": None, "sport": "Football", "price": 18, "velocity": 75, "sales": 38, "price_trend": 1.28},
+    {"player": "Jayden Daniels", "year": 2024, "set": "Prizm", "card_number": "302", "parallel": "Base", "grade_company": "Raw", "grade_value": None, "sport": "Football", "price": 24, "velocity": 71, "sales": 33, "price_trend": 1.22},
+    {"player": "Elly De La Cruz", "year": 2023, "set": "Topps Chrome", "card_number": "50", "parallel": "Orange", "grade_company": "PSA", "grade_value": 9, "sport": "Baseball", "price": 35, "velocity": 58, "sales": 21, "price_trend": 1.14},
+    {"player": "Brandon Miller", "year": 2023, "set": "Prizm", "card_number": "2", "parallel": "Base", "grade_company": "PSA", "grade_value": 10, "sport": "Basketball", "price": 42, "velocity": 47, "sales": 17, "price_trend": 1.07},
     
     # HIGH VALUE - Need bigger budget
-    {"player": "Connor Bedard", "year": 2023, "set": "Upper Deck", "sport": "Hockey", "price": 380, "velocity": 65, "sales": 11, "price_trend": 1.16},  # Up 16%
-    {"player": "Bryce Young", "year": 2023, "set": "Prizm", "sport": "Football", "price": 68, "velocity": 41, "sales": 13, "price_trend": 0.92},  # Down 8%
-    {"player": "Scoot Henderson", "year": 2023, "set": "Prizm", "sport": "Basketball", "price": 52, "velocity": 36, "sales": 10, "price_trend": 0.96},  # Down 4%
-    {"player": "Corbin Carroll", "year": 2023, "set": "Topps Chrome", "sport": "Baseball", "price": 45, "velocity": 39, "sales": 12, "price_trend": 1.03},  # Up 3%
-    {"player": "Jasson Dominguez", "year": 2023, "set": "Bowman Chrome", "sport": "Baseball", "price": 58, "velocity": 43, "sales": 15, "price_trend": 1.11},  # Up 11%
+    {"player": "Connor Bedard", "year": 2023, "set": "Upper Deck", "card_number": "201", "parallel": "Base", "grade_company": "BGS", "grade_value": 10, "sport": "Hockey", "price": 380, "velocity": 65, "sales": 11, "price_trend": 1.16},
+    {"player": "Bryce Young", "year": 2023, "set": "Prizm", "card_number": "301", "parallel": "Silver", "grade_company": "PSA", "grade_value": 9, "sport": "Football", "price": 68, "velocity": 41, "sales": 13, "price_trend": 0.92},
+    {"player": "Scoot Henderson", "year": 2023, "set": "Prizm", "card_number": "3", "parallel": "Base", "grade_company": "Raw", "grade_value": None, "sport": "Basketball", "price": 52, "velocity": 36, "sales": 10, "price_trend": 0.96},
+    {"player": "Corbin Carroll", "year": 2023, "set": "Topps Chrome", "card_number": "25", "parallel": "Base", "grade_company": "PSA", "grade_value": 9, "sport": "Baseball", "price": 45, "velocity": 39, "sales": 12, "price_trend": 1.03},
+    {"player": "Jasson Dominguez", "year": 2023, "set": "Bowman Chrome", "card_number": "88", "parallel": "Purple", "grade_company": "PSA", "grade_value": 10, "sport": "Baseball", "price": 58, "velocity": 43, "sales": 15, "price_trend": 1.11},
 ]
 
 def generate_sample_data():
@@ -61,6 +61,8 @@ def generate_sample_data():
         db.query(PriceTrend).delete()
         db.query(ActiveListing).delete()
         db.query(Sale).delete()
+        db.query(GradingPopulation).delete()
+        db.query(PriceBenchmark).delete()
         db.query(Card).delete()
         db.commit()
         print("✅ Cleared existing data\n")
@@ -71,8 +73,13 @@ def generate_sample_data():
                 player_name=card_data["player"],
                 card_year=card_data["year"],
                 card_set=card_data["set"],
+                card_number=card_data["card_number"],
+                parallel=card_data["parallel"],
+                grade_company=card_data["grade_company"],
+                grade_value=card_data["grade_value"],
                 sport=card_data["sport"],
-                is_rookie=(card_data["year"] >= 2020)
+                is_rookie=(card_data["year"] >= 2020),
+                image_url=f"https://i.ebayimg.com/images/g/placeholder/s-l500.jpg"  # Placeholder until real scraping
             )
             db.add(card)
             db.flush()
@@ -103,9 +110,14 @@ def generate_sample_data():
                 )
                 db.add(sale)
             
-            # Generate active listings (slightly higher than avg)
+            # Generate active listings (mix of above and below market)
             for i in range(random.randint(2, 5)):
-                listing_price = base_price * random.uniform(1.05, 1.25)
+                # 40% chance of below-market listing (arbitrage opportunity)
+                if random.random() < 0.4:
+                    listing_price = base_price * random.uniform(0.70, 0.95)  # 5-30% below market
+                else:
+                    listing_price = base_price * random.uniform(1.05, 1.25)  # 5-25% above market
+                
                 listing = ActiveListing(
                     card_id=card.id,
                     listing_price=listing_price,

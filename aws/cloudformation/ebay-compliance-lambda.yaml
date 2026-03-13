@@ -1,0 +1,250 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'eBay Compliance Webhook - Lambda + API Gateway'
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: cardpulse.jgaffiliated.com
+    Description: Domain name for the API endpoint
+  
+  HostedZoneId:
+    Type: String
+    Description: Route53 Hosted Zone ID for jgaffiliated.com
+
+Resources:
+  # Lambda Execution Role
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: EbayComplianceLambdaRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: CloudWatchLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+
+  # Lambda Function
+  EbayComplianceLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ebay-compliance-webhook
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 30
+      MemorySize: 128
+      Code:
+        ZipFile: |
+          import json
+          import logging
+          from datetime import datetime
+          
+          logger = logging.getLogger()
+          logger.setLevel(logging.INFO)
+          
+          def lambda_handler(event, context):
+              """Handle eBay marketplace account deletion notifications"""
+              
+              # Log the request
+              logger.info(f"Received request: {json.dumps(event)}")
+              
+              # Parse request
+              try:
+                  if event.get('httpMethod') == 'GET':
+                      # Health check
+                      return {
+                          'statusCode': 200,
+                          'headers': {
+                              'Content-Type': 'application/json',
+                              'Access-Control-Allow-Origin': '*'
+                          },
+                          'body': json.dumps({
+                              'status': 'healthy',
+                              'service': 'ebay-compliance-webhook',
+                              'timestamp': datetime.utcnow().isoformat()
+                          })
+                      }
+                  
+                  # Parse POST body
+                  body = json.loads(event.get('body', '{}'))
+                  
+                  # Extract notification data
+                  notification_id = body.get('notificationId')
+                  event_date = body.get('eventDate')
+                  marketplace_account_id = body.get('marketplaceAccountId')
+                  
+                  # Log notification
+                  logger.info(f"eBay Account Deletion Notification:")
+                  logger.info(f"  Notification ID: {notification_id}")
+                  logger.info(f"  Event Date: {event_date}")
+                  logger.info(f"  Marketplace Account ID: {marketplace_account_id}")
+                  
+                  # We don't store eBay user data, so no deletion needed
+                  logger.info("No user data to delete - platform only collects public listing data")
+                  
+                  # Return success
+                  return {
+                      'statusCode': 200,
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*'
+                      },
+                      'body': json.dumps({
+                          'status': 'success',
+                          'message': 'Notification received - no user data stored',
+                          'notificationId': notification_id
+                      })
+                  }
+                  
+              except Exception as e:
+                  logger.error(f"Error processing request: {str(e)}")
+                  return {
+                      'statusCode': 500,
+                      'headers': {
+                          'Content-Type': 'application/json',
+                          'Access-Control-Allow-Origin': '*'
+                      },
+                      'body': json.dumps({
+                          'status': 'error',
+                          'message': str(e)
+                      })
+                  }
+
+  # API Gateway
+  ApiGateway:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: ebay-compliance-api
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - GET
+          - POST
+        AllowHeaders:
+          - '*'
+
+  # API Gateway Integration
+  ApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ApiGateway
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt EbayComplianceLambda.Arn
+      PayloadFormatVersion: '2.0'
+
+  # API Gateway Route - POST
+  ApiRoutePost:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'POST /api/webhooks/ebay/account-deletion'
+      Target: !Sub 'integrations/${ApiIntegration}'
+
+  # API Gateway Route - GET (health check)
+  ApiRouteGet:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'GET /api/webhooks/ebay/account-deletion'
+      Target: !Sub 'integrations/${ApiIntegration}'
+
+  # API Gateway Stage
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref ApiGateway
+      StageName: prod
+      AutoDeploy: true
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiLogGroup.Arn
+        Format: '$context.requestId $context.error.message $context.error.messageString'
+
+  # CloudWatch Log Group
+  ApiLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/apigateway/ebay-compliance
+      RetentionInDays: 30
+
+  # Lambda Permission for API Gateway
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref EbayComplianceLambda
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*'
+
+  # ACM Certificate
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+
+  # Custom Domain
+  CustomDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Properties:
+      DomainName: !Ref DomainName
+      DomainNameConfigurations:
+        - CertificateArn: !Ref Certificate
+          EndpointType: REGIONAL
+
+  # API Mapping
+  ApiMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Properties:
+      ApiId: !Ref ApiGateway
+      DomainName: !Ref CustomDomain
+      Stage: !Ref ApiStage
+
+  # Route53 Record
+  DnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CustomDomain.RegionalDomainName
+        HostedZoneId: !GetAtt CustomDomain.RegionalHostedZoneId
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${CustomDomain}/api/webhooks/ebay/account-deletion'
+    Export:
+      Name: EbayComplianceEndpoint
+  
+  LambdaFunctionArn:
+    Description: Lambda function ARN
+    Value: !GetAtt EbayComplianceLambda.Arn
+    Export:
+      Name: EbayComplianceLambdaArn
+  
+  CustomDomainName:
+    Description: Custom domain name
+    Value: !Ref DomainName
+    Export:
+      Name: EbayComplianceDomain

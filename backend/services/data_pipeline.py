@@ -10,6 +10,7 @@ from backend.models import Card, Sale, ActiveListing, PriceTrend
 from backend.scrapers.ebay_scraper import EbayScraper
 from backend.services.trend_calculator import TrendCalculator
 from backend.utils.database import SessionLocal
+from backend.utils.player_extractor import player_extractor
 
 
 class DataPipeline:
@@ -40,14 +41,24 @@ class DataPipeline:
         
         return card
     
-    def import_sales(self, query: str, days_back: int = 7) -> int:
+    def import_sales(self, query: str, days_back: int = 7, player_name: str = None, sport: str = None) -> int:
         """Import sales from eBay and store in database"""
         db = SessionLocal()
         try:
-            sales_data = self.scraper.search_sold_listings(query, days_back)
+            sales_data = self.scraper.search_sold_listings(query, days_back, player_name, sport)
             imported = 0
+            skipped_no_player = 0
             
             for sale in sales_data:
+                # Skip if missing sale_date
+                if not sale.get('sale_date'):
+                    continue
+                
+                # Skip if no validated player_name
+                if not sale.get('player_name'):
+                    skipped_no_player += 1
+                    continue
+                
                 # Skip if already exists
                 existing = db.query(Sale).filter(Sale.ebay_item_id == sale['ebay_item_id']).first()
                 if existing:
@@ -72,6 +83,8 @@ class DataPipeline:
                 imported += 1
             
             db.commit()
+            if skipped_no_player > 0:
+                print(f"⚠️  Skipped {skipped_no_player} sales (no validated player name)")
             return imported
         except Exception as e:
             db.rollback()
@@ -84,22 +97,33 @@ class DataPipeline:
         """Import active listings from eBay"""
         db = SessionLocal()
         try:
-            listings = self.scraper.get_active_listings(query)
-            imported = 0
             today = date.today()
             
+            # Delete ALL old listings (not just today) to avoid duplicates
+            deleted = db.query(ActiveListing).delete()
+            db.commit()
+            print(f"🗑️  Cleared {deleted} old listings")
+            
+            listings = self.scraper.get_active_listings(query)
+            imported = 0
+            
             for listing in listings:
-                # Skip if already exists for today
-                existing = db.query(ActiveListing).filter(
-                    ActiveListing.ebay_item_id == listing['ebay_item_id'],
-                    ActiveListing.snapshot_date == today
-                ).first()
-                if existing:
+                # Extract card info from title
+                card_info = listing.get('card_info', {})
+                
+                # Skip if missing required fields
+                if not card_info.get('card_year') or not card_info.get('card_set'):
                     continue
                 
-                # Extract card info from title
-                card_info = self.scraper._extract_card_info(listing['title'])
-                card_info['player_name'] = 'Unknown'  # Would need better extraction
+                # Extract player name from title
+                title = listing.get('title', '')
+                player_info = player_extractor.extract_player(title)
+                
+                if player_info:
+                    card_info['player_name'], card_info['sport'] = player_info
+                else:
+                    card_info['player_name'] = 'Unknown'
+                    card_info['sport'] = 'Unknown'
                 
                 card = self.find_or_create_card(db, card_info)
                 

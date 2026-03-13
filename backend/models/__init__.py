@@ -17,6 +17,12 @@ class Card(Base):
     card_year = Column(Integer, nullable=False)
     card_set = Column(String(255))
     card_number = Column(String(50))
+    parallel = Column(String(100))
+    grade_company = Column(String(20))
+    grade_value = Column(DECIMAL(3, 1))
+    image_url = Column(String(500))
+    ungraded_price = Column(DECIMAL(10, 2))
+    ebay_search_url = Column(Text)
     is_rookie = Column(Boolean, default=False)
     sport = Column(String(50))
     created_at = Column(TIMESTAMP, server_default=func.now())
@@ -55,8 +61,6 @@ class ActiveListing(Base):
     card_id = Column(Integer, ForeignKey('cards.id'))
     listing_price = Column(DECIMAL(10, 2), nullable=False)
     listing_type = Column(String(20))
-    listing_title = Column(Text)
-    listing_url = Column(Text)
     ebay_item_id = Column(String(50), unique=True)
     snapshot_date = Column(Date, nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
@@ -92,6 +96,40 @@ class PSAPopulation(Base):
     grade_value = Column(DECIMAL(3, 1), nullable=False)
     population_count = Column(Integer, nullable=False)
     snapshot_date = Column(Date, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class GradingPopulation(Base):
+    """New table for aggregated PSA grading data from NovaAct"""
+    __tablename__ = 'grading_population'
+    
+    id = Column(Integer, primary_key=True)
+    card_id = Column(Integer, ForeignKey('cards.id'))
+    grade_company = Column(String(10), nullable=False, default='PSA')
+    psa_10_count = Column(Integer, default=0)
+    psa_9_count = Column(Integer, default=0)
+    psa_8_count = Column(Integer, default=0)
+    total_graded = Column(Integer, default=0)
+    psa_10_rate = Column(DECIMAL(5, 4))  # 0.2250 = 22.5%
+    date_recorded = Column(Date, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class PriceBenchmark(Base):
+    """Price benchmark data from Card Ladder, 130point, etc."""
+    __tablename__ = 'price_benchmarks'
+    
+    id = Column(Integer, primary_key=True)
+    card_id = Column(Integer, ForeignKey('cards.id'))
+    source = Column(String(50), nullable=False)  # 'cardladder', '130point'
+    current_price = Column(DECIMAL(10, 2))
+    price_7d_ago = Column(DECIMAL(10, 2))
+    price_30d_ago = Column(DECIMAL(10, 2))
+    change_7d = Column(DECIMAL(5, 2))  # Percentage
+    change_30d = Column(DECIMAL(5, 2))
+    velocity_rating = Column(String(20))  # 'Hot', 'Warm', 'Cold', 'Stable'
+    market_cap = Column(DECIMAL(12, 2))
+    date_recorded = Column(Date, nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 

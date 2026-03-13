@@ -6,19 +6,24 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                      Data Sources                            │
 ├──────────┬──────────┬──────────┬──────────┬─────────────────┤
-│  eBay    │   PSA    │  Card    │ Twitter  │    Reddit       │
-│  API     │  Website │  Ladder  │   API    │     API         │
-│  ✅      │   ⏳     │   ⏳     │   ⏳     │     ⏳          │
+│  eBay    │ Facebook │  COMC    │ Whatnot  │    Mercari      │
+│  API     │Marketplace│  Web    │   Web    │     Web         │
+│  ✅      │   ✅     │   ✅     │   ✅     │     ✅          │
 └────┬─────┴────┬─────┴────┬─────┴────┬─────┴────┬────────────┘
      │          │          │          │          │
      ▼          ▼          ▼          ▼          ▼
 ┌────────────────────────────────────────────────────────────┐
-│                    Scraper Layer                           │
+│              Multi-Platform Sourcing Layer                 │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
-│  │  eBay    │  │   PSA    │  │  Card    │  │  Social  │  │
-│  │ Scraper  │  │ Scraper  │  │  Ladder  │  │ Scraper  │  │
-│  │   ✅     │  │   ⏳     │  │   ⏳     │  │   ⏳     │  │
+│  │  eBay    │  │ Facebook │  │  COMC    │  │ Whatnot  │  │
+│  │ Scraper  │  │  Search  │  │  Search  │  │  Search  │  │
+│  │   ✅     │  │   ✅     │  │   ✅     │  │   ✅     │  │
 │  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
+│  ┌──────────┐  ┌──────────┐                               │
+│  │ Mercari  │  │130point  │                               │
+│  │  Search  │  │ Scraper  │                               │
+│  │   ✅     │  │   ✅     │                               │
+│  └──────────┘  └──────────┘                               │
 └────────┬───────────────────────────────────────────────────┘
          │
          ▼
@@ -27,6 +32,10 @@
 │  ┌──────┐  ┌───────┐  ┌──────────┐  ┌───────────┐         │
 │  │cards │  │ sales │  │ listings │  │ inventory │         │
 │  │  ✅  │  │  ✅   │  │   ✅     │  │    ✅     │         │
+│  │+image│  │       │  │          │  │           │         │
+│  │+card#│  │       │  │          │  │           │         │
+│  │+paral│  │       │  │          │  │           │         │
+│  │+grade│  │       │  │          │  │           │         │
 │  └──────┘  └───────┘  └──────────┘  └───────────┘         │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐                 │
 │  │  trends  │  │watchlist │  │inv_sales │                 │
@@ -36,24 +45,30 @@
          │
          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              Trend Detection Engine                          │
+│              Arbitrage Detection Engine                      │
 │  ┌────────────────┐  ┌────────────────┐  ┌──────────────┐ │
-│  │  Velocity      │  │  Momentum      │  │  Hotness     │ │
-│  │  Calculator    │  │  Calculator    │  │  Calculator  │ │
+│  │  Multi-Platform│  │  Arbitrage     │  │  ROI         │ │
+│  │  Sourcing      │  │  Calculator    │  │  Analyzer    │ │
 │  │     ✅         │  │     ✅         │  │     ✅       │ │
 │  └────────────────┘  └────────────────┘  └──────────────┘ │
+│  ┌────────────────┐  ┌────────────────┐                   │
+│  │  Variant       │  │  Visual        │                   │
+│  │  Matcher       │  │  Identifier    │                   │
+│  │     ✅         │  │     ✅         │                   │
+│  └────────────────┘  └────────────────┘                   │
 └────────┬────────────────────────────────────────────────────┘
          │
          ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                    REST API Layer (FastAPI)                  │
 │  ┌────────────────────────────────────────────────────┐    │
-│  │  18 Endpoints - ✅ Complete                        │    │
+│  │  19 Endpoints - ✅ Complete                        │    │
 │  │  - GET /api/trending (filtering, sorting)         │    │
 │  │  - GET /api/trending/rookies                      │    │
 │  │  - GET /api/stats                                 │    │
 │  │  - GET /api/cards/{id} (price history)           │    │
 │  │  - GET /api/cards (pagination)                    │    │
+│  │  - GET /api/sourcing/{id} (multi-platform) ✨    │    │
 │  │  - POST /api/inventory                            │    │
 │  │  - GET /api/inventory (by status)                 │    │
 │  │  - GET /api/inventory/stats                       │    │
@@ -72,7 +87,9 @@
 │              Frontend Dashboard (React + Vite)               │
 │  ┌────────────────────────────────────────────────────┐    │
 │  │  ✅ Complete                                       │    │
-│  │  - Trending cards table with filtering            │    │
+│  │  - Trending cards with card images ✨             │    │
+│  │  - Multi-platform sourcing links ✨               │    │
+│  │  - Variant differentiation (card #, parallel) ✨  │    │
 │  │  - Card detail pages with price charts            │    │
 │  │  - Profit calculator with eBay fees               │    │
 │  │  - Inventory dashboard with P&L tracking          │    │

@@ -14,60 +14,74 @@ pipeline = DataPipeline()
 
 @router.get("/trending")
 def get_trending_cards(
-    limit: int = Query(default=10, ge=1, le=100),
+    limit: int = Query(default=100, ge=1, le=1000),
     min_hotness: Optional[float] = Query(default=None, description="Minimum hotness score"),
-    min_price: Optional[float] = Query(default=None, description="Minimum average price"),
+    min_price: Optional[float] = Query(default=5.0, description="Minimum average price"),
     max_price: Optional[float] = Query(default=None, description="Maximum average price"),
     sport: Optional[str] = Query(default=None, description="Filter by sport"),
     sort_by: str = Query(default="hotness", description="Sort by: hotness, velocity, price, volume")
 ):
     """
-    Get trending cards with filtering and sorting
+    Get trending cards - shows all cards with sales data
     """
     db = SessionLocal()
     try:
-        # Get latest trends with joins
-        query = db.query(PriceTrend, Card).join(Card).filter(
-            PriceTrend.trend_date >= date.today() - timedelta(days=7)
-        )
+        from backend.models import Sale
+        from sqlalchemy import func
+        from datetime import datetime, timedelta
+        
+        thirty_days_ago = datetime.now() - timedelta(days=30)
+        
+        # Get cards with recent sales, calculate metrics
+        query = db.query(
+            Card,
+            func.count(Sale.id).label('sales_count'),
+            func.avg(Sale.sale_price).label('avg_price'),
+            func.min(Sale.sale_price).label('min_price'),
+            func.max(Sale.sale_price).label('max_price')
+        ).join(Sale).filter(
+            Sale.sale_date >= thirty_days_ago
+        ).group_by(Card.id)
         
         # Apply filters
-        if min_hotness:
-            query = query.filter(PriceTrend.hotness_score >= min_hotness)
-        if min_price:
-            query = query.filter(PriceTrend.avg_price >= min_price)
-        if max_price:
-            query = query.filter(PriceTrend.avg_price <= max_price)
         if sport:
             query = query.filter(Card.sport.ilike(f"%{sport}%"))
         
-        # Apply sorting
-        if sort_by == "velocity":
-            query = query.order_by(desc(PriceTrend.velocity_score))
-        elif sort_by == "price":
-            query = query.order_by(desc(PriceTrend.avg_price))
-        elif sort_by == "volume":
-            query = query.order_by(desc(PriceTrend.sales_count))
-        else:
-            query = query.order_by(desc(PriceTrend.hotness_score))
+        # Sort by sales count (volume)
+        query = query.order_by(func.count(Sale.id).desc())
         
         results = query.limit(limit).all()
         
         cards = []
-        for trend, card in results:
-            cards.append({
-                "card_id": card.id,
-                "player_name": card.player_name,
-                "card_year": card.card_year,
-                "card_set": card.card_set,
-                "is_rookie": card.is_rookie,
-                "sport": card.sport,
-                "avg_price": float(trend.avg_price),
-                "sales_count": trend.sales_count,
-                "velocity_score": float(trend.velocity_score),
-                "hotness_score": float(trend.hotness_score),
-                "trend_date": trend.trend_date.isoformat()
-            })
+        for card, sales_count, avg_price, min_price, max_price in results:
+            if avg_price and avg_price >= min_price:
+                if max_price is None or avg_price <= max_price:
+                    # Calculate velocity: sales per week
+                    velocity_score = min((sales_count / 4.3) * 10, 100)  # 4.3 weeks in 30 days
+                    
+                    # Calculate hotness based on volume and price range
+                    price_range = (float(max_price) - float(min_price)) / float(avg_price) if avg_price > 0 else 0
+                    consistency_score = max(0, 100 - (price_range * 100))  # Lower range = higher score
+                    hotness_score = (velocity_score * 0.6) + (consistency_score * 0.4)
+                    
+                    cards.append({
+                        "card_id": card.id,
+                        "player_name": card.player_name,
+                        "card_year": card.card_year,
+                        "card_set": card.card_set,
+                        "card_number": card.card_number,
+                        "parallel": card.parallel,
+                        "grade_company": card.grade_company,
+                        "grade_value": float(card.grade_value) if card.grade_value else None,
+                        "image_url": card.image_url,
+                        "is_rookie": card.is_rookie,
+                        "sport": card.sport,
+                        "avg_price": float(avg_price),
+                        "sales_count": sales_count,
+                        "velocity_score": round(velocity_score, 1),
+                        "hotness_score": round(hotness_score, 1),
+                        "trend_date": date.today().isoformat()
+                    })
         
         return {"count": len(cards), "cards": cards}
     finally:

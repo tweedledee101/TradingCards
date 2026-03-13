@@ -276,15 +276,29 @@ TradingCards/
 - [ ] **ROI Projections** - Expected profit per card
 - [ ] **Portfolio Optimizer** - Which cards to prioritize
 
-### ⏳ Phase 4: Production & Enhancement (FUTURE)
-**Goal:** Deploy to production and add advanced features
+### ⏳ Phase 4: Production & Scale (IN PROGRESS)
+**Goal:** Deploy to AWS and add production features
+
+**AWS Infrastructure (NEW):**
+- [x] Domain selection: `cardpulse.jgaffiliated.com`
+- [x] Architecture planning (Lambda, ECS, RDS, CloudFront)
+- [x] Cost analysis ($0.50 - $252/month depending on scale)
+- [x] CloudFormation templates (eBay compliance)
+- [x] Deployment scripts (Linux + Windows)
+- [ ] Deploy eBay compliance Lambda ⬅️ NEXT
+- [ ] Deploy full platform (ECS + RDS)
+- [ ] Frontend deployment (S3 + CloudFront)
+- [ ] EventBridge scheduler for scrapers
+
+**Application Features:**
 - [ ] Enhanced profit calculator (shipping, grading fees, bulk lots)
 - [ ] More data visualizations (volume trends, sell-through rates)
-- [ ] Production deployment (Railway/Render)
-- [ ] User authentication & multi-user support
-- [ ] Email alerts for price targets
+- [ ] User authentication (Cognito)
+- [ ] Email alerts (SES)
 - [ ] Mobile app
 - [ ] Advanced analytics & machine learning
+
+**See [AWS Deployment Guide](../AWS-DEPLOYMENT-GUIDE.md) for complete infrastructure plan.**
 
 ## Key Metrics
 
@@ -313,7 +327,7 @@ TradingCards/
 - **Time to Decision**: <5 min per card
 - **ROI Improvement**: 40-60% expected
 
-## Setup Status
+## Deployment
 
 ### Development Environment
 - ✅ PostgreSQL database created
@@ -324,6 +338,15 @@ TradingCards/
 - ✅ API server tested
 - ⏳ Frontend (requires Node.js 16+)
 
+### AWS Production (NEW)
+- ✅ Domain selected: `cardpulse.jgaffiliated.com`
+- ✅ CloudFormation templates created
+- ✅ Deployment scripts ready
+- ⏳ eBay compliance Lambda (ready to deploy)
+- ⏳ Full platform deployment (planned)
+
+**See [AWS Deployment Guide](./AWS-DEPLOYMENT-GUIDE.md) for details.**
+
 ### Testing
 - ✅ Mock data pipeline tested
 - ✅ API endpoints tested
@@ -331,9 +354,11 @@ TradingCards/
 - ⏳ Real eBay data (pending API approval)
 
 ### Deployment
-- ⏳ Hosting provider selection
+- ✅ AWS infrastructure planning
+- ✅ CloudFormation templates (eBay compliance)
+- ⏳ eBay compliance deployment
+- ⏳ Full platform deployment
 - ⏳ Domain configuration
-- ⏳ Production database
 - ⏳ CI/CD pipeline
 
 ## Implementation Roadmap
@@ -413,18 +438,36 @@ TradingCards/
 - Buy/sell recommendations (data-driven)
 - Time to decision: <5 min per card
 
-### Phase 4: Production & Scale (PLANNED ⏳)
-**Timeline:** 2-3 weeks  
-**Status:** Not started
+### Phase 4: Production & Scale (IN PROGRESS ⏳)
+**Timeline:** 1-2 weeks  
+**Status:** AWS infrastructure planning complete
 
-- [ ] Production deployment (Railway/Render)
-- [ ] Domain configuration (jgaffiliates.com)
-- [ ] User authentication
-- [ ] Email alert system
-- [ ] Mobile optimization
+**Week 1: AWS Deployment**
+- [x] Domain selection: `cardpulse.jgaffiliated.com`
+- [x] Architecture design (Lambda, ECS, RDS, CloudFront)
+- [x] Cost analysis ($34-252/month)
+- [x] CloudFormation templates (eBay compliance)
+- [ ] Deploy eBay compliance Lambda ⬅️ NEXT
+- [ ] Deploy RDS PostgreSQL
+- [ ] Deploy ECS Fargate (API + scrapers)
+- [ ] Deploy S3 + CloudFront (frontend)
+
+**Week 2: Production Features**
+- [ ] EventBridge scheduler
+- [ ] Secrets Manager integration
+- [ ] CloudWatch monitoring
+- [ ] User authentication (Cognito)
+- [ ] Email alerts (SES)
 - [ ] Performance optimization
 
-**Total Timeline to Complete System:** 10-13 weeks
+**Deliverables:**
+- Production platform at `cardpulse.jgaffiliated.com`
+- 100% AWS infrastructure
+- CloudFormation deployment (repeatable)
+- Monitoring & alerting
+- Ready for beta users
+
+**Total Timeline to Complete System:** 8-11 weeks (2 weeks ahead of schedule with AWS deployment)
 
 ## Success Criteria
 
@@ -461,10 +504,10 @@ TradingCards/
 
 ## Questions to Answer
 
-1. **Subdomain name?** - TBD
-2. **Hosting provider?** - Railway/Render (planned)
+1. **Subdomain name?** - ✅ `cardpulse.jgaffiliated.com`
+2. **Hosting provider?** - ✅ AWS (Lambda, ECS, RDS, CloudFront)
 3. **Sports focus?** - Start with NBA
-4. **Monetization?** - TBD (focus on product first)
+4. **Monetization?** - Planned: $19-49/month tiers (see AWS Deployment Guide)
 
 ---
 

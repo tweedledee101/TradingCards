@@ -169,7 +169,30 @@ PostgreSQL database designed to store historical trading card data, sales transa
 
 **Unique Constraint:** (card_id) - One watchlist entry per card
 
-### psa_population
+### grading_population (NEW - v2.2.0)
+**Purpose:** Aggregated PSA grading data from NovaAct scraper
+
+**Key Fields:**
+- `psa_10_count`, `psa_9_count`, `psa_8_count` - Grade counts
+- `total_graded` - Total cards graded
+- `psa_10_rate` - PSA 10 percentage (0-1)
+- `date_recorded` - Scrape date
+
+**Usage:** Grade vs. raw ROI decisions
+
+### price_benchmarks (NEW - v2.2.0)
+**Purpose:** Price data from Card Ladder, 130point
+
+**Key Fields:**
+- `source` - 'cardladder', '130point'
+- `current_price`, `price_7d_ago`, `price_30d_ago`
+- `change_7d`, `change_30d` - Percentage changes
+- `velocity_rating` - 'Hot', 'Warm', 'Cold', 'Stable'
+- `market_cap` - Total market value
+
+**Usage:** Cross-validate eBay data
+
+### psa_population (Legacy)
 **Purpose:** Track grading volume changes over time
 
 **Key Fields:**
@@ -217,8 +240,12 @@ hotness_score = (
 
 ## Schema Version
 
-**Current Version:** 2.0.0  
-**Last Updated:** 2025-02-11  
+**Current Version:** 2.2.0  
+**Last Updated:** 2025-02-XX  
 **Schema Files:** 
 - `backend/models/schema.sql` - Base schema
 - `backend/models/migration_001.sql` - Inventory & watchlist tables
+- `backend/models/migration_002_psa_grading.sql` - PSA grading population
+- `backend/models/migration_003_price_benchmarks.sql` - Price benchmarks
+
+**Total Tables:** 11 (9 core + 2 new)
