@@ -33,9 +33,10 @@
 - **Tailwind CSS 3.3.6** - Utility-first CSS framework
 
 ### Data Collection
-- **Selenium 4.15.2** - Browser automation for scraping
+- **Selenium 4.15.2** - Browser automation for scraping (Firefox/geckodriver)
 - **BeautifulSoup4 4.12.2** - HTML parsing
-- **webdriver-manager 4.0.1** - WebDriver management
+- **geckodriver 0.36.0** - Firefox WebDriver (installed at /usr/local/bin/geckodriver)
+- **Firefox 136** - Browser for Selenium scrapers
 - **eBay SDK 2.2.0** - eBay Browse API client
 - **Requests 2.31.0** - HTTP library
 
@@ -219,7 +220,7 @@ aws cloudformation validate-template \
 - **Python**: 3.9 or higher
 - **Node.js**: 16 or higher
 - **PostgreSQL**: 13 or higher
-- **Chrome/Chromium**: For Selenium scrapers
+- **Firefox/geckodriver**: For Selenium scrapers (NOT Chrome)
 
 ### Production (AWS)
 - **ECS**: Docker containers (Python 3.9 + Node 16)

@@ -2,6 +2,7 @@
 SQLAlchemy ORM Models
 """
 from sqlalchemy import Column, Integer, String, Boolean, DECIMAL, TIMESTAMP, Date, ForeignKey, Text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -64,6 +65,8 @@ class ActiveListing(Base):
     ebay_item_id = Column(String(50), unique=True)
     snapshot_date = Column(Date, nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
+    listing_title = Column(Text)
+    listing_url = Column(Text)
     
     card = relationship("Card", back_populates="active_listings")
 
@@ -197,3 +200,79 @@ class Watchlist(Base):
     added_at = Column(TIMESTAMP, server_default=func.now())
     
     card = relationship("Card", back_populates="watchlist")
+
+
+class JobRun(Base):
+    """Tracks background job execution state"""
+    __tablename__ = 'job_runs'
+
+    id = Column(Integer, primary_key=True)
+    job_name = Column(String(100), nullable=False)
+    status = Column(String(20), nullable=False, default='running')
+    started_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
+    completed_at = Column(TIMESTAMP)
+    items_processed = Column(Integer, default=0)
+    items_total = Column(Integer)
+    error_message = Column(Text)
+    parameters = Column(Text)      # JSON string
+    results_summary = Column(Text)  # JSON string
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class Opportunity(Base):
+    """Pipeline-discovered arbitrage opportunities"""
+    __tablename__ = 'opportunities'
+
+    id = Column(Integer, primary_key=True)
+    player_name = Column(String(255), nullable=False)
+    card_year = Column(Integer)
+    card_set = Column(String(255))
+    card_number = Column(String(50))
+    parallel = Column(String(100))
+    scp_title = Column(Text)
+    scp_price = Column(DECIMAL(10, 2), nullable=False)
+    buy_price = Column(DECIMAL(10, 2), nullable=False)
+    profit = Column(DECIMAL(10, 2), nullable=False)
+    roi = Column(DECIMAL(8, 2), nullable=False)
+    ebay_title = Column(Text)
+    ebay_url = Column(Text)
+    ebay_item_id = Column(String(50))
+    image_url = Column(Text)
+    scp_url = Column(Text)
+    scp_grade_9 = Column(DECIMAL(10, 2))
+    scp_psa_10 = Column(DECIMAL(10, 2))
+    listing_type = Column(String(20), default='buy_it_now')
+    flagged = Column(Boolean, default=False)
+    scan_id = Column(Integer, ForeignKey('job_runs.id'))
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class ErrorLog(Base):
+    """Runtime error and event log for observability"""
+    __tablename__ = 'error_log'
+
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(TIMESTAMP, nullable=False, server_default=func.now())
+    level = Column(String(10), nullable=False, default='ERROR')
+    category = Column(String(50))
+    source = Column(String(100))
+    message = Column(Text, nullable=False)
+    context = Column(JSONB)
+    request_id = Column(String(36))
+    stack_trace = Column(Text)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class MarketRate(Base):
+    """Market rates from SportsCardsPro (Ungraded, Grade 9, PSA 10)"""
+    __tablename__ = 'market_rates'
+    
+    id = Column(Integer, primary_key=True)
+    card_id = Column(Integer, ForeignKey('cards.id', ondelete='CASCADE'))
+    source = Column(String(50), nullable=False, default='sportscardspro')
+    ungraded_price = Column(DECIMAL(10, 2))
+    grade_9_price = Column(DECIMAL(10, 2))
+    psa_10_price = Column(DECIMAL(10, 2))
+    scp_product_url = Column(Text)
+    date_recorded = Column(Date, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())

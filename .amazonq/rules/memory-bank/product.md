@@ -109,9 +109,9 @@ A data-driven arbitrage opportunity finder for trading card dealers that identif
 
 | Source | Purpose | Status |
 |--------|---------|--------|
+| eBay Browse API | Sold listings, active listings | Working (Real Data) |
+| SportsCardsPro | Market rates (Ungraded/Grade 9/PSA 10) | Working (Selenium/Firefox, graduated search + set validation) |
 | eBay Trending Discovery | Auto-discover hot cards | Code Ready (Testing) |
-| eBay Browse API | Sold listings, price data | Code Ready (API Blocked) |
-| eBay Active Listings | Current market supply | Code Ready (API Blocked) |
 | PSA Population | Grading spikes | Infrastructure Ready (Testing) |
 | Card Ladder | Price velocity, benchmarks | Infrastructure Ready (Testing) |
 | Sell-Through Rates | Market confidence | Code Ready (Need eBay Data) |
@@ -119,10 +119,59 @@ A data-driven arbitrage opportunity finder for trading card dealers that identif
 | Twitter/Reddit | Social sentiment | Planned |
 | Release Calendars | New releases | Planned |
 
-**Current Status**: 0/9 sources with real data, 6/9 infrastructure ready, using sample data (25 realistic cards)
+**Current Status**: 2/9 sources with real data, 2/9 infrastructure ready
+
+## Cross-Platform Strategy
+
+eBay is the primary marketplace (best API, highest volume). Other platforms tracked for price comparison and universal inventory intake.
+
+| Platform | Integration | Priority |
+|----------|------------|----------|
+| eBay | Full API (Browse + OAuth) | DONE |
+| SportsCardsPro | Selenium scraping | DONE |
+| Mercari | Price comparison scrape | Medium |
+| COMC | Price comparison scrape | Medium |
+| Whatnot | Manual intake, monitor later | Medium |
+| Facebook | Manual intake, NovaAct later | Low |
+| MySlabs | Price comparison scrape | Low |
+| StockX | Monitor if API opens | Low |
+| Card Shows/LCS | Manual intake only | Low |
+
+Key principle: Inventory tracks cards from ANY source. Users buy on eBay, Whatnot, Facebook, card shows -- all tracked the same way with platform-specific fee rates (eBay 13%, Mercari 10%, Whatnot 9.5%+2.9%, Facebook 0%, COMC 20%).
+
+See `docs/ROADMAP.md` Milestone 7 for full details.
+
+## eBay API Strategy
+
+### Current Tier
+- Individual Developer: 5,000 Browse API calls/day
+- ~1,200 calls per full 40-player opportunity scan
+
+### Planned: Compatible Application Status
+- Apply at https://developer.ebay.com/my/keys
+- CardPulse drives purchases on eBay -- legitimate commerce app
+- Expected: 50,000-200,000+ calls/day
+- Costs nothing, takes a few days to approve
+
+### Per-User eBay OAuth Integration
+- Users link their eBay account via OAuth consent flow
+- Auto-import purchases to Inventory (match by eBay item ID)
+- Auto-track sales for P&L (monitor selling activity)
+- User tokens count against APP quota, not user quota
+- Helps with functionality, not rate limits
+
+### Call Budget Optimization (ADR-004)
+- Cache search results aggressively
+- One search per variation, shared across all users
+- Active listing end dates are deterministic -- don't re-query
+- Sold listings are immutable -- fetch once, store forever
+- SCP prices trusted for 24 hours
 
 ## Deployment
 - **Domain**: cardpulse.jgaffiliated.com
-- **Infrastructure**: 100% AWS (Lambda, ECS, RDS, CloudFront)
+- **Infrastructure**: 100% AWS (ECS, RDS, CloudFront) -- no Lambda for scheduling
 - **Deployment**: CloudFormation (Infrastructure as Code)
-- **Current Phase**: Phase 2.5 - Automated Discovery (Testing)
+- **Refresh**: Demand-driven (ADR-004), no crons
+- **Worker**: Separate process from core app, trickle-inserts to DB
+- **Current Phase**: Milestone 1 -- get opportunities into the UI
+- **Full roadmap**: `docs/ROADMAP.md`

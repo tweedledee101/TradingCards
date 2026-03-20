@@ -1,291 +1,301 @@
 # Trading Card Platform - Current Status
-**Last Updated:** 2026-02-17 14:30 UTC
+**Last Updated:** 2026-03-20
 
-## SYSTEM STATUS: DEALER WORKFLOW IMPLEMENTED ✅
+## SYSTEM STATUS: PIPELINE RUNNING, QUALITY HARDENING IN PROGRESS
 
-### Professional Dealer Features Complete
+The SCP-to-eBay opportunity pipeline (`find_opportunities.py`) is running full 40-player scans. Latest scan: 1074 variations checked, 113 opportunities found. Pipeline now includes BIN and auction listings, volume filtering, price floor, factory set detection, and reprint filtering. Opportunities stored in database and served via API to the frontend.
 
-**All missing dealer workflow features implemented:**
-1. ✅ Multi-platform sourcing (Facebook, COMC, Whatnot, Mercari)
-2. ✅ Arbitrage calculation (buy cheap, sell on eBay)
-3. ✅ Visual card identification (image support)
-4. ✅ Variant differentiation (card #, parallel, grade)
-5. ✅ Cross-platform price comparison
-6. ✅ Comprehensive test suite
+### Quick Start
 
-### New Files Created
+```bash
+sudo service postgresql start
+cd /home/tweedledee101/TradingCards
 
-1. **backend/scrapers/facebook_marketplace_scraper.py** - Facebook search URLs
-2. **backend/scrapers/comc_scraper.py** - COMC bulk buying
-3. **backend/scrapers/whatnot_scraper.py** - Live auction search
-4. **backend/services/multi_platform_sourcing.py** - Aggregates all platforms
-5. **backend/api/routes/sourcing.py** - API endpoint for sourcing
-6. **backend/models/migration_004_add_image_url.sql** - Image support
-7. **tests/unit/test_multi_platform_sourcing.py** - Comprehensive tests
+# Run opportunity finder (SCP catalog -> eBay active listings)
+python3 find_opportunities.py --max-budget 200 --min-profit 5 --min-roi 20 --top-players 40
 
-### Frontend Updates
+# Or specify players
+python3 find_opportunities.py --max-budget 200 --min-profit 5 --players "Bobby Witt Jr,Mike Trout"
 
-- **CardDetail.jsx**: Shows all buying platforms with target prices
-- **TrendingTable.jsx**: Displays card images for visual matching
-- **Dealer strategy tips**: Explains where to find best margins
-
----
-
-## DEALER WORKFLOW NOW SUPPORTED
-
-### How Professional Dealers Use This System
-
-**Step 1: Find Hot Cards**
-- Trending page shows cards by sales volume
-- Filter by budget ($25, $50, $100, etc.)
-- See exact variants (card #, parallel, grade)
-
-**Step 2: Check Market Rate**
-- eBay sold comps show market baseline
-- Buy zone calculated (velocity-adjusted)
-- Net profit shown (after 13.15% fees + $5 shipping)
-
-**Step 3: Source Cheaper**
-- **Facebook Marketplace**: 40-60% margins (sellers don't comp)
-- **COMC**: Bulk discounts (buy 10+ at wholesale)
-- **Whatnot**: Snipe deals during live auctions
-- **Mercari**: Fast turnover, motivated sellers
-
-**Step 4: Buy & Flip**
-- Buy on Facebook at $35
-- Sell on eBay at $65
-- Net $21.85 after fees (36% ROI)
-
-### Example Arbitrage
-
-```
-Card: Anthony Edwards 2020 Prizm #258 Silver PSA 10
-eBay Market Rate: $100
-eBay Fees: $13.15 (13.15%)
-Shipping: $5.00
-
-Sourcing Options:
-- Facebook: $60 → Net $21.85 (36% ROI) ✅ BUY
-- COMC: $75 → Net $6.85 (9% ROI) ⚠️ MARGINAL  
-- Whatnot: $85 → Net -$3.15 (-4% ROI) ❌ SKIP
+# Start services
+nohup /usr/bin/python3 -m backend.api.run > /tmp/api.log 2>&1 &
+cd frontend && nohup npm run dev > /tmp/frontend.log 2>&1 &
 ```
 
 ---
 
-## DEALER WORKFLOW NOW SUPPORTED ✅
+## WHAT WORKS
 
-### Professional Dealer Decision Metrics
+### SCP-to-eBay Opportunity Pipeline
+File: `find_opportunities.py`
 
-The system calculates the same metrics professional dealers use:
+Flow:
+1. SCP player search returns full catalog (100 variations per player, 1 Selenium call)
+2. Filter to variations within budget ($20-$1000 default)
+3. Volume filter: skip cards with "rare", "1 sale per year", "2 sales per year" (dead money)
+4. Build precise eBay search queries from SCP data (set name, card number, parallel, print run)
+5. Search eBay active listings for each variation (BIN and auctions)
+6. Strict title validation: player name + year + card number + variation keyword required
+7. Junk filter: excludes "You Pick", "Complete Your Set", "Digital", "Bunt", lots, repacks
+8. Factory set filter: excludes "Complete Set", "Montgomery Club", "Walmart Exclusive", "Target Exclusive" (unless SCP card itself is a factory set variant)
+9. Reprint filter: excludes "Replica", "Project 2020", "Shoebox Treasures", "Sticker", "ACEO"
+10. Wrong set detection: rejects listings containing known set names not in the SCP variation
+11. BIN price floor: listings below 30% of SCP are hard-rejected (different product)
+12. BIN suspicious flagging: listings between 30-50% of SCP pass but flagged for review
+13. Auctions: included with no price floor or flagging (low current bids are normal)
+14. Profit calculation: SCP price - buy price - 13% eBay fees
+15. Results stored in `opportunities` table with listing_type (buy_it_now or auction)
+16. Results served via API with listing_type filter support
 
-**1. Liquidity Check**
-- Requires 3+ sales in last 30 days
-- Illiquid cards flagged automatically
-
-**2. Margin Calculation**
-- Net profit after eBay fees (13.15%) + shipping ($5)
-- Minimum 30% margin threshold
-- ROI percentage displayed
-
-**3. Risk Buffer**
-- Tests if deal survives 15% price drop
-- Ensures break-even protection
-
-**4. Turnaround Time**
-- Fast flip: 1-14 days (hot rookies)
-- Standard: 2-8 weeks (slabs)
-- Long hold: 3+ months (prospects)
-
-**5. Deal Quality Score (0-100)**
-- 80-100: BUY (strong deal)
-- 60-79: CONSIDER (decent deal)
-- 40-59: MARGINAL (risky)
-- 0-39: PASS (skip)
-
-**Scoring:** Liquidity +30, Margin +30, Risk buffer +20, Fast turnaround +20
-
-### API Endpoint: GET /api/sourcing/{card_id}
-
-Returns platform URLs + dealer metrics for informed decisions.
-
----
-
-## WHAT'S WORKING ✅
-- **900 cards** in database with 3,000+ sales
-- **Phase 1**: Volume discovery (top 20 players by sales volume)
-- **Phase 1.5**: Targeted sales collection (20 API calls)
-- **Trending page**: Shows 332 cards with real velocity/hotness scores
-- **Card detail pages**: Shows sales history and "Where to Buy" links
-- **Budget filtering**: UI filters cards by price range
-- **Rate limiting**: 0.5s delay between API calls
-- **API usage**: 25 calls/day (0.5% of 5,000 limit)
-
-### Critical Flaw Identified ❌
-
-**Problem**: Cards are grouped too broadly
-- Current: "Cameron Thomas 2021 Prizm" (all variants lumped together)
-- Reality: Base ($6), Silver ($25), Red Ice ($75), Auto ($100+) are DIFFERENT cards
-- Impact: System shows market rate of $100 for ALL variants, making base cards look like good buys when they're not
-
-**Example of broken logic:**
-- System says: "Cameron Thomas 2021 Prizm - Market: $100, Buy under: $93"
-- User finds base card for $65 → thinks it's a deal
-- Reality: Base card market is $6 → user overpaid by $59
-
-### What's Missing ❌
-
-**Phase 2 is incomplete:**
-- Current: Shows generic cards (player + year + set)
-- Needed: Show SPECIFIC cards (player + year + set + **parallel** + **grade**)
-
-**Phase 3 doesn't exist:**
-- Current: "Where to Buy" links show generic searches
-- Needed: Show specific eBay listings of THAT EXACT card variant below market
-
-**Phase 4 doesn't exist:**
-- Needed: Match current listings to specific card variants with accurate market rates
-
----
-
-## DATABASE SCHEMA ISSUE
-
-### Current Schema (Insufficient)
-```sql
-cards:
-- player_name
-- card_year
-- card_set
-- is_rookie
+### Pipeline Filters (in order)
 ```
-**Problem**: Can't differentiate between variants
-
-### Required Schema
-```sql
-cards:
-- player_name
-- card_year
-- card_set
-- parallel (Base, Silver, Red Ice, Purple Wave, etc.)
-- grade_company (Raw, PSA, BGS, SGC)
-- grade_value (9, 9.5, 10, etc.)
-- is_rookie
+SCP Catalog (100 variations/player)
+  -> SCP price range ($20-$1000)
+  -> Volume filter (reject "rare", "1 sale/year", "2 sales/year")
+  -> eBay search (BIN + Auctions)
+  -> Title validation (player + year + card# + parallel)
+  -> Junk filter (you pick, mystery, repack, etc.)
+  -> Factory set filter (complete set, montgomery, walmart/target exclusive)
+  -> Reprint filter (replica, project 2020, shoebox treasures)
+  -> Wrong set detection (gold label, gallery, etc. in wrong context)
+  -> BIN price floor (< 30% of SCP = different product)
+  -> Profit/ROI threshold
+  -> BIN suspicious flagging (30-50% of SCP)
+  -> Store in DB with listing_type tag
 ```
 
----
+### Observability
+- Structured logging (`backend/utils/logger.py`) -- WARN+ persists to `error_log` table
+- FastAPI request middleware with timing and request_id tracking
+- API endpoints: `/api/errors`, `/api/errors/summary`
+- Job tracking: `job_runs` table, `/api/status` endpoint
+- Data retention: self-managing via `run_retention_cleanup()` PostgreSQL function
 
-## API USAGE & LIMITATIONS
+### Database State
+- 25,434 cards (40 players)
+- 42,313 sales (real eBay sold data)
+- 44,165 active listings (BIN + Auction)
+- ~724 market rates (from old collection approach)
+- 113 opportunities (latest scan, stored in DB)
+- Sport: Baseball only
 
-### eBay API Status
-- **Daily Limit**: 5,000 calls
-- **Current Usage**: 25 calls/day (Phase 1 + 1.5 only)
-- **Rate Limit Hit**: Feb 16 & 17 (hit limit during testing)
-- **Sandbox**: Configured but has no test data
+### Infrastructure Ready
+- GitHub Actions workflow (`.github/workflows/pipeline.yml`) -- run pipeline off-laptop
+- RDS CloudFormation template (`aws/cloudformation/rds.yaml`) -- PostgreSQL free tier
+- Migration script (`aws/migrate-to-rds.sh`) -- dump local DB, load into RDS
+- Firefox binary auto-detection for local vs GitHub Actions environments
 
-### Why We Stopped at Phase 1.5
-- Phase 2 (active listings) costs 20 API calls per run
-- Kept hitting rate limits during development
-- Decided to use manual search instead
+### Other Working Systems
+- Volume-based player discovery (45 seed players, ranked by eBay volume)
+- Master pipeline (`run_pipeline_full.py`) -- all 5 steps
+- Set-specific eBay searches (7 queries/player)
+- Precise parallel extraction (80+ patterns)
+- Insert set detection (20+ insert names)
+- eBay API (production, auto-refreshing OAuth, 5,000 calls/day)
+- SCP scraper (Firefox/Selenium) -- search and direct product page scraping
+- Card images from eBay thumbnails
+- PostgreSQL database with variant-aware schema (migrations 001-010)
+- FastAPI REST API with 18+ endpoints
+- React frontend with Ragnarok Gaming dark theme
+- Opportunities page: scan timestamp, SCP verify link, 3 price tiers, eBay images, "Needs Review" section
 
-### The Real Problem
-Without active listings data, we can't:
-1. Know which specific variants are currently available
-2. Match listings to specific card variants
-3. Calculate accurate buy zones per variant
-
----
-
-## PROPOSED SOLUTION
-
-### Option A: Fix eBay Integration (Expensive)
-1. Add parallel/grade to database schema
-2. Scrape active listings with variant detection (20 calls)
-3. Match listings to specific card variants
-4. Calculate market rate per variant
-**Cost**: 45 API calls/day, risk hitting limits
-
-### Option B: Use Supplemental Data (Recommended)
-1. Add parallel/grade to database schema
-2. Scrape **130point.com** for variant-specific market rates (0 eBay calls)
-3. Use eBay sold data we already have to validate
-4. Show specific card opportunities with accurate pricing
-**Cost**: 25 eBay calls/day + web scraping (unlimited)
-
----
-
-## SUPPLEMENTAL DATA SOURCES
-
-### 130point.com (Recommended)
-- **Data**: Real-time eBay sales aggregated by variant
-- **Cost**: Free web scraping, no API
-- **Coverage**: All sports, all variants, all grades
-- **Example**: "Cameron Thomas 2021 Prizm Silver PSA 9 - Last sale: $24.50"
-
-### CardLadder (Planned)
-- **Data**: Price benchmarks and velocity
-- **Integration**: NovaAct scraper (already built)
-- **Status**: Infrastructure ready, needs testing
-
-### PSA Price Guide
-- **Data**: Graded card values by grade
-- **Cost**: Free web scraping
-- **Coverage**: PSA graded cards only
+### Players (40 total)
+Ken Griffey Jr, Shohei Ohtani, Nolan Ryan, Mike Trout, Cal Ripken Jr,
+Aaron Judge, Derek Jeter, Ronald Acuna Jr, Juan Soto, Bryce Harper,
+Fernando Tatis Jr, Mookie Betts, Julio Rodriguez, Bobby Witt Jr,
+Freddie Freeman, Elly De La Cruz, Ichiro Suzuki, Paul Skenes,
+Adley Rutschman, Corbin Carroll, James Wood, Corey Seager,
+Jackson Chourio, Jasson Dominguez, Gunnar Henderson, Jackson Holliday,
+Trea Turner, Dylan Crews, Jackson Merrill, Roki Sasaki,
+Yoshinobu Yamamoto, Junior Caminero, Marcelo Mayer, Wyatt Langford,
+Evan Carter, Colton Cowser, Jordan Walker, Masyn Winn,
+Spencer Strider, Jac Caglianone
 
 ---
 
-## NEXT STEPS (PRIORITY ORDER)
+## WHAT'S BROKEN -- HONEST ASSESSMENT
 
-### Immediate (This Week)
-1. **Add parallel/grade columns** to cards table
-2. **Build 130point scraper** for variant-specific market rates
-3. **Update card detail pages** to show specific variants
-4. **Test with Cameron Thomas** as proof of concept
+### 1. Grade Mismatch
+Pipeline compares ungraded SCP price to graded eBay listings (and vice versa). Example: Juan Soto Gold Stars #224 -- SCP ungraded is $1.50, PSA 10 is $30. Pipeline matched a $9.99 ungraded BIN against the PSA 10 price and showed $17 profit. Completely wrong.
 
-### Short Term (Next Week)
-1. Reprocess existing sales data to extract parallels/grades
-2. Update trending page to show specific variants
-3. Update "Where to Buy" links to search for specific variants
-4. Add inventory tracking
+### 2. Variant Matching Still Too Loose
+"Magenta Speckle Refractor" matched to SCP "Magenta Refractor" -- different cards, different print runs (/350 vs /399). Pipeline needs to treat sub-variants as distinct parallels.
 
-### Medium Term (Next Month)
-1. CardLadder integration (NovaAct)
-2. PSA population data (NovaAct)
-3. Automated daily runs (2 AM)
-4. Price alerts
+### 3. SCP Price Reliability on Low-Volume Cards
+SCP prices based on 1-3 sales from 2+ years ago are historical artifacts, not current market value. Example: Jordan Walker Father's Day Blue -- SCP says $220 based on 2023-2024 sales, but the card hasn't sold in 6 months and the trend is clearly down. The pipeline treats stale SCP prices as gospel.
 
----
+Worse: some low-volume SCP pages have misclassified sales (Juan Soto sales appearing on a Jordan Walker product page). When there are only 2-3 total sales, one misclassified entry corrupts the entire price.
 
-## KEY INSIGHTS FROM TODAY
+### 4. Volume Filter Not Tight Enough
+"3 sales per year" currently passes the volume filter but produces nothing but noise in practice. Every card manually validated at that volume level was a pass -- either dead money, declining trend, or no exit liquidity.
 
-1. **Grouping cards by player+year+set is insufficient** - variants have vastly different values
-2. **Manual search doesn't work** - users don't know which variant to search for
-3. **eBay API limits are real** - need supplemental data sources
-4. **130point.com is the answer** - free, comprehensive, variant-specific data
-5. **System is 70% complete** - data collection works, but analysis is broken
+### 5. Factory Set Filter Blind Spot
+Factory set filter checks eBay titles but not SCP product names. When the eBay title says "2020 Topps #224 Gold Star" (no "complete set" mention) but the SCP product is "2020 Topps Complete Set", the filter misses it.
+
+### 6. Reprint Detection Gaps
+Cal Ripken "R&N China Topps Porcelain" and "2015 Topps Cardboard Icon 5x7" are reprints that don't match current REPRINT_PATTERNS. Need to add "porcelain", "cardboard icon", "5x7" patterns.
+
+### 7. Team Set / Multi-Card Listings
+Nolan Ryan 1972 Topps -- eBay listing was "California Angels Team Set w/o #595 Nolan Ryan (27)" -- a team set WITHOUT the Ryan card. Pipeline matched it as a single card.
 
 ---
 
-## FILES TO UPDATE
+## LESSONS LEARNED (March 20 -- Manual Validation Session)
 
-### Database
-- `backend/models/schema.sql` - Add parallel, grade_company, grade_value columns
-- `backend/models/migration_006_card_variants.sql` - New migration
+### Volume Is Everything
+Every card manually validated with "3 sales per year" or less was a pass:
+- Jordan Walker Father's Day Blue /50: 3 sales/year, declining from $470 to $190, no PSA 9 data
+- Jordan Walker Brick by Brick Auto /50: 3 sales/year, last sale July 2023, zero recent eBay solds
+- Jordan Walker Leaf Ultimate Auto: 1 sale/year, SCP page has misclassified sales
+- Juan Soto Gold Mosaic /10: 1 sale ever (2022), BGS 9 not PSA, no exit
 
-### Scrapers
-- `backend/scrapers/point130_scraper.py` - NEW: Scrape 130point for market rates
-- `backend/scrapers/ebay_scraper.py` - Update to extract parallel/grade from titles
+The one card that looked like a real opportunity: Juan Soto Mystical Green /99 -- "1 sale per month" volume, 3 recent comps validating the SCP price, active player, stable trend.
 
-### Services
-- `backend/services/complete_opportunity_finder.py` - Update to use variant-specific data
-- `backend/services/simple_opportunity_finder.py` - Update to group by variant
+### Real Arbitrage Range
+Real opportunities exist in the 50-85% of SCP range. Below 30% is almost certainly a different product. Between 30-50% needs manual review. The efficient market hypothesis holds for popular players on popular cards -- cheap BIN listings are cheap for a reason (factory set, wrong variant, damaged, etc.).
 
-### API
-- `backend/api/routes/cards.py` - Return variant-specific data
-- `backend/api/routes/trending.py` - Group by variant
-
-### Frontend
-- `frontend/src/pages/CardDetail.jsx` - Show specific variant info
-- `frontend/src/pages/Home.jsx` - Display variant in card list
+### Auctions Are Where Margins Live
+BIN below market rate is inherently suspicious. Auctions ending below market rate is normal -- that's how auctions work. The pipeline was excluding all auctions, which was cutting off the best opportunities.
 
 ---
 
-**Status**: System functional but fundamentally flawed. Card variant differentiation is critical missing piece. 130point.com scraper is the path forward.
+## What Changed (March 20 2026 -- Sessions 7-8)
+
+### NEW: Auction Support
+- Removed hard auction filter -- auctions now flow through the pipeline
+- Auctions skip price floor check (low current bids are normal)
+- Auctions are never flagged as "suspicious price"
+- Every opportunity tagged with `listing_type` (buy_it_now or auction)
+- Console output shows [BIN] or [AUCTION] tags
+- Summary shows breakdown: "113 opportunities found (85 BIN, 28 Auction)"
+- Database: `listing_type` column added (migration_010)
+- API: `?listing_type=auction` filter, `/api/auctions` endpoint now functional
+
+### NEW: Pipeline Quality Filters (Session 7)
+- Auction filtering: discovered pipeline was treating auction bids as BIN prices, fixed
+- Factory set filter: 12 patterns (complete set, montgomery club, walmart/target exclusive, etc.)
+- Price floor: BIN below 30% of SCP hard-rejected (MIN_PRICE_RATIO = 0.30)
+- Suspicious flagging: BIN between 30-50% of SCP flagged for "Needs Review"
+- Volume capture: parses SCP volume text ("1 sale per day", "rare", etc.)
+- Volume filter: skips "rare", "1 sale per year", "2 sales per year"
+
+### NEW: GitHub Actions + RDS Infrastructure (Session 7)
+- `.github/workflows/pipeline.yml`: workflow_dispatch with configurable inputs
+- `aws/cloudformation/rds.yaml`: RDS PostgreSQL free tier template
+- `aws/migrate-to-rds.sh`: local-to-RDS migration script
+
+### Previous Sessions
+- Session 6 (March 19-20): SCP-to-eBay pipeline built and validated
+- Session 5 (March 19): SCP card-number-first matching rewrite
+- Session 4 (March 19): Graduated SCP search + set validation, insert set detection
+- Session 3 (March 18): Parallel precision, volume expansion to 40 players, Ragnarok Gaming UI
+- Session 2 (March 18): Card images, Leaf sub-sets, SCP sanity check, buy links
+- Session 1 (March 18): Pipeline, discovery, OpportunityAnalyzer core
+
+---
+
+## Known Issues / Next Steps (Priority Order)
+
+### 1. TIGHTEN VOLUME FILTER
+Reject "3 sales per year" -- every card at that level was a pass during manual validation. Minimum viable volume is "1 sale per month".
+
+### 2. ADD MINIMUM PROFIT THRESHOLD
+$6 profit on an $18 card isn't worth the research time. Need a minimum dollar amount ($15-20).
+
+### 3. FIX GRADE MISMATCH
+Pipeline must compare ungraded-to-ungraded, graded-to-graded. Currently uses SCP ungraded price for all listings regardless of grade.
+
+### 4. FIX VARIANT MATCHING
+"Magenta Speckle" != "Magenta". Sub-variants need to be treated as distinct parallels.
+
+### 5. EXPAND REPRINT PATTERNS
+Add: "porcelain", "cardboard icon", "5x7", "team set", "set w/o", "set without".
+
+### 6. WORKER SEPARATION (Milestone 1)
+Data gathering (SCP scraping, eBay API calls) must run in a separate process from the core app. See ADR-004.
+
+### 7. DEMAND-DRIVEN REFRESH (Milestone 2)
+No crons. Data refreshes only when needed. See ADR-004.
+
+### 8. CROSS-VALIDATE SCP PRICES
+For high-value opportunities, check eBay sold data to confirm SCP price is realistic.
+
+### 9. Redesign Remaining Pages
+Inventory, Watchlist, CardDetail still have old white theme.
+
+### 10. AWS DEPLOYMENT (Milestone 3)
+Core app on ECS, worker on ECS task, database on RDS, frontend on CloudFront + S3.
+
+### 11. EBAY ACCOUNT INTEGRATION (Milestone 3)
+OAuth login, auto-import purchases, auto-track sales.
+
+### 12. APPLY FOR EBAY COMPATIBLE APPLICATION STATUS
+Upgrade from 5,000 to 50,000-200,000+ API calls/day.
+
+### 13. Basketball/Football Support (Milestone 6)
+
+See `docs/ROADMAP.md` for full feature roadmap with milestones.
+
+---
+
+## Architecture
+
+### Opportunity Pipeline
+```
+HOT PLAYERS (from eBay sales volume or manual list)
+    |
+    v
+[SCP Selenium] -- 1 search per player --> full catalog (100 variations + prices + volume)
+    |
+    v
+FILTER -- $20-$1000 SCP price range
+       -- Volume filter (reject rare, 1/year, 2/year)
+    |
+    v
+[eBay Browse API] -- 1 search per variation --> active listings (BIN + Auctions)
+    |
+    v
+VALIDATE -- player name + year + card# + variation keyword in title
+         -- exclude junk, factory sets, reprints, wrong sets
+         -- BIN price floor (30% of SCP)
+    |
+    v
+CALCULATE -- SCP price - buy price - 13% fees = profit
+    |
+    v
+STORE -- opportunities table (listing_type: buy_it_now or auction)
+    |
+    v
+API --> Ragnarok Gaming UI (BIN + Auction tabs, Needs Review section)
+```
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `find_opportunities.py` | SCP-to-eBay opportunity pipeline (PRIMARY) |
+| `backend/models/__init__.py` | SQLAlchemy models (Opportunity with listing_type) |
+| `backend/api/routes/opportunities.py` | Opportunities + Auctions API endpoints |
+| `frontend/src/pages/Opportunities.jsx` | Opportunities page (Ragnarok Gaming theme) |
+| `backend/run_pipeline_full.py` | Master data pipeline (7 queries/player) |
+| `backend/scrapers/ebay_scraper.py` | eBay import + parallel extraction |
+| `backend/utils/logger.py` | Structured logging (WARN+ to DB) |
+| `backend/utils/job_tracker.py` | Job tracking (job_runs table) |
+| `backend/utils/retention.py` | Self-managing data retention |
+| `.github/workflows/pipeline.yml` | GitHub Actions pipeline workflow |
+| `aws/cloudformation/rds.yaml` | RDS PostgreSQL CloudFormation template |
+| `PIPELINE-OPS.md` | Operations guide |
+
+## Services
+
+```bash
+sudo service postgresql start
+
+# API: http://localhost:8000 (Swagger: /docs)
+cd /home/tweedledee101/TradingCards
+nohup /usr/bin/python3 -m backend.api.run > /tmp/api.log 2>&1 &
+
+# Frontend: http://localhost:3000
+cd /home/tweedledee101/TradingCards/frontend
+nohup npm run dev > /tmp/frontend.log 2>&1 &
+```

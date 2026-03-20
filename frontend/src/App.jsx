@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Link } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, NavLink } from 'react-router-dom';
 import Home from './pages/Home';
 import CardDetail from './pages/CardDetail';
 import Inventory from './pages/Inventory';
@@ -7,35 +7,46 @@ import Opportunities from './pages/Opportunities';
 import './index.css';
 
 function App() {
+  const navLinkClass = ({ isActive }) =>
+    `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+      isActive
+        ? 'bg-ember-glow text-ember-light'
+        : 'text-frost-dim hover:text-frost-light hover:bg-surface-raised'
+    }`;
+
   return (
     <Router>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-surface">
         {/* Navigation */}
-        <nav className="bg-white shadow-sm">
-          <div className="max-w-7xl mx-auto px-6 py-4">
-            <div className="flex items-center justify-between">
-              <Link to="/" className="text-2xl font-bold text-blue-600">
-                Trading Cards
-              </Link>
-              <div className="flex gap-6">
-                <Link to="/" className="text-gray-700 hover:text-blue-600">
-                  Trending
-                </Link>
-                <Link to="/opportunities" className="text-gray-700 hover:text-blue-600 font-semibold">
-                  💰 Opportunities
-                </Link>
-                <Link to="/inventory" className="text-gray-700 hover:text-blue-600">
-                  Inventory
-                </Link>
-                <Link to="/watchlist" className="text-gray-700 hover:text-blue-600">
-                  Watchlist
-                </Link>
+        <nav className="border-b border-surface-border bg-surface-card/80 backdrop-blur-sm sticky top-0 z-50" role="navigation" aria-label="Main navigation">
+          <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
+            <NavLink to="/" className="flex items-center gap-2.5">
+              <div className="w-24 h-24 shrink-0" style={{ maskImage: 'radial-gradient(circle, black 40%, transparent 70%)', WebkitMaskImage: 'radial-gradient(circle, black 40%, transparent 70%)' }}>
+                <img src="/logo.png" alt="Ragnarok Games" className="w-full h-full object-contain" />
               </div>
+              <span className="text-lg font-display font-semibold text-frost-light tracking-wide uppercase">
+                Ragnarok <span className="text-ember">Gaming</span>
+              </span>
+            </NavLink>
+            <div className="flex items-center gap-1">
+              <NavLink to="/" className={navLinkClass} end>
+                Trending
+              </NavLink>
+              <NavLink to="/opportunities" className={navLinkClass}>
+                Opportunities
+              </NavLink>
+              <NavLink to="/inventory" className={navLinkClass}>
+                Inventory
+              </NavLink>
+              <NavLink to="/watchlist" className={navLinkClass}>
+                Watchlist
+              </NavLink>
             </div>
           </div>
         </nav>
 
         {/* Routes */}
+        <main>
         <Routes>
           <Route path="/" element={<Home />} />
           <Route path="/opportunities" element={<Opportunities />} />
@@ -43,6 +54,7 @@ function App() {
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/watchlist" element={<Watchlist />} />
         </Routes>
+        </main>
       </div>
     </Router>
   );

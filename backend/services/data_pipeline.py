@@ -21,11 +21,20 @@ class DataPipeline:
         self.calculator = TrendCalculator()
     
     def find_or_create_card(self, db: Session, sale_data: Dict) -> Card:
-        """Find existing card or create new one"""
+        """Find existing card or create new one, matching on variant columns including card_number"""
+        parallel = sale_data.get('parallel') or 'Base'
+        grade_company = sale_data.get('grade_company') or None
+        grade_value = sale_data.get('grade_value') or None
+        card_number = sale_data.get('card_number') or None
+        
         card = db.query(Card).filter(
             Card.player_name == sale_data.get('player_name', 'Unknown'),
             Card.card_year == sale_data['card_year'],
-            Card.card_set == sale_data['card_set']
+            Card.card_set == sale_data['card_set'],
+            Card.card_number == card_number,
+            Card.parallel == parallel,
+            Card.grade_company == grade_company,
+            Card.grade_value == grade_value
         ).first()
         
         if not card:
@@ -33,8 +42,12 @@ class DataPipeline:
                 player_name=sale_data.get('player_name', 'Unknown'),
                 card_year=sale_data['card_year'],
                 card_set=sale_data['card_set'],
-                is_rookie=sale_data['is_rookie'],
-                sport=sale_data.get('sport', 'Basketball')
+                card_number=card_number,
+                parallel=parallel,
+                grade_company=grade_company,
+                grade_value=grade_value,
+                is_rookie=sale_data.get('is_rookie', False),
+                sport=sale_data.get('sport', 'Unknown')
             )
             db.add(card)
             db.flush()

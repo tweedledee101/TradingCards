@@ -127,6 +127,15 @@ class EbayScraper:
             if not card_info.get('card_year') or not card_info.get('card_set'):
                 continue
             
+            # Get best image URL (prefer full-size thumbnail)
+            image_url = None
+            thumbs = item.get('thumbnailImages', [])
+            if thumbs:
+                image_url = thumbs[0].get('imageUrl')
+            if not image_url:
+                img = item.get('image', {})
+                image_url = img.get('imageUrl') if img else None
+
             parsed = {
                 'ebay_item_id': item.get('itemId'),
                 'title': title,
@@ -134,7 +143,8 @@ class EbayScraper:
                 'currency': item.get('price', {}).get('currency'),
                 'sale_date': item.get('itemEndDate') or datetime.now().isoformat(),  # Fallback to now
                 'condition': item.get('condition'),
-                'listing_type': 'auction' if 'AUCTION' in item.get('buyingOptions', []) else 'buy_it_now'
+                'listing_type': 'auction' if 'AUCTION' in item.get('buyingOptions', []) else 'buy_it_now',
+                'image_url': image_url
             }
             
             # Skip junk data (price < $1)
@@ -187,47 +197,53 @@ class EbayScraper:
         year_match = re.search(r'\b(19|20)\d{2}\b', title)
         year = int(year_match.group()) if year_match else None
         
-        # Use eBay's condition field to determine if graded
+        # Check grading from eBay condition field OR title text
         graded = ebay_condition == 'Graded'
         grade_company = None
         grade_value = None
         
-        if graded:
-            # PSA grading
-            if 'psa' in title_lower:
-                grade_company = 'PSA'
-                grade_match = re.search(r'psa\s*(\d+(?:\.\d)?)', title_lower)
-                if grade_match:
-                    val = float(grade_match.group(1))
-                    # Valid PSA grades: 1-10
-                    if 1 <= val <= 10:
-                        grade_value = val
-            
-            # BGS/Beckett grading
-            elif 'bgs' in title_lower or 'beckett' in title_lower:
-                grade_company = 'BGS'
-                grade_match = re.search(r'(?:bgs|beckett)\s*(\d+(?:\.\d)?)', title_lower)
-                if grade_match:
-                    val = float(grade_match.group(1))
-                    # Valid BGS grades: 1-10
-                    if 1 <= val <= 10:
-                        grade_value = val
-            
-            # SGC grading
-            elif 'sgc' in title_lower:
-                grade_company = 'SGC'
-                grade_match = re.search(r'sgc\s*(\d+(?:\.\d)?)', title_lower)
-                if grade_match:
-                    val = float(grade_match.group(1))
-                    # Valid SGC grades: 1-10
-                    if 1 <= val <= 10:
-                        grade_value = val
+        # Always try to extract grading from title (eBay condition field is unreliable)
+        # PSA grading
+        if 'psa' in title_lower:
+            grade_company = 'PSA'
+            graded = True
+            grade_match = re.search(r'psa\s*(\d+(?:\.\d)?)', title_lower)
+            if grade_match:
+                val = float(grade_match.group(1))
+                if 1 <= val <= 10:
+                    grade_value = val
+        
+        # BGS/Beckett grading
+        elif 'bgs' in title_lower or 'beckett' in title_lower:
+            grade_company = 'BGS'
+            graded = True
+            grade_match = re.search(r'(?:bgs|beckett)\s*(\d+(?:\.\d)?)', title_lower)
+            if grade_match:
+                val = float(grade_match.group(1))
+                if 1 <= val <= 10:
+                    grade_value = val
+        
+        # SGC grading
+        elif 'sgc' in title_lower:
+            grade_company = 'SGC'
+            graded = True
+            grade_match = re.search(r'sgc\s*(\d+(?:\.\d)?)', title_lower)
+            if grade_match:
+                val = float(grade_match.group(1))
+                if 1 <= val <= 10:
+                    grade_value = val
         
         # Extract card set (common patterns)
         card_set = self._extract_card_set(title)
         
         # Extract parallel type
         parallel = self._extract_parallel(title)
+        
+        # Extract card number from title (#RP-RA, #193, #US252, etc.)
+        card_number = None
+        num_match = re.search(r'#([A-Za-z0-9-]+)', title)
+        if num_match:
+            card_number = num_match.group(1)
         
         return {
             'is_rookie': is_rookie,
@@ -236,7 +252,8 @@ class EbayScraper:
             'grade_company': grade_company,
             'grade_value': grade_value,
             'card_set': card_set,
-            'parallel': parallel
+            'parallel': parallel,
+            'card_number': card_number
         }
     
     def get_full_item_details(self, item_id: str) -> Optional[Dict]:
@@ -378,44 +395,103 @@ class EbayScraper:
     
     def _extract_card_set(self, title: str) -> Optional[str]:
         """
-        Extract card set name from title
-        
-        Common sets: Prizm, Optic, Select, Topps Chrome, Bowman, etc.
-        
-        Args:
-            title: eBay listing title
-            
-        Returns:
-            Card set name or 'Unknown' if not found
+        Extract card set name from title, including sub-sets.
+        Matches most specific set first (e.g. "Topps Heritage Rookie Performers" before "Topps").
         """
         if not title:
             return 'Unknown'
         
         title_lower = title.lower()
         
-        # Common basketball sets
-        sets = [
-            'prizm', 'optic', 'select', 'mosaic', 'donruss',
-            'chronicles', 'hoops', 'revolution', 'contenders'
+        # Specific sub-sets first (order matters - most specific first)
+        specific_sets = [
+            'topps chrome update', 'topps chrome',
+            # Topps sub-sets
+            'topps heritage high number', 'topps heritage',
+            'topps update', 'topps fire', 'topps holiday', 'topps opening day',
+            'topps allen & ginter', 'topps allen and ginter',
+            'topps gallery', 'topps gold label', 'topps inception',
+            'topps luminaries', 'topps museum collection',
+            'topps series 2', 'topps series 1',
+            'topps tier one', 'topps tribute', 'topps now',
+            'topps high tek', 'topps finest',
+            # Bowman sub-sets
+            'bowman chrome', 'bowman draft', 'bowman platinum',
+            'bowman sterling', 'bowman best', "bowman's best",
+            # Stadium Club
+            'stadium club chrome', 'stadium club',
+            'gypsy queen',
+            # Panini sub-sets
+            'panini prizm', 'panini select', 'panini mosaic',
+            'panini donruss optic', 'panini donruss',
+            'panini chronicles', 'panini contenders',
+            'panini revolution', 'panini hoops',
+            'panini flawless', 'panini national treasures',
+            'panini immaculate', 'panini spectra',
+            # Leaf sub-sets (order matters - most specific first)
+            'leaf certified materials', 'leaf certified',
+            'leaf limited', 'leaf rookies & stars', 'leaf rookies and stars',
+            'leaf rookie achievement', 'leaf rookie stars',
+            'leaf exclusive rookie', 'leaf exclusive legends',
+            'leaf legend exclusive', 'leaf prized legend',
+            'leaf collective promo', 'leaf collective',
+            'leaf baseball lore', 'leaf draft',
+            'leaf perfect game', 'leaf studio',
+            'leaf flag rookie', 'leaf silver',
+            'leaf legend', 'leaf rookie', 'leaf og',
         ]
         
-        # Common baseball sets
-        sets.extend([
-            'topps chrome', 'bowman chrome', 'topps', 'bowman',
-            'stadium club', 'heritage', 'gypsy queen'
-        ])
+        for card_set in specific_sets:
+            if card_set in title_lower:
+                matched_set = card_set.title()
+                # Check if title also contains an insert sub-set name
+                # (often separated from set name by player name)
+                insert_names = [
+                    '1984 topps', '1985 topps', '1986 retro', '1972 retro',
+                    '35th anniversary', '50th anniversary',
+                    'all etch', 'all-topps', 'all topps',
+                    'all time rookie', 'chrome connection',
+                    "decade's next", 'decades next',
+                    'lord of the diamonds', 'master of the game',
+                    'milestone', 'national chicle',
+                    'opening day', 'power players',
+                    'record numbers', 'rookie cup',
+                    'torres terrors', 'cup card',
+                ]
+                for ins in insert_names:
+                    if ins in title_lower and ins not in card_set:
+                        return f"{matched_set} {ins.title()}"
+                return matched_set
         
-        # Check for multi-word sets first (more specific)
-        for card_set in ['topps chrome', 'bowman chrome', 'stadium club', 'gypsy queen']:
+        # Then try to extract insert/sub-set names from title
+        # Pattern: "YEAR SetName PlayerName" or "PlayerName YEAR SetName"
+        # Look for known insert keywords
+        insert_keywords = [
+            'rookie performers', 'rookie salute', 'year in review',
+            'rookie debut', 'rookie cup', 'future stars',
+            'all-star', 'all star', 'home run derby',
+            'postseason', 'world series',
+            'my 1st bowman', '1st bowman',
+        ]
+        for kw in insert_keywords:
+            if kw in title_lower:
+                # Find the parent set
+                for parent in ['topps heritage', 'topps chrome', 'topps update', 'topps', 'bowman chrome', 'bowman']:
+                    if parent in title_lower:
+                        return f"{parent} {kw}".title()
+                return kw.title()
+        
+        # Generic single-word sets
+        generic_sets = [
+            'prizm', 'optic', 'select', 'mosaic', 'donruss',
+            'chronicles', 'hoops', 'revolution', 'contenders',
+            'topps', 'bowman', 'heritage', 'leaf',
+        ]
+        for card_set in generic_sets:
             if card_set in title_lower:
                 return card_set.title()
         
-        # Then check single-word sets
-        for card_set in sets:
-            if card_set in title_lower:
-                return card_set.title()
-        
-        # Fallback: extract brand name (Panini, Topps, Upper Deck, etc.)
+        # Fallback brands
         brands = ['panini', 'topps', 'upper deck', 'leaf', 'fleer']
         for brand in brands:
             if brand in title_lower:
@@ -425,47 +501,106 @@ class EbayScraper:
     
     def _extract_parallel(self, title: str) -> str:
         """
-        Extract parallel/variant type from title
+        Extract full parallel/variant name from title.
         
-        Common parallels: Silver, Red Ice, Purple Wave, Orange, Green, etc.
-        
-        Args:
-            title: eBay listing title
-            
-        Returns:
-            Parallel name or 'Base' if not found
+        Captures the complete variant phrase (e.g. "Lime Green Refractor",
+        "Blue Foil Pattern II", "Light Blue Sparkle") instead of just the
+        base color, so cards can be matched 1:1 with SCP.
         """
         if not title:
             return 'Base'
         
         title_lower = title.lower()
         
-        # Prizm parallels (most common)
-        prizm_parallels = [
-            'red ice', 'purple wave', 'blue ice', 'green ice',
-            'orange ice', 'pink ice', 'gold', 'silver', 'ruby wave',
-            'tiger stripe', 'choice', 'hyper', 'neon green', 'fast break'
+        # Multi-word parallels - most specific first (order matters)
+        # Each entry is matched as-is against the lowercased title
+        specific_parallels = [
+            # Foil patterns (Bowman Inception etc.)
+            'blue foil pattern ii', 'gold foil pattern ii', 'red foil pattern ii',
+            'blue foil pattern iii', 'gold foil pattern iii',
+            # Light/Lime/Sky/Royal color variants (BEFORE plain foils)
+            'light blue sparkle chrome', 'light blue sparkle',
+            'light blue foil', 'light blue',
+            'lime green refractor', 'lime green foil', 'lime green',
+            'sky blue refractor', 'sky blue',
+            'royal blue', 'navy blue',
+            # Plain foils (after light/lime/sky variants)
+            'blue foil', 'gold foil', 'red foil', 'green foil',
+            'orange foil', 'purple foil', 'pink foil',
+            # Shimmer refractors
+            'green shimmer refractor', 'blue shimmer refractor',
+            'gold shimmer refractor', 'orange shimmer refractor',
+            'red shimmer refractor', 'purple shimmer refractor',
+            'pink shimmer refractor', 'black shimmer refractor',
+            'fuchsia shimmer refractor', 'shimmer refractor',
+            # Geometric refractors
+            'green geometric refractor', 'blue geometric refractor',
+            'gold geometric refractor',
+            # Sparkle refractors
+            'green sparkle refractor', 'blue sparkle refractor',
+            'gold sparkle refractor',
+            # Speckle refractors
+            'green speckle refractor', 'blue speckle refractor',
+            'gold speckle refractor', 'speckle refractor',
+            # Color + refractor
+            'silver refractor',
+            'green refractor', 'blue refractor', 'gold refractor',
+            'red refractor', 'orange refractor', 'purple refractor',
+            'pink refractor', 'black refractor', 'yellow refractor',
+            'aqua refractor', 'fuchsia refractor',
+            # Mojo / Mega Box
+            'mega box mojo refractor', 'mega box mojo', 'mojo refractor', 'mojo',
+            # Xfractors
+            'green xfractor', 'red xfractor', 'blue xfractor', 'xfractor',
+            # Sapphire
+            'sapphire',
+            # Lava refractors
+            'yellow lava refractor', 'red lava refractor',
+            'blue lava refractor', 'green lava refractor', 'lava refractor',
+            # Gilded refractors
+            'gold gilded refractor', 'gilded refractor',
+            # Prism refractors
+            'prism refractor',
+            # Wave refractors
+            'raywave refractor', 'ray wave refractor',
+            'green wave refractor', 'blue wave refractor',
+            'gold wave refractor', 'aqua wave refractor',
+            'red wave refractor', 'orange wave refractor',
+            'purple wave refractor', 'pink wave refractor',
+            'wave refractor',
+            # Plain refractor
+            'refractor',
+            # Ice variants (Prizm)
+            'red ice', 'blue ice', 'green ice', 'orange ice', 'pink ice',
+            # Prizm specific
+            'tiger stripe', 'neon green', 'fast break', 'choice', 'hyper',
+            # Sparkle / Chrome (non-refractor)
+            'blue sparkle', 'gold sparkle', 'green sparkle',
+            'red sparkle', 'sparkle',
+            # Crackleboard
+            'silver crackleboard', 'gold crackleboard', 'crackleboard',
+            # Sepia / Black & White
+            'sepia', 'black and white', 'black & white',
+            # SP (short print)
+            'sp',
+            # Autograph (check before colors to catch "Gold Auto" etc.)
+            'autograph', 'auto',
         ]
         
-        # Check multi-word parallels first
-        for parallel in prizm_parallels:
-            if parallel in title_lower:
-                return parallel.title()
+        for p in specific_parallels:
+            if p in title_lower:
+                return p.title()
         
-        # Single color parallels
-        colors = ['silver', 'gold', 'orange', 'green', 'blue', 'red', 'purple', 'pink']
+        # Single color parallels - only if no modifier was found above
+        colors = ['silver', 'gold', 'orange', 'green', 'blue', 'red',
+                  'purple', 'pink', 'black', 'yellow', 'aqua', 'fuchsia']
         for color in colors:
-            # Match color as standalone word (not part of player name)
             if re.search(rf'\b{color}\b', title_lower):
                 return color.title()
         
-        # Numbered parallels
+        # Numbered parallels (e.g. /99, /50) - only if no color found
         if re.search(r'/\d+', title):
             return 'Numbered'
-        
-        # Auto/Autograph
-        if 'auto' in title_lower or 'autograph' in title_lower:
-            return 'Autograph'
         
         return 'Base'
     
@@ -545,12 +680,21 @@ class EbayScraper:
             items = []
             for item in response.json().get('itemSummaries', []):
                 card_info = self._extract_card_info(item.get('title', ''), item.get('condition'))
+                # Get best image URL
+                image_url = None
+                thumbs = item.get('thumbnailImages', [])
+                if thumbs:
+                    image_url = thumbs[0].get('imageUrl')
+                if not image_url:
+                    img = item.get('image', {})
+                    image_url = img.get('imageUrl') if img else None
                 items.append({
                     'ebay_item_id': item.get('itemId'),
                     'title': item.get('title'),
                     'price': float(item.get('price', {}).get('value', 0)),
                     'listing_type': 'auction' if 'AUCTION' in item.get('buyingOptions', []) else 'buy_it_now',
-                    'card_info': card_info
+                    'card_info': card_info,
+                    'image_url': image_url
                 })
             
             return items
@@ -562,69 +706,82 @@ class EbayScraper:
 if __name__ == '__main__':
     from backend.utils.database import SessionLocal
     from backend.models import Card, Sale
+    from backend.services.data_pipeline import DataPipeline
     from collections import Counter
+    import argparse
     
-    PLAYERS = [
-        ('Shohei Ohtani', 'Baseball'),
-        ('Paul Skenes', 'Baseball'),
-        ('Gunnar Henderson', 'Baseball'),
-        ('Bobby Witt Jr', 'Baseball'),
-        ('Elly De La Cruz', 'Baseball'),
-        ('Jackson Holliday', 'Baseball'),
-        ('Jackson Merrill', 'Baseball'),
-        ('Wyatt Langford', 'Baseball'),
-        ('Aaron Judge', 'Baseball'),
-        ('Ronald Acuna Jr', 'Baseball')
-    ]
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--players', nargs='+', help='Specific players to import (default: use discover_players)')
+    parser.add_argument('--days', type=int, default=30, help='Days back to search')
+    args = parser.parse_args()
+    
+    if args.players:
+        # Manual player list from command line
+        PLAYERS = [(name, 'Baseball') for name in args.players]
+    else:
+        # Use volume-based discovery
+        from backend.discover_players import discover_top_players
+        print("Running volume-based player discovery...")
+        print("=" * 70)
+        discovered = discover_top_players(days=7, limit=20, sport='Baseball')
+        PLAYERS = [(p['player_name'], p['sport']) for p in discovered]
+        print(f"\nDiscovered {len(PLAYERS)} players. Importing sold listings...")
     
     scraper = EbayScraper()
+    pipeline = DataPipeline()
     db = SessionLocal()
     
-    print("Fetching REAL eBay data...")
+    print("\nFetching eBay sold listings...")
     print("=" * 70)
     
+    from backend.config.sets import get_set_queries
+
     for player_name, sport in PLAYERS:
         print(f"\n{player_name}")
-        query = f"{player_name} rookie card"
-        sales = scraper.search_sold_listings(query, days_back=30, player_name=player_name, sport=sport)
-        print(f"  {len(sales)} sales")
-        
-        for sale in sales:
-            card = db.query(Card).filter(
-                Card.player_name == player_name,
-                Card.card_year == sale['card_year'],
-                Card.card_set == sale['card_set']
-            ).first()
-            
-            if not card:
-                card = Card(
-                    player_name=player_name,
-                    sport=sport,
-                    card_year=sale['card_year'],
-                    card_set=sale['card_set'],
-                    is_rookie=sale['is_rookie']
-                )
-                db.add(card)
-                db.flush()
-            
-            existing = db.query(Sale).filter(Sale.ebay_item_id == sale['ebay_item_id']).first()
-            if not existing:
-                sale_date = sale['sale_date']
-                if isinstance(sale_date, str):
-                    # Parse full ISO datetime from eBay
-                    sale_date = sale_date.replace('Z', '+00:00')
-                    sale_date = datetime.fromisoformat(sale_date)
-                
-                sale_record = Sale(
-                    card_id=card.id,
-                    sale_price=sale['price'],
-                    sale_date=sale_date,
-                    ebay_item_id=sale['ebay_item_id'],
-                    listing_title=sale['title']
-                )
-                db.add(sale_record)
-        
-        db.commit()
+        queries = [f"{player_name} card"] + get_set_queries(player_name, sport)
+        seen_ids = set()
+
+        for qi, query in enumerate(queries):
+            label = "generic" if qi == 0 else query.split(player_name)[-1].strip()
+            print(f"  [{label}]...", end=" ", flush=True)
+            sales = scraper.search_sold_listings(query, days_back=args.days, player_name=player_name, sport=sport)
+            imported = 0
+
+            for sale in sales:
+                if sale['ebay_item_id'] in seen_ids:
+                    continue
+                seen_ids.add(sale['ebay_item_id'])
+
+                sale['player_name'] = player_name
+                sale['sport'] = sport
+
+                card = pipeline.find_or_create_card(db, sale)
+
+                if sale.get('image_url') and not card.image_url:
+                    card.image_url = sale['image_url']
+
+                existing = db.query(Sale).filter(Sale.ebay_item_id == sale['ebay_item_id']).first()
+                if not existing:
+                    sale_date = sale['sale_date']
+                    if isinstance(sale_date, str):
+                        sale_date = sale_date.replace('Z', '+00:00')
+                        sale_date = datetime.fromisoformat(sale_date)
+
+                    sale_record = Sale(
+                        card_id=card.id,
+                        sale_price=sale['price'],
+                        sale_date=sale_date,
+                        ebay_item_id=sale['ebay_item_id'],
+                        listing_title=sale['title'],
+                        graded=sale.get('graded', False),
+                        grade_company=sale.get('grade_company'),
+                        grade_value=sale.get('grade_value')
+                    )
+                    db.add(sale_record)
+                    imported += 1
+
+            db.commit()
+            print(f"{len(sales)} found, {imported} new")
     
     print("\n" + "=" * 70)
     print("MOST POPULAR PLAYERS:")

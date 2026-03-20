@@ -5,6 +5,7 @@ import yaml
 from pathlib import Path
 from datetime import datetime
 from backend.services.data_pipeline import DataPipeline
+from backend.collect_market_rates import collect_market_rates
 
 
 class AutomatedCollector:
@@ -71,6 +72,15 @@ class AutomatedCollector:
             
             trends = self.pipeline.calculate_trends()
             print(f"✅ Calculated trends for {trends} cards")
+        
+        # Collect SportsCardsPro market rates
+        print("\n\n💰 COLLECTING MARKET RATES (SportsCardsPro)")
+        print("-" * 80)
+        try:
+            collect_market_rates()
+            print("✅ Market rates collected")
+        except Exception as e:
+            print(f"⚠️ Market rate collection failed: {e}")
         
         # Summary
         print("\n\n" + "=" * 80)

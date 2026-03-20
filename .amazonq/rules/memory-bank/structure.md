@@ -15,9 +15,10 @@ TradingCards/
 │   │   ├── schema.sql   # Main database schema (9 tables)
 │   │   └── migration_*.sql  # Database migrations
 │   ├── scrapers/        # Data collection scrapers
-│   │   ├── ebay_scraper.py      # eBay Browse API scraper
-│   │   ├── psa_scraper.py       # PSA population scraper
-│   │   └── cardladder_scraper.py # Card Ladder price scraper
+│   │   ├── ebay_scraper.py           # eBay Browse API scraper
+│   │   ├── sportscardspro_scraper.py # SportsCardsPro market rates (Selenium/Firefox)
+│   │   ├── psa_scraper.py            # PSA population scraper
+│   │   └── cardladder_scraper.py     # Card Ladder price scraper
 │   ├── services/        # Business logic services
 │   │   ├── data_pipeline.py          # Data orchestration
 │   │   ├── trend_calculator.py       # Hotness/momentum algorithms
@@ -84,11 +85,18 @@ Orchestrates data collection from multiple sources:
 **Location**: `backend/scrapers/`
 
 Data collection from external sources:
-- **eBay Scraper**: Browse API for sold listings and active listings
-- **PSA Scraper**: Selenium-based scraper for grading population data
-- **Card Ladder Scraper**: Selenium-based scraper for price benchmarks
+- **eBay Scraper**: Browse API for sold listings and active listings (WORKING)
+  - 80+ parallel patterns (Lime Green, Blue Foil Pattern II, Raywave Refractor, Silver Refractor, wave variants, etc.)
+  - Insert set detection (Master Of The Game, 1986 Retro, Milestone, National Chicle, Decade's Next, etc.)
+  - 79 card sets including 16 Leaf sub-sets
+- **SportsCardsPro Scraper**: Selenium/Firefox for Ungraded/Grade 9/PSA 10 market rates (WORKING)
+- **PSA Scraper**: Selenium-based scraper for grading population data (untested)
+- **Card Ladder Scraper**: Selenium-based scraper for price benchmarks (untested)
 
-**Integration Pattern**: Scrapers → Webhooks → Database → Frontend
+**SportsCardsPro URL Pattern**: `/search-products?q={query}&type=prices`
+**SportsCardsPro Table Classes**: `used_price` (Ungraded), `cib_price` (Grade 9), `new_price` (PSA 10)
+
+**Integration Pattern**: Scrapers → Database → API → Frontend
 
 ### 3. REST API
 **Location**: `backend/api/`
@@ -108,14 +116,29 @@ FastAPI-based REST API with 18+ endpoints:
 **Location**: `frontend/src/`
 
 React SPA with Vite + Tailwind CSS:
-- **Pages**: Dashboard, Card Details, Inventory, Watchlist
-- **Components**: CardTable, FilterPanel, PriceChart, GradingPopulation
+- **Theme**: Ragnarok Gaming dark theme (charcoal #0f1117 + ember orange #e8590c)
+- **Fonts**: Cinzel for display headings, Inter for body
+- **Pages**: Trending (Home), Opportunities, Card Details, Inventory, Watchlist
+- **Components**: CardTable, FilterPanel, PriceChart, OpportunityCard
 - **State Management**: React hooks + localStorage
 - **Styling**: Tailwind CSS utility classes
 
-**Key Features**: Budget filters, profit margin display, price history charts, responsive design
+### 6. Job Tracking
+**Location**: `backend/utils/job_tracker.py`
 
-### 5. Database Schema
+Runtime state management for all background jobs:
+- Every script records start, progress, completion, and failure
+- API exposes `/api/status` for UI and tooling to check job state
+- Designed for AWS migration: same table in RDS, or swap to DynamoDB/Step Functions
+- No polling, no process checks -- state lives in the database
+
+**Database Table**: `job_runs` (migration_006_job_runs.sql)
+- job_name, status (running/completed/failed), started_at, completed_at
+- items_processed, items_total (progress tracking)
+- parameters (JSONB -- what args was it called with)
+- results_summary (JSONB -- key metrics from the run)
+
+### 7. Database Schema
 **Location**: `backend/models/schema.sql`
 
 PostgreSQL database with 9 tables:
@@ -129,24 +152,33 @@ PostgreSQL database with 9 tables:
 - `accuracy_tracking` - Prediction validation
 - `sell_through_metrics` - Market confidence
 
-### 6. Automation System
-**Location**: `backend/services/scheduler.py`
+### 8. Data Refresh Architecture (ADR-004)
+**Pattern**: Demand-driven refresh with deterministic staleness. No crons.
 
-APScheduler-based automation:
-- Daily data collection at 2 AM
-- Target list processing (25 players)
-- Report generation (CSV + TXT)
-- Automated trend detection
+Core principle: the data knows when it's stale.
+- Active listings have end dates -- expiry is deterministic, no API call needed
+- Sold listings are immutable -- never re-fetch
+- SCP prices move slowly -- trust for 24 hours
+- Opportunities are only stale when underlying data expires
+
+Refresh triggers:
+- User requests data and cache is older than staleness threshold
+- Valid opportunity pool drops below threshold (too many listings expired)
+- Manual trigger via API (admin use)
+
+NEVER refresh because a clock says so. Every API call and scrape must produce value.
+
+See: `docs/architecture/decisions/ADR-004-demand-driven-refresh.md`
 
 ## Architectural Patterns
 
 ### Data Flow Architecture
 ```
-External Sources → Scrapers → Webhooks → Database → API → Frontend
-                                    ↓
-                            Trend Calculator
-                                    ↓
-                          Opportunity Analyzer
+External Sources → Scrapers → Database → API → Frontend
+                                  ↓
+                     Graduated SCP Search (3 queries + set validation)
+                                  ↓
+                        Opportunity Analyzer (SCP-required, 3x sanity check)
 ```
 
 ### Service Layer Pattern
@@ -205,5 +237,6 @@ players:
 - **Backend**: AWS ECS (Docker containers)
 - **Frontend**: AWS CloudFront + S3
 - **Database**: AWS RDS (PostgreSQL)
-- **Scrapers**: AWS Lambda (scheduled)
+- **Scrapers**: AWS ECS Tasks or Lambda (demand-driven, NOT scheduled)
 - **IaC**: CloudFormation templates
+- **Refresh**: Demand-driven with caching (ADR-004), no crons

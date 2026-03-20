@@ -128,18 +128,21 @@ Get overall market statistics.
 ### 2. Market Data Calculation
 
 For each card with enough sales:
-- **Market Rate**: Average of recent sales
+- **Market Rate**: SportsCardsPro ungraded/grade 9/PSA 10 price (REQUIRED - no SCP = no opportunity)
+- **Graduated SCP Search**: Tries 3 query formats, validates set on every result, rejects wrong-product matches
+- **SCP Sanity Check**: If SCP rate is 3x+ off from both avg AND median sales, reject it (bad match)
 - **Price Range**: Min to max (consistency check)
-- **Days to Sell**: Average time from listing to sale
+- **Days to Sell**: Estimated from sales count over 30-day window
 
 ### 3. Arbitrage Analysis
 
-- **Buy Price**: Cheapest current listing
-- **Sell Price**: Market rate (recent avg)
+- **Buy Price**: Cheapest current BIN listing (auctions excluded from arbitrage calc)
+- **Sell Price**: SCP market rate (must pass set validation + sanity check)
 - **Fees**: 13% (eBay 12.9% + PayPal ~0.1%)
-- **Net Profit**: Gross profit - fees
-- **ROI**: (Net profit / Buy price) × 100
-- **Profit Score**: ROI × 2 (capped at 100)
+- **Net Profit**: Sell price - fees - buy price (minimum $3)
+- **ROI**: (Net profit / Buy price) x 100
+- **Buy Listings**: Direct eBay links to each profitable BIN listing with price and net profit
+- **Auction Listings**: Shown separately with current bid and potential profit (not used for arbitrage calc)
 
 ### 4. Momentum Signals
 
@@ -249,10 +252,9 @@ Navigate to "Opportunities" section and try the endpoints.
 
 ## Next Steps
 
-1. **Test with real data** - Run imports to populate database
-2. **Adjust filters** - Find what works for your budget/strategy
-3. **Frontend integration** - Build UI to display opportunities
-4. **Alerts** - Get notified when new opportunities appear
+1. **Filter noise** - Skip "Complete Your Set" and "You Pick" listings
+2. **Grade-and-flip** - Use PSA 10 SCP rates to find raw cards worth grading
+3. **Automated scheduling** - Cron-based daily pipeline runs
 
 ---
 
@@ -265,8 +267,10 @@ Navigate to "Opportunities" section and try the endpoints.
 | No buy/sell prices | Exact buy/sell/profit |
 | No fee calculation | Includes 13% fees |
 | Vague "momentum" | Specific price trend, STR, velocity |
-| Shows all cards | Only profitable opportunities |
+| Shows all cards | Only profitable opportunities (SCP-verified) |
 | Academic metrics | Actionable decisions |
+| Single search query | Graduated SCP search (3 formats + set validation) |
+| Trusted SCP blindly | Validates set + 3x sanity check |
 
 ---
 

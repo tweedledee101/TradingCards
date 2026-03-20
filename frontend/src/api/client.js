@@ -9,6 +9,22 @@ const api = axios.create({
   },
 });
 
+// Opportunities
+export const getOpportunities = async (params = {}) => {
+  const response = await api.get('/api/opportunities', { params });
+  return response.data;
+};
+
+export const getAuctions = async (params = {}) => {
+  const response = await api.get('/api/auctions', { params });
+  return response.data;
+};
+
+export const getOpportunityStats = async () => {
+  const response = await api.get('/api/opportunities-stats');
+  return response.data;
+};
+
 // Trending
 export const getTrendingCards = async (limit = 25, filters = {}) => {
   const params = new URLSearchParams({ limit, ...filters });

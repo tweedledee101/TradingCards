@@ -1,312 +1,388 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import { getOpportunities, getAuctions } from '../api/client';
 
-const API_BASE = 'http://localhost:8000/api';
-
-function Opportunities() {
-  const [opportunities, setOpportunities] = useState([]);
+const Opportunities = () => {
+  const [auctions, setAuctions] = useState([]);
+  const [binDeals, setBinDeals] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [flipMode, setFlipMode] = useState('all'); // 'quick', 'sit', 'all'
-  const [filters, setFilters] = useState({
-    minBudget: '',
-    maxBudget: '',
-    minRoi: '',
-    momentumFilter: ''
-  });
+  const [error, setError] = useState(null);
+  const [scannedAt, setScannedAt] = useState(null);
+  const [expandedAuction, setExpandedAuction] = useState(null);
+  const [expandedBin, setExpandedBin] = useState(null);
+  const [expandedReview, setExpandedReview] = useState(null);
+  const [filters, setFilters] = useState({ maxBid: '', minProfit: '', minRoi: '' });
 
-  const copySearchTerm = (opp) => {
-    const searchTerm = `${opp.card_year} ${opp.card_set} ${opp.player_name}${opp.parallel && opp.parallel !== 'Base' ? ` ${opp.parallel}` : ''}${opp.card_number ? ` ${opp.card_number}` : ''}${opp.grade_company ? ` ${opp.grade_company} ${opp.grade_value}` : ''}`;
-    navigator.clipboard.writeText(searchTerm);
-    alert(`Copied: ${searchTerm}`);
-  };
+  useEffect(() => { fetchAll(); }, []);
 
-  useEffect(() => {
-    fetchOpportunities();
-  }, []);
-
-  const fetchOpportunities = async () => {
+  const fetchAll = async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setLoading(true);
-      const params = {};
-      if (filters.minBudget) params.min_budget = filters.minBudget;
-      if (filters.maxBudget) params.max_budget = filters.maxBudget;
-      if (filters.minRoi) params.min_roi = filters.minRoi;
-      if (filters.momentumFilter) params.momentum_filter = filters.momentumFilter;
-
-      const response = await axios.get(`${API_BASE}/opportunities`, { params });
-      setOpportunities(response.data.opportunities || []);
-    } catch (error) {
-      console.error('Error fetching opportunities:', error);
+      const [auctionData, binData] = await Promise.all([
+        getAuctions().catch(() => ({ auctions: [] })),
+        getOpportunities().catch(() => ({ opportunities: [] })),
+      ]);
+      setAuctions(auctionData.auctions || []);
+      setBinDeals(binData.opportunities || []);
+      setScannedAt(binData.scanned_at || null);
+    } catch (err) {
+      setError('Failed to load data');
     } finally {
       setLoading(false);
     }
   };
 
-  const getConfidenceBadge = (confidence) => {
-    const badges = {
-      'VERY HIGH': '🔥 VERY HIGH',
-      'HIGH': '✅ HIGH',
-      'MEDIUM': '⚠️ MEDIUM',
-      'LOW': '🥶 LOW'
-    };
-    return badges[confidence] || confidence;
-  };
+  const clean = auctions.filter(a => !a.flagged);
+  const flaggedAuctions = auctions.filter(a => a.flagged);
 
-  const filteredOpportunities = opportunities.filter(opp => {
-    if (flipMode === 'quick') {
-      return opp.market_data?.avg_days_to_sell <= 14;
-    } else if (flipMode === 'sit') {
-      return opp.market_data?.avg_days_to_sell > 14;
-    }
+  const filteredAuctions = clean.filter(a => {
+    if (filters.maxBid && a.current_bid > Number(filters.maxBid)) return false;
+    if (filters.minProfit && a.net_profit < Number(filters.minProfit)) return false;
+    if (filters.minRoi && a.roi < Number(filters.minRoi)) return false;
     return true;
   });
 
-  return (
-    <div className="max-w-7xl mx-auto px-6 py-8">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 mb-2">💰 Arbitrage Opportunities</h1>
-        <p className="text-gray-600">Cards you can buy below market rate and flip for profit</p>
-      </div>
+  const cleanBin = binDeals.filter(opp => !opp.flagged);
+  const flaggedBin = binDeals.filter(opp => opp.flagged);
 
-      {/* Mode Toggle */}
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Strategy Mode</h2>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setFlipMode('quick')}
-              className={`px-6 py-2 rounded-lg font-semibold transition ${
-                flipMode === 'quick'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-            >
-              🚀 Quick Flip Mode
-              <div className="text-xs mt-1">High turnover (≤14 days)</div>
-            </button>
-            <button
-              onClick={() => setFlipMode('sit')}
-              className={`px-6 py-2 rounded-lg font-semibold transition ${
-                flipMode === 'sit'
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-            >
-              💤 Sit & Wait Mode
-              <div className="text-xs mt-1">Patient strategy (>14 days)</div>
-            </button>
-            <button
-              onClick={() => setFlipMode('all')}
-              className={`px-6 py-2 rounded-lg font-semibold transition ${
-                flipMode === 'all'
-                  ? 'bg-green-600 text-white'
-                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-              }`}
-            >
-              📊 All Opportunities
-            </button>
-          </div>
-        </div>
+  const filteredBin = cleanBin.filter(opp => {
+    if (filters.minRoi && (opp.arbitrage?.roi || 0) < Number(filters.minRoi)) return false;
+    if (filters.minProfit && (opp.arbitrage?.net_profit || 0) < Number(filters.minProfit)) return false;
+    return true;
+  });
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-[60vh]">
+        <div className="text-frost-dim text-sm">Scanning for opportunities...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-5xl mx-auto px-6 py-8">
+      {/* Header */}
+      <div className="mb-6">
+        <h1 className="text-2xl font-display font-semibold text-frost-light tracking-wide mb-1">Opportunities</h1>
+        <p className="text-sm text-frost-dim">
+          BIN deals below SCP market rates{scannedAt && ` -- scanned ${new Date(scannedAt).toLocaleString()}`}
+        </p>
       </div>
 
       {/* Filters */}
-      <div className="bg-white rounded-lg shadow p-6 mb-6">
-        <h2 className="text-lg font-semibold mb-4">🔍 Filters</h2>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Min Budget</label>
-            <input
-              type="number"
-              value={filters.minBudget}
-              onChange={(e) => setFilters({...filters, minBudget: e.target.value})}
-              className="w-full px-3 py-2 border rounded"
-              placeholder="$0"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Max Budget</label>
-            <input
-              type="number"
-              value={filters.maxBudget}
-              onChange={(e) => setFilters({...filters, maxBudget: e.target.value})}
-              className="w-full px-3 py-2 border rounded"
-              placeholder="$1000"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Min ROI %</label>
-            <input
-              type="number"
-              value={filters.minRoi}
-              onChange={(e) => setFilters({...filters, minRoi: e.target.value})}
-              className="w-full px-3 py-2 border rounded"
-              placeholder="10"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Momentum</label>
-            <select
-              value={filters.momentumFilter}
-              onChange={(e) => setFilters({...filters, momentumFilter: e.target.value})}
-              className="w-full px-3 py-2 border rounded"
-            >
-              <option value="">All</option>
-              <option value="rising">Rising Only</option>
-              <option value="stable">Stable Only</option>
-            </select>
-          </div>
-        </div>
-        <button
-          onClick={fetchOpportunities}
-          className="mt-4 bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700"
-        >
-          Apply Filters
+      <div className="flex flex-wrap items-center gap-2 mb-6">
+        <input type="number" placeholder="Max Bid $" value={filters.maxBid}
+          onChange={e => setFilters({ ...filters, maxBid: e.target.value })}
+          className="w-24 px-2 py-1.5 rounded-lg text-xs bg-surface-card border border-surface-border text-frost-light placeholder:text-frost-dim/50 focus:outline-none focus:border-ember/40" />
+        <input type="number" placeholder="Min Profit $" value={filters.minProfit}
+          onChange={e => setFilters({ ...filters, minProfit: e.target.value })}
+          className="w-28 px-2 py-1.5 rounded-lg text-xs bg-surface-card border border-surface-border text-frost-light placeholder:text-frost-dim/50 focus:outline-none focus:border-ember/40" />
+        <input type="number" placeholder="Min ROI%" value={filters.minRoi}
+          onChange={e => setFilters({ ...filters, minRoi: e.target.value })}
+          className="w-24 px-2 py-1.5 rounded-lg text-xs bg-surface-card border border-surface-border text-frost-light placeholder:text-frost-dim/50 focus:outline-none focus:border-ember/40" />
+        <button onClick={fetchAll}
+          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-ember/20 text-ember-light border border-ember/20 hover:bg-ember/30 transition-colors">
+          Refresh
         </button>
+        <div className="flex-1" />
+        <span className="text-xs text-frost-dim">
+          {filteredBin.length} BIN{filteredAuctions.length > 0 ? ` | ${filteredAuctions.length} auction${filteredAuctions.length !== 1 ? 's' : ''}` : ''}{flaggedBin.length > 0 ? ` | ${flaggedBin.length} flagged` : ''}
+        </span>
       </div>
 
-      {/* Opportunities List */}
-      {loading ? (
-        <div className="text-center py-12">Loading opportunities...</div>
-      ) : filteredOpportunities.length === 0 ? (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
-          <p className="text-yellow-800">
-            No {flipMode === 'quick' ? 'quick flip' : flipMode === 'sit' ? 'sit & wait' : ''} opportunities found matching your criteria.
-          </p>
-        </div>
+      {error && <div className="card-surface p-4 mb-6 text-loss text-sm">{error}</div>}
+
+      {/* LIVE AUCTIONS */}
+      <SectionHeader title="Live Auctions" subtitle="Ending soon - bid below SCP market rate" count={filteredAuctions.length} />
+
+      {filteredAuctions.length === 0 ? (
+        <EmptyState message="No profitable auctions found. Run the auction scanner to refresh." />
       ) : (
-        <div className="space-y-4">
-          <div className="text-sm text-gray-600 mb-2">
-            Showing {filteredOpportunities.length} {flipMode === 'quick' ? 'quick flip' : flipMode === 'sit' ? 'sit & wait' : ''} opportunities
-          </div>
-          {filteredOpportunities.map((opp, index) => (
-            <div key={index} className="bg-white rounded-lg shadow-lg p-6 hover:shadow-xl transition">
-              <div className="flex justify-between items-start mb-4">
-                <div className="flex-1">
-                  <h3 className="text-xl font-bold text-gray-900">
-                    {opp.card_year} {opp.card_set} {opp.player_name}
-                    {opp.parallel && opp.parallel !== 'Base' && ` ${opp.parallel}`}
-                    {opp.card_number && ` #${opp.card_number}`}
-                  </h3>
-                  <div className="flex items-center gap-3 mt-1">
-                    <span className="text-sm text-gray-600">{opp.sport}</span>
-                    {opp.grade_company && (
-                      <span className="text-sm font-semibold text-purple-600">
-                        {opp.grade_company} {opp.grade_value}
-                      </span>
-                    )}
-                    {!opp.grade_company && (
-                      <span className="text-sm text-gray-500">Raw</span>
-                    )}
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className="text-2xl font-bold text-blue-600">
-                    Score: {opp.opportunity_score?.toFixed(1) || opp.score?.toFixed(1) || 'N/A'}/100
-                  </div>
-                  <div className="text-sm mt-1">
-                    {getConfidenceBadge(opp.confidence_level || opp.confidence)}
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Arbitrage Section */}
-                <div className="bg-green-50 rounded-lg p-4">
-                  <h4 className="font-semibold text-green-900 mb-3">💰 Arbitrage</h4>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-700">Sales (this variant):</span>
-                      <span className="font-bold">{opp.market_data?.sales_count || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-700">Buy Price:</span>
-                      <span className="font-bold">${opp.arbitrage?.buy_price?.toFixed(2) || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-700">Market Rate:</span>
-                      <span className="font-bold">${opp.market_data?.avg_price?.toFixed(2) || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between border-t pt-2">
-                      <span className="text-gray-700">Profit (after fees):</span>
-                      <span className="font-bold text-green-600">
-                        ${opp.arbitrage?.net_profit?.toFixed(2) || 'N/A'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-700">ROI:</span>
-                      <span className="font-bold text-green-600">
-                        {opp.arbitrage?.roi?.toFixed(1) || 'N/A'}%
-                      </span>
-                    </div>
-                    <div className="flex justify-between border-t pt-2">
-                      <span className="text-gray-700">Flip Speed:</span>
-                      <span className="font-bold text-blue-600">
-                        {opp.market_data?.flip_speed || 'Unknown'}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-700">Est. Days to Sell:</span>
-                      <span className="font-bold">
-                        {opp.market_data?.avg_days_to_sell || 'N/A'} days
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Momentum Section */}
-                <div className="bg-blue-50 rounded-lg p-4">
-                  <h4 className="font-semibold text-blue-900 mb-3">📈 Momentum</h4>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-gray-700">Price Trend:</span>
-                      <span className="font-bold">
-                        {opp.momentum?.price_trend || 'N/A'} 
-                        {opp.momentum?.price_change_45d ? `${opp.momentum.price_change_45d.toFixed(1)}%` : ''}
-                      </span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-700">Sales/Week:</span>
-                      <span className="font-bold">{opp.momentum?.sales_per_week?.toFixed(1) || 'N/A'}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-700">Sell-Through Rate:</span>
-                      <span className="font-bold">{opp.momentum?.str_rate?.toFixed(0) || 'N/A'}%</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-700">Active Listings:</span>
-                      <span className="font-bold">{opp.momentum?.active_listings || 'N/A'}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 flex gap-2">
-                {opp.arbitrage?.ebay_url && (
-                  <a
-                    href={opp.arbitrage.ebay_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 font-semibold"
-                  >
-                    🛒 Buy on eBay
-                  </a>
-                )}
-                <button 
-                  onClick={() => copySearchTerm(opp)}
-                  className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-                >
-                  📋 Copy Search Term
-                </button>
-                <button className="bg-gray-200 text-gray-700 px-4 py-2 rounded hover:bg-gray-300">
-                  ⭐ Add to Watchlist
-                </button>
-              </div>
-            </div>
+        <div className="space-y-2 mb-10">
+          {filteredAuctions.map((a, i) => (
+            <AuctionCard key={a.ebay_item_id || i} auction={a} rank={i + 1}
+              isExpanded={expandedAuction === (a.ebay_item_id || i)}
+              onToggle={() => setExpandedAuction(expandedAuction === (a.ebay_item_id || i) ? null : (a.ebay_item_id || i))} />
           ))}
+        </div>
+      )}
+
+      {/* BIN DEALS */}
+      {filteredBin.length > 0 && (
+        <>
+          <SectionHeader title="Buy It Now" subtitle="BIN listings below SCP market rate" count={filteredBin.length} />
+          <div className="space-y-2 mb-10">
+            {filteredBin.map((opp, i) => (
+              <BinCard key={opp.card_id || i} opp={opp} rank={i + 1}
+                isExpanded={expandedBin === (opp.card_id || i)}
+                onToggle={() => setExpandedBin(expandedBin === (opp.card_id || i) ? null : (opp.card_id || i))} />
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* NEEDS REVIEW */}
+      {(flaggedAuctions.length > 0 || flaggedBin.length > 0) && (
+        <>
+          <div className="border-t border-surface-border mt-10 pt-6 mb-4">
+            <div className="flex items-center gap-2 mb-1">
+              <h2 className="text-lg font-display font-semibold text-amber-400">Needs Review</h2>
+              <span className="text-xs text-frost-dim bg-surface-card px-2 py-0.5 rounded-md">{flaggedAuctions.length + flaggedBin.length}</span>
+            </div>
+            <p className="text-xs text-frost-dim">
+              Price gap seems too large. May be a mismatch -- review before buying.
+            </p>
+          </div>
+          <div className="space-y-2 opacity-75">
+            {flaggedAuctions.map((a, i) => (
+              <AuctionCard key={`review-${a.ebay_item_id || i}`} auction={a} rank={i + 1} isFlagged
+                isExpanded={expandedReview === (a.ebay_item_id || i)}
+                onToggle={() => setExpandedReview(expandedReview === (a.ebay_item_id || i) ? null : (a.ebay_item_id || i))} />
+            ))}
+            {flaggedBin.map((opp, i) => (
+              <BinCard key={`review-bin-${i}`} opp={opp} rank={i + 1}
+                isExpanded={expandedReview === `flagged-bin-${i}`}
+                onToggle={() => setExpandedReview(expandedReview === `flagged-bin-${i}` ? null : `flagged-bin-${i}`)} />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+
+const SectionHeader = ({ title, subtitle, count }) => (
+  <div className="flex items-center gap-3 mb-3">
+    <h2 className="text-lg font-display font-semibold text-frost-light">{title}</h2>
+    <span className="text-xs text-frost-dim bg-surface-card px-2 py-0.5 rounded-md">{count}</span>
+    <span className="text-xs text-frost-dim">{subtitle}</span>
+  </div>
+);
+
+const EmptyState = ({ message }) => (
+  <div className="card-surface p-8 text-center mb-10">
+    <div className="text-xs text-frost-dim">{message}</div>
+  </div>
+);
+
+
+const AuctionCard = ({ auction: a, rank, isExpanded, onToggle, isFlagged }) => {
+  const hoursLeft = a.hours_left || 0;
+  const urgency = hoursLeft <= 1 ? 'text-loss' : hoursLeft <= 6 ? 'text-amber-400' : 'text-frost-dim';
+  const timeLabel = hoursLeft < 1 ? `${Math.round(hoursLeft * 60)}m` : `${hoursLeft.toFixed(1)}h`;
+
+  return (
+    <div className={`card-surface overflow-hidden ${isFlagged ? 'border-amber-500/30' : ''}`}>
+      <div role="button" tabIndex={0} aria-expanded={isExpanded}
+        className="flex items-center gap-4 px-4 py-3 cursor-pointer hover:bg-surface-hover transition-colors"
+        onClick={onToggle}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}>
+
+        {/* Time left */}
+        <div className={`w-12 text-center shrink-0 ${urgency}`}>
+          <div className="text-sm font-bold font-mono">{timeLabel}</div>
+          <div className="text-[9px] uppercase tracking-wider">left</div>
+        </div>
+
+        {/* Image */}
+        <div className="w-10 h-14 rounded-md overflow-hidden bg-surface-raised shrink-0">
+          {a.image_url ? (
+            <img src={a.image_url} alt="" loading="lazy" className="w-full h-full object-cover" onError={e => { e.target.style.display = 'none'; }} />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-frost-dim text-xs">--</div>
+          )}
+        </div>
+
+        {/* Card info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <span className="text-sm font-semibold text-frost-light truncate">{a.player_name}</span>
+            {a.parallel && a.parallel !== 'Base' && <span className="badge-neutral text-[10px]">{a.parallel}</span>}
+            {a.is_rookie && <span className="badge-ember text-[10px]">RC</span>}
+            {a.grade_company && <span className="badge-neutral text-[10px]">{a.grade_company} {a.grade_value}</span>}
+          </div>
+          <div className="text-xs text-frost-dim truncate">
+            {a.card_year} {a.card_set}{a.card_number ? ` #${a.card_number}` : ''}
+          </div>
+        </div>
+
+        {/* Bids */}
+        <div className="text-center shrink-0 w-16">
+          <div className="text-sm font-mono font-semibold text-amber-400">${a.current_bid?.toFixed(2)}</div>
+          <div className="text-[9px] text-frost-dim">{a.bid_count} bid{a.bid_count !== 1 ? 's' : ''}</div>
+        </div>
+
+        {/* SCP */}
+        <div className="text-center shrink-0 w-16">
+          <div className="text-sm font-mono font-semibold text-frost-light">${a.scp_sell_price?.toFixed(2)}</div>
+          <div className="text-[9px] text-frost-dim">SCP {a.scp_price_tier}</div>
+        </div>
+
+        {/* Profit */}
+        <div className="text-right shrink-0 w-20">
+          <div className="text-sm font-bold font-mono text-gain">+${a.net_profit?.toFixed(2)}</div>
+          <div className="text-[10px] font-mono text-gain/70">{a.roi?.toFixed(0)}% ROI</div>
+        </div>
+
+        <div className={`text-frost-dim text-xs transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`}>▼</div>
+      </div>
+
+      {/* Expanded */}
+      {isExpanded && (
+        <div className="border-t border-surface-border px-4 py-4">
+          {isFlagged && a.flag_reason && (
+            <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-3 text-xs text-amber-400">
+              {a.flag_reason}
+            </div>
+          )}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3 text-xs">
+            <Stat label="Current Bid" value={`$${a.current_bid?.toFixed(2)}`} />
+            <Stat label="Shipping" value={a.shipping > 0 ? `$${a.shipping.toFixed(2)}` : 'Free'} />
+            <Stat label="Total Cost" value={`$${a.total_cost?.toFixed(2)}`} />
+            <Stat label="Fees (13%)" value={`$${a.fees?.toFixed(2)}`} />
+            <Stat label="SCP Ungraded" value={a.scp_ungraded ? `$${a.scp_ungraded.toFixed(2)}` : '--'} />
+            <Stat label="SCP Grade 9" value={a.scp_grade_9 ? `$${a.scp_grade_9.toFixed(2)}` : '--'} />
+            <Stat label="SCP PSA 10" value={a.scp_psa_10 ? `$${a.scp_psa_10.toFixed(2)}` : '--'} />
+            <Stat label="Condition" value={a.condition || 'Unknown'} />
+          </div>
+          <div className="text-xs text-frost-dim mb-3 truncate">{a.title}</div>
+          <div className="flex gap-2">
+            <a href={a.ebay_url} target="_blank" rel="noopener noreferrer"
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/20 hover:bg-amber-500/30 transition-colors">
+              View Auction
+            </a>
+            {a.scp_url && (
+              <a href={a.scp_url} target="_blank" rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-raised text-frost-dim border border-surface-border hover:text-frost-light transition-colors">
+                Verify SCP
+              </a>
+            )}
+            <button onClick={() => {
+              const term = `${a.card_year} ${a.card_set} ${a.player_name}${a.parallel && a.parallel !== 'Base' ? ` ${a.parallel}` : ''}${a.card_number ? ` #${a.card_number}` : ''}`;
+              navigator.clipboard.writeText(term);
+            }}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-raised text-frost-dim border border-surface-border hover:text-frost-light transition-colors">
+              Copy Search
+            </button>
+          </div>
         </div>
       )}
     </div>
   );
-}
+};
+
+
+const BinCard = ({ opp, rank, isExpanded, onToggle }) => {
+  const arb = opp.arbitrage || {};
+  const buyListings = opp.buy_listings || [];
+
+  return (
+    <div className="card-surface overflow-hidden">
+      <div role="button" tabIndex={0} aria-expanded={isExpanded}
+        className="flex items-center gap-4 px-4 py-3 cursor-pointer hover:bg-surface-hover transition-colors"
+        onClick={onToggle}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}>
+
+        <div className="w-12 text-center shrink-0">
+          <div className="text-xs font-medium text-gain bg-gain/10 rounded-md px-1.5 py-0.5">BIN</div>
+        </div>
+
+        <div className="w-10 h-14 rounded-md overflow-hidden bg-surface-raised shrink-0">
+          {opp.image_url ? (
+            <img src={opp.image_url} alt="" loading="lazy" className="w-full h-full object-cover" onError={e => { e.target.style.display = 'none'; }} />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-frost-dim text-xs">--</div>
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <span className="text-sm font-semibold text-frost-light truncate">{opp.player_name}</span>
+            {opp.parallel && opp.parallel !== 'Base' && <span className="badge-neutral text-[10px]">{opp.parallel}</span>}
+            {opp.is_rookie && <span className="badge-ember text-[10px]">RC</span>}
+          </div>
+          <div className="text-xs text-frost-dim truncate">
+            {opp.card_year} {opp.card_set}{opp.card_number ? ` #${opp.card_number}` : ''}
+          </div>
+        </div>
+
+        <div className="text-center shrink-0 w-16">
+          <div className="text-sm font-mono font-semibold text-frost-light">${arb.buy_price?.toFixed(2)}</div>
+          <div className="text-[9px] text-frost-dim">{buyListings.length} listing{buyListings.length !== 1 ? 's' : ''}</div>
+        </div>
+
+        <div className="text-center shrink-0 w-16">
+          <div className="text-sm font-mono font-semibold text-frost-light">${arb.sell_price?.toFixed(2)}</div>
+          <div className="text-[9px] text-frost-dim">SCP</div>
+        </div>
+
+        <div className="text-right shrink-0 w-20">
+          <div className="text-sm font-bold font-mono text-gain">+${arb.net_profit?.toFixed(2)}</div>
+          <div className="text-[10px] font-mono text-gain/70">{arb.roi?.toFixed(0)}% ROI</div>
+        </div>
+
+        <div className={`text-frost-dim text-xs transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`}>▼</div>
+      </div>
+
+      {isExpanded && (
+        <div className="border-t border-surface-border px-4 py-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3 text-xs">
+            <Stat label="Buy Price" value={`$${arb.buy_price?.toFixed(2)}`} />
+            <Stat label="SCP Rate" value={`$${arb.sell_price?.toFixed(2)}`} />
+            <Stat label="Fees (13%)" value={`$${arb.fees?.toFixed(2)}`} />
+            <Stat label="Net Profit" value={`+$${arb.net_profit?.toFixed(2)}`} gain />
+            <Stat label="SCP Ungraded" value={arb.scp_ungraded ? `$${arb.scp_ungraded.toFixed(2)}` : '--'} />
+            <Stat label="SCP Grade 9" value={arb.scp_grade_9 ? `$${arb.scp_grade_9.toFixed(2)}` : '--'} />
+            <Stat label="SCP PSA 10" value={arb.scp_psa_10 ? `$${arb.scp_psa_10.toFixed(2)}` : '--'} />
+            <Stat label="ROI" value={`${arb.roi?.toFixed(0)}%`} gain />
+          </div>
+          {buyListings.length > 0 && (
+            <div className="space-y-1.5">
+              {buyListings.slice(0, 5).map((l, i) => (
+                <div key={i} className="flex items-center gap-3 text-xs bg-surface-raised rounded-lg px-3 py-2">
+                  <a href={l.url} target="_blank" rel="noopener noreferrer"
+                    className="flex-1 min-w-0 text-frost-light hover:text-ember-light transition-colors truncate">
+                    {l.title || `Listing ${i + 1}`}
+                  </a>
+                  <span className="font-mono font-semibold text-frost-light shrink-0">${l.price.toFixed(2)}</span>
+                  <span className="font-mono font-semibold text-gain shrink-0">+${l.net_profit.toFixed(2)}</span>
+                  <a href={l.url} target="_blank" rel="noopener noreferrer"
+                    className="px-3 py-1 rounded-md text-[10px] font-semibold bg-gain/20 text-gain border border-gain/20 hover:bg-gain/30 transition-colors shrink-0">
+                    Buy
+                  </a>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2 mt-3">
+            {opp.scp_url && (
+              <a href={opp.scp_url} target="_blank" rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-raised text-frost-dim border border-surface-border hover:text-frost-light transition-colors">
+                Verify on SCP
+              </a>
+            )}
+            <button onClick={() => {
+              const term = `${opp.card_year} ${opp.card_set} ${opp.player_name}${opp.parallel && opp.parallel !== 'Base' ? ` ${opp.parallel}` : ''}${opp.card_number ? ` #${opp.card_number}` : ''}`;
+              navigator.clipboard.writeText(term);
+            }}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-raised text-frost-dim border border-surface-border hover:text-frost-light transition-colors">
+              Copy Search
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+const Stat = ({ label, value, gain }) => (
+  <div className="bg-surface-card rounded-lg px-3 py-2">
+    <div className="text-[10px] text-frost-dim mb-0.5">{label}</div>
+    <div className={`text-sm font-mono font-semibold ${gain ? 'text-gain' : 'text-frost-light'}`}>{value}</div>
+  </div>
+);
+
 
 export default Opportunities;

@@ -1,0 +1,308 @@
+# Feature Roadmap
+
+**Last Updated:** 2026-03-20
+
+## Milestone 1 -- "Make Money From the UI"
+
+### 1.1 Store Opportunities in Database
+Pipeline currently prints to stdout. Need an `opportunities` table so results persist.
+- Worker writes results in small batches (trickle-insert, 10 rows at a time)
+- API serves cached results instantly
+- Frontend reads from API, not terminal output
+
+### 1.2 Wire Pipeline Into UI
+Connect stored opportunities to the API/frontend.
+- API endpoint serves pre-computed opportunities from the database
+- Frontend Opportunities page reads from new endpoint
+- Include eBay buy links, card images, profit/ROI calculations
+
+### 1.3 Worker Separation
+Data gathering must run in a separate process from the core app.
+- Worker: heavy compute, Selenium browsers, network I/O
+- Core app: API + frontend -- always fast, always responsive
+- Worker trickle-inserts results so DB never locks up
+- Job tracker prevents duplicate runs
+- See ADR-004
+
+## Milestone 2 -- "Trust the Data"
+
+### 2.1 Sold Price Validation (Recent Comps)
+Before buying a $7 card that SCP says is worth $92, show recent eBay sold data for that exact variation.
+- One extra eBay sold-listings search per opportunity
+- Display: "Recent comps: $45, $62, $78, $91" alongside SCP price
+- Flag opportunities where SCP price diverges significantly from eBay sold median
+- Dramatically increases confidence in each deal
+
+### 2.2 Demand-Driven Refresh
+No crons. Data refreshes only when needed.
+- API checks cache age on request. If stale, serves cached + triggers background worker
+- Active listings have end dates -- staleness is deterministic, no API call needed
+- Sold listings are immutable -- never re-fetch
+- SCP prices trusted for 24 hours
+- See ADR-004
+
+### 2.3 Listing Freshness / Age
+Show how long ago each eBay listing was posted.
+- "Listed 2 hours ago" vs "Listed 14 days ago"
+- Helps prioritize which deals to jump on first
+- eBay API already returns listing dates -- just surface them
+
+## Milestone 3 -- "eBay Account Integration"
+
+### 3.1 eBay OAuth User Login
+Users link their eBay account to CardPulse via OAuth consent flow.
+- "Allow CardPulse to view your purchases and selling activity"
+- Standard eBay OAuth2 user token flow
+- Tokens stored securely per user, refreshed automatically
+
+### 3.2 Auto-Import Purchases
+When a user buys a card on eBay, automatically add it to their Inventory.
+- Poll user's eBay purchase history (GetMyeBayBuying / Buy Order API)
+- If purchased item ID matches an opportunity we showed them, auto-import
+- Records: purchase price, SCP market rate at time of purchase, eBay listing URL
+- User sees it appear in Inventory automatically -- zero clicks
+- On-demand check (not polling on a timer) -- per ADR-004
+
+### 3.3 Auto-Track Sales
+When a user sells a card on eBay, automatically record the sale.
+- Monitor user's selling activity via eBay API
+- Match sold items to Inventory entries
+- Auto-calculate realized profit (sale price - purchase price - fees)
+- Move from "In Hand" to "Sold" automatically
+
+### 3.4 Opportunity Dismissal / "Already Checked"
+Track which opportunities a user has already reviewed.
+- Mark as "checked", "passed", or "purchased" per eBay item ID
+- Next scan only shows NEW opportunities by default
+- Filter toggle: "Show all" vs "Show new only"
+
+## Milestone 4 -- "Smarter Decisions"
+
+### 4.1 Grading Scenario Calculator
+For each opportunity, show flip-raw vs grade-and-sell scenarios.
+- SCP already has Ungraded, Grade 9, and PSA 10 prices
+- Show: "Buy raw $20, sell raw = $59 profit"
+- Show: "Grade to PSA 10 ($30 grading + $20 card = $50), sell PSA 10 at $280 = $194 profit"
+- Factor in grading turnaround time and success rates
+
+### 4.2 Sell-Through Rate Per Variation
+Not all $90 cards sell equally fast.
+- Calculate from existing sold data: avg days between sales for each variation
+- Show: "avg 12 days to sell" vs "avg 45 days to sell"
+- Helps pick quick flips over slow movers
+
+### 4.3 Price Velocity Alerts
+Surface SCP price changes over time.
+- Track SCP prices across scans
+- Flag: "SCP price up 30% this week" -- market heating up
+- Flag: "SCP price down 20% this week" -- possible correction
+- Overlay on opportunity cards
+
+### 4.4 Daily Digest / Summary View
+Dashboard summary instead of scrolling 50 individual opportunities.
+- "Today: 47 opportunities. Top 5 by profit. 3 new since last scan. Total potential: $1,240"
+- Quick signal on whether it's worth diving deeper today
+
+## Milestone 5 -- "Ship It"
+
+### 5.1 AWS Deployment
+- Core app on ECS (always running, right-sized for serving)
+- Worker on ECS task or Lambda (spins up on demand, dies when done)
+- Database on RDS PostgreSQL
+- Frontend on CloudFront + S3
+- cardpulse.jgaffiliated.com goes live
+
+### 5.2 Redesign Remaining Pages
+Inventory, Watchlist, CardDetail pages updated to Ragnarok Gaming theme.
+
+### 5.3 Mobile-Responsive Layout
+Opportunities page optimized for phone screens.
+- At a card show, pull up the app and check if a card is a deal
+- Touch-friendly buy links and filters
+
+### 5.4 Export to CSV
+Download button on Opportunities and Inventory pages.
+- Dealers track everything in spreadsheets
+- Integrate with existing workflows
+
+## Milestone 6 -- "Scale It"
+
+### 6.1 Multi-Sport Expansion
+Basketball and Football support.
+- Seed players and sets already configured in `backend/config/sets.py`
+- Pipeline is sport-agnostic -- just needs SCP data and eBay listings
+
+### 6.2 Notification System
+Push notifications when high-value opportunities appear.
+- Match criteria: player, min profit, min ROI
+- Don't refresh the page all day -- the app tells you when to act
+
+### 6.3 Additional Data Sources
+- PSA Population (grading spikes -- infrastructure ready)
+- Card Ladder (price velocity -- infrastructure ready)
+- Terapeak (sell-through rates)
+
+## Milestone 7 -- "See the Whole Market"
+
+eBay is the right primary focus, but real money moves through other channels. The goal isn't to scrape everything -- it's to know what exists elsewhere and let users log deals from any source.
+
+### 7.1 Cross-Platform Price Comparison
+When an opportunity is found on eBay, check if the same card is available elsewhere.
+- **Mercari**: Lower fees (10%), smaller audience, cards often priced lower. Has web search -- scrape product pages for price comparison.
+- **COMC (Check Out My Cards)**: Consignment marketplace with massive inventory and fixed pricing. Cards sit because less traffic. Web-searchable.
+- **MySlabs**: Graded card marketplace, growing fast, lower fees. Web-searchable.
+- Display: "Also available on: Mercari $15, COMC $18" alongside eBay listing.
+- Not for arbitrage calc (SCP is the price source) -- for confidence and alternative buying options.
+
+### 7.2 Whatnot Integration
+Live auction platform, massive in the card space. Cards often sell below market due to live auction pressure.
+- No public API currently.
+- **Phase 1**: Manual intake -- user logs Whatnot purchases into Inventory (seller name, break type, price paid).
+- **Phase 2**: If Whatnot releases an API or partner program, integrate seller dashboard data.
+- **Phase 3**: Monitor Whatnot listings/schedules for upcoming breaks featuring target players.
+
+### 7.3 Facebook Marketplace / Groups
+Huge peer-to-peer market. No fees, so sellers price lower. Private groups move serious volume.
+- No API. Facebook actively blocks scraping.
+- **Phase 1**: Manual intake -- user logs Facebook purchases into Inventory.
+- **Phase 2**: NovaAct browser automation for monitoring specific groups (already have `acquisition/facebook_marketplace/novaact_intake.py` scaffolded).
+- **Phase 3**: Alert user when a target card appears in monitored groups.
+
+### 7.4 Universal Inventory Intake
+Users buy cards from everywhere -- eBay, Whatnot, Facebook, card shows, LCS (local card shops), Mercari, trades.
+- Inventory "Add Card" must support ANY source, not just eBay.
+- Fields: source platform, purchase price, seller (optional), notes, date.
+- Dropdown: eBay / Mercari / Whatnot / Facebook / Card Show / LCS / COMC / Other
+- eBay purchases auto-imported (Milestone 3). Everything else is manual entry until APIs exist.
+- All cards tracked the same way regardless of source -- same P&L, same ROI, same portfolio view.
+
+### 7.5 Sell-Anywhere Tracking
+Users don't just sell on eBay. Track sales across platforms.
+- Record sale with: platform sold on, sale price, fees (different per platform), buyer (optional).
+- Fee presets: eBay 13%, Mercari 10%, Whatnot 9.5% + 2.9%, Facebook 0%, COMC 20%, Card Show 0%.
+- P&L calculation adjusts fees based on where the card was sold.
+
+### 7.6 StockX Cards
+Bid/ask marketplace model (like a stock exchange for cards).
+- Has a trading card category with fixed pricing.
+- Potential API access through partner program.
+- Good for price discovery on high-end graded cards.
+- Lower priority -- smaller selection, focused on PSA 10 slabs.
+
+### Platform Integration Priority
+
+| Platform | Volume | API Available | Fee Rate | Integration Approach | Priority |
+|----------|--------|---------------|----------|---------------------|----------|
+| eBay | Highest | Yes (Browse API) | 13% | Full API integration | DONE |
+| SportsCardsPro | N/A (pricing) | No (Selenium) | N/A | Selenium scraping | DONE |
+| Mercari | High | No (web search) | 10% | Price comparison scrape | Medium |
+| COMC | Medium | No (web search) | 20% | Price comparison scrape | Medium |
+| Whatnot | High | No | 9.5%+2.9% | Manual intake, monitor later | Medium |
+| Facebook | High | No (blocked) | 0% | Manual intake, NovaAct later | Low |
+| MySlabs | Growing | No (web search) | ~8% | Price comparison scrape | Low |
+| StockX | Low (cards) | Partner only | ~10% | Monitor if API opens | Low |
+| Card Shows/LCS | Varies | N/A | 0% | Manual intake only | Low |
+## Milestone 8 -- "Lot Evaluation & Card Recognition"
+
+The biggest unsolved problem for card dealers: evaluating lots. A seller posts 3,000 cards, shows their best 10. Is the lot worth the asking price? Today this requires hours of manual research. Image recognition + statistical modeling can solve this.
+
+### 8.1 Card Recognition from Images
+Identify individual cards from photos (listing images or user uploads).
+- Input: photo containing one or more trading cards
+- Output: for each card -- player name, year, set, card number, parallel, estimated grade
+- Look up SCP price for each identified card automatically
+- Display: "Identified 8 of 12 visible cards. Total visible value: $347"
+
+**Technology options (in order of pragmatism):**
+1. **Amazon Bedrock (Claude/Nova) with vision** -- send card images to multimodal LLM. Zero training data needed. "What card is this?" works well on clear photos. Cheapest to start, good enough for v1.
+2. **OCR (Tesseract / AWS Textract)** -- read text printed on card face (player name, card number, set logo). Match extracted text against SCP catalog. Works on clear, well-lit photos.
+3. **AWS Rekognition Custom Labels** -- train a custom model on card images. Needs labeled training data (thousands of card photos). Most accurate once trained, highest upfront cost.
+4. **Hybrid** -- OCR for text extraction + Bedrock for visual features (parallel color, refractor pattern, insert design). Best accuracy, most complex.
+
+### 8.2 Automated Lot Analysis
+System reads the ENTIRE listing -- title, description, all photos, price, shipping -- and produces a verdict. No manual input.
+
+**What the system reads:**
+- Title: "3,000 Card Baseball Lot - Autos, Numbered, Chrome, Prizm"
+- Description: seller's text about what's included, years, sets, conditions
+- All photos: run card recognition on every image
+- Price + shipping: total cost to acquire
+- Seller history: feedback score, past lot sales
+
+**What the system produces:**
+- Every identified card with SCP price
+- Description-informed model of hidden inventory (seller says "mostly 2022-2024 Topps Chrome" + visible cards confirm Chrome parallels = composition skew toward Chrome)
+- Statistical estimate for unidentified cards based on description clues + visible card quality
+- Total estimated value vs asking price
+- Verdict: buy / pass / investigate further
+- Risk assessment: "Visible cards cover 70% of asking price. Remaining 2,990 cards are upside."
+
+**The system thinks like a dealer:**
+- Seller showing their best cards? Assume the rest is lower quality.
+- Seller mentions specific sets/years? Use that to narrow the composition model.
+- Seller has history of lot sales? Check if previous buyers left feedback about accuracy.
+- Shipping cost high? Factor into total acquisition cost.
+- Description vague? Higher risk -- discount the estimate.
+
+### 8.3 Post-Purchase Cataloging
+After buying a lot, scan cards with phone camera to catalog inventory.
+- User photographs cards one at a time (or in small groups)
+- System identifies each card, adds to Inventory automatically
+- Running total: "Cataloged 847 of 3,000. Value so far: $412. Remaining estimate: $180-$290."
+- Flags high-value finds: "Found a Bobby Witt Jr Topps Chrome Gold /50 -- SCP value $185"
+- At completion: full inventory with total value, P&L vs purchase price
+
+### 8.4 Lot Opportunity Detection
+Automatically find and evaluate lot listings across platforms.
+- Scan eBay lot listings (keyword: "lot", "collection", "bulk")
+- For each listing: pull all images, description, price -- run full 8.2 analysis
+- Flag lots where visible card value alone justifies the price
+- Flag lots where description + visible cards suggest high upside
+- Same approach works for Facebook Marketplace lots, Mercari lots, etc.
+- This is what dealers spend hours doing manually -- the system does it in seconds per listing
+
+### Why This Matters
+- Lots are where the biggest margins hide -- sellers don't know what they have
+- Facebook Marketplace lots are especially underpriced (no fees, casual sellers)
+- Card shows have boxes of unsorted cards -- quick phone scan tells you if it's worth buying
+- No competitor does this well. Most tools focus on individual card pricing.
+- Competitive moat: the more lots users catalog, the better the statistical model gets
+
+---
+
+## eBay API Strategy
+
+### Current State
+- **Tier**: Individual Developer (default)
+- **Limit**: 5,000 Browse API calls/day
+- **Usage**: ~1,200 calls per full 40-player opportunity scan
+
+### ACTION ITEM: Apply for Compatible Application Status
+eBay's Compatible Application program grants higher API limits to apps that drive purchases on eBay. CardPulse qualifies -- it literally sends users to buy things on eBay.
+
+**How to apply:**
+1. Go to https://developer.ebay.com/my/keys
+2. Navigate to the Compatible Application program
+3. Describe the app: "CardPulse helps trading card dealers find underpriced listings on eBay by comparing active listing prices to SportsCardsPro market rates. Users click through to eBay to purchase cards directly."
+4. Expected approval: 50,000-200,000+ calls/day
+
+**Why eBay will approve this:**
+- App drives direct purchases on eBay (they make money from every transaction)
+- Not scraping or competing with eBay -- enhancing their marketplace
+- Legitimate commerce use case
+
+### Per-User OAuth Token Architecture
+Each user links their eBay account. This enables:
+- Auto-import purchases (zero manual entry)
+- Auto-track sales (automatic P&L)
+- Access to user's buying/selling history
+
+**Important**: API calls made with user OAuth tokens still count against the APP's quota, not the user's. Per-user tokens don't help with rate limits -- they help with functionality.
+
+### Call Budget Optimization
+- Cache search results aggressively (ADR-004)
+- One search per variation, shared across all users
+- Active listing end dates are deterministic -- don't re-query to check if sold
+- Sold listings are immutable -- fetch once, store forever
+- SCP prices trusted for 24 hours
+- Target: <2,000 calls/day for full operation at current scale

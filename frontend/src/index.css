@@ -1,12 +1,67 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+@layer base {
+  body {
+    @apply bg-surface text-frost-light font-sans antialiased;
+    margin: 0;
+  }
+
+  /* Focus ring for keyboard navigation */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-ember/50 ring-offset-1 ring-offset-surface;
+  }
+
+  /* Remove focus ring for mouse clicks */
+  *:focus:not(:focus-visible) {
+    outline: none;
+    box-shadow: none;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-surface;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-surface-border rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-frost-dim;
+  }
+}
+
+@layer components {
+  .card-surface {
+    @apply bg-surface-card border border-surface-border rounded-xl;
+  }
+  .card-surface-hover {
+    @apply bg-surface-card border border-surface-border rounded-xl
+           transition-all duration-200 hover:border-ember/30 hover:bg-surface-hover;
+  }
+  .text-label {
+    @apply text-xs font-medium uppercase tracking-wider text-frost-dim;
+  }
+  .text-value {
+    @apply text-sm font-semibold text-frost-light;
+  }
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium;
+  }
+  .badge-ember {
+    @apply badge bg-ember-glow text-ember-light border border-ember/20;
+  }
+  .badge-gain {
+    @apply badge bg-gain/10 text-gain border border-gain/20;
+  }
+  .badge-neutral {
+    @apply badge bg-surface-raised text-frost border border-surface-border;
+  }
 }

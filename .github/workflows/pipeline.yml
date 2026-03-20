@@ -1,0 +1,91 @@
+name: Opportunity Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      players:
+        description: 'Comma-separated player names (blank = top 40 by volume)'
+        required: false
+        default: ''
+      max_budget:
+        description: 'Max buy price'
+        required: false
+        default: '200'
+      min_profit:
+        description: 'Min profit after fees'
+        required: false
+        default: '3'
+      min_roi:
+        description: 'Min ROI %'
+        required: false
+        default: '20'
+      min_scp_price:
+        description: 'Min SCP price to consider'
+        required: false
+        default: '5'
+      max_scp_price:
+        description: 'Max SCP price'
+        required: false
+        default: '1000'
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r backend/requirements.txt
+          pip install selenium
+
+      - name: Install Firefox + geckodriver
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y firefox-esr
+          # geckodriver
+          GECKO_VER=$(curl -s https://api.github.com/repos/mozilla/geckodriver/releases/latest | grep tag_name | cut -d '"' -f 4)
+          curl -sL "https://github.com/mozilla/geckodriver/releases/download/${GECKO_VER}/geckodriver-${GECKO_VER}-linux64.tar.gz" | tar xz
+          sudo mv geckodriver /usr/local/bin/
+          geckodriver --version
+          firefox-esr --version
+
+      - name: Apply database schema
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          PGPASSWORD=$(echo $DATABASE_URL | sed 's/.*:\(.*\)@.*/\1/' | head -c -1) \
+          psql "$DATABASE_URL" -f backend/models/schema.sql 2>/dev/null || true
+          for f in backend/models/migration_*.sql; do
+            psql "$DATABASE_URL" -f "$f" 2>/dev/null || true
+          done
+
+      - name: Run opportunity pipeline
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          EBAY_APP_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CERT_ID: ${{ secrets.EBAY_CLIENT_SECRET }}
+        run: |
+          ARGS="--max-budget ${{ inputs.max_budget }} --min-profit ${{ inputs.min_profit }} --min-roi ${{ inputs.min_roi }} --min-scp-price ${{ inputs.min_scp_price }} --max-scp-price ${{ inputs.max_scp_price }}"
+          if [ -n "${{ inputs.players }}" ]; then
+            ARGS="$ARGS --players \"${{ inputs.players }}\""
+          fi
+          eval python3 find_opportunities.py $ARGS
+
+      - name: Upload logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-logs
+          path: /tmp/*.log
+          retention-days: 7

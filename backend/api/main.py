@@ -1,9 +1,15 @@
 """
 FastAPI Application - Trading Card Platform
 """
-from fastapi import FastAPI
+import time
+import uuid
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from backend.api.routes import trending, cards, health, inventory, watchlist, webhooks, ebay_compliance, opportunities, sourcing
+from backend.utils.logger import get_logger, set_request_id, clear_request_id
+
+log = get_logger('api')
 
 app = FastAPI(
     title="Trading Card Platform API",
@@ -19,6 +25,44 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    """Log every request with timing. Catch unhandled errors."""
+    request_id = str(uuid.uuid4())[:8]
+    set_request_id(request_id)
+    start = time.time()
+
+    try:
+        response = await call_next(request)
+        duration_ms = round((time.time() - start) * 1000)
+
+        # Log slow requests as warnings
+        if duration_ms > 5000:
+            log.warn('Slow request', category='slow_request', context={
+                'method': request.method,
+                'path': str(request.url.path),
+                'duration_ms': duration_ms,
+                'status': response.status_code
+            })
+
+        response.headers['X-Request-ID'] = request_id
+        return response
+
+    except Exception as exc:
+        duration_ms = round((time.time() - start) * 1000)
+        log.error(f'Unhandled error: {exc}', category='unhandled_error', context={
+            'method': request.method,
+            'path': str(request.url.path),
+            'duration_ms': duration_ms
+        })
+        return JSONResponse(status_code=500, content={
+            'detail': 'Internal server error',
+            'request_id': request_id
+        })
+    finally:
+        clear_request_id()
 
 # Include routers
 app.include_router(health.router, tags=["Health"])
