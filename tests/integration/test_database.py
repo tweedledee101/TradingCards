@@ -324,12 +324,14 @@ class TestPriceTrends:
         """))
         clean_db.commit()
         
-        result = clean_db.execute(text("SELECT * FROM price_trends WHERE card_id = 1"))
+        result = clean_db.execute(text(
+            "SELECT avg_price, velocity_score FROM price_trends WHERE card_id = 1"
+        ))
         trend = result.fetchone()
         
         assert trend is not None
-        assert float(trend[3]) == 450.00  # avg_price
-        assert float(trend[8]) == 2.5  # velocity_score
+        assert float(trend[0]) == 450.00  # avg_price
+        assert float(trend[1]) == 2.5  # velocity_score
     
     @pytest.mark.integration
     def test_unique_card_date_constraint(self, clean_db):
