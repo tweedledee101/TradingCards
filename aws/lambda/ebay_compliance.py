@@ -7,7 +7,7 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 VERIFICATION_TOKEN = "CPT-7k9mX2nQ8vL4pR6wH3jF5sY1tN0zB"
-ENDPOINT_URL = "https://cardpulse.jgaffiliated.com/api/webhooks/ebay/account-deletion"
+ENDPOINT_URL = "https://ragnarokgamez.com/api/webhooks/ebay/account-deletion"
 
 def lambda_handler(event, context):
     logger.info(f"Request: {json.dumps(event)}")

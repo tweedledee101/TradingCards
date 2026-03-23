@@ -1,6 +1,6 @@
 # Ragnarok Gaming - Trading Card Platform
 
-A data-driven arbitrage opportunity finder for trading card dealers. Identifies profitable card flips by comparing eBay BIN and auction listings against SportsCardsPro market rates with variant matching and volume filtering.
+A data-driven arbitrage opportunity finder for trading card dealers. Identifies profitable card flips by comparing eBay BIN and auction listings against SportsCardsPro market rates, 130point eBay sold comps, and eBay BIN comps with variant matching and volume filtering.
 
 ## How It Works
 
@@ -15,13 +15,20 @@ A data-driven arbitrage opportunity finder for trading card dealers. Identifies 
 ## Current State (March 2026)
 
 - **40 players** targeted and fully imported
-- **25,434 cards**, 42,313 sales, 44,165 active listings
-- **113 opportunities** from latest scan (BIN + Auctions)
-- **Pipeline quality filters**: price floor (30% of SCP), volume filter, factory set detection, reprint detection, wrong set detection, suspicious price flagging
-- **Auction support**: auctions flow through pipeline alongside BIN listings
-- **SCP-required**: no opportunity shown without verified SportsCardsPro market rate
+- **25,434 cards**, 42,313 sales, 44,165 active listings, 4,400 SCP market rates
+- **133 opportunities** from latest scan (BIN + Auctions)
+- **Three-tier pricing**: SCP -> 130point sold comps -> eBay BIN comps
+- **Unified pipeline**: one command runs BIN + Auction pipelines sequentially
+- **Auction pipeline**: MLB Stats API for 2,269 player roster, 110 value+player eBay queries with pagination, SCP validation with multi-pass fuzzy matching
+- **Pipeline quality filters**: price floor (30% of SCP), volume filter, factory set detection, reprint detection, wrong set detection, lot detection, suspicious price flagging
+- **QA validation**: post-pipeline background rules (extreme_roi, card_number_mismatch, etc.) -- does not block pipeline
+- **67 QA tests passing**: SCP matching (40), opportunity analyzer (19), API contract (8)
+- **Multi-source pricing**: SCP primary, 130point sold comps (free, background worm), eBay BIN comps fallback
+- **Snipe UI**: calculated recommended bid (SCP - fees - profit), live profit preview, Schedule Bid manual entry, My Bids strip
+- **Dual database**: RDS primary + local PostgreSQL synced via `migrate.py --both` (23 migrations, 19 tables)
 - **Observability**: structured logging, error tracking, job tracking, data retention
-- **Infrastructure**: GitHub Actions workflow + RDS CloudFormation template ready
+- **Infrastructure**: GitHub Actions workflows (BIN + Auction) + RDS deployed + ACM cert issued
+- **Domain**: ragnarokgamez.com (ACM cert covers root + wildcard)
 - **Sport**: Baseball (Basketball/Football seed players and sets ready)
 - **UI**: Ragnarok Gaming dark theme (Trending + Opportunities pages live)
 - **See [STATUS.md](./STATUS.md) for full details**
@@ -29,15 +36,17 @@ A data-driven arbitrage opportunity finder for trading card dealers. Identifies 
 ## Quick Start
 
 ```bash
-sudo service postgresql start
 cd /home/tweedledee101/TradingCards
 
-# Run opportunity finder (BIN + Auctions)
-python3 find_opportunities.py --max-budget 200 --min-profit 5 --min-roi 20 --top-players 40
+# Run unified pipeline (BIN + Auction)
+python3 find_opportunities.py --max-budget 200 --min-profit 10 --min-roi 20 --top-players 40
 
 # Start services
 nohup /usr/bin/python3 -m backend.api.run > /tmp/api.log 2>&1 &
 cd frontend && nohup npm run dev > /tmp/frontend.log 2>&1 &
+
+# Database migrations (keeps local + RDS in sync)
+python3 migrate.py --both
 ```
 
 See [PIPELINE-OPS.md](./PIPELINE-OPS.md) for all pipeline options and troubleshooting.
@@ -48,14 +57,17 @@ See [PIPELINE-OPS.md](./PIPELINE-OPS.md) for all pipeline options and troublesho
 |--------|---------|--------|
 | eBay Browse API | Sold listings, active listings (BIN + Auction), images | Working |
 | SportsCardsPro | Market rates (Ungraded/Grade 9/PSA 10) + volume | Working (Selenium, graduated search) |
+| 130point.com | eBay sold comps (actual sale prices + volume) | Working (HTTP POST, no auth) |
+| MLB Stats API | Player roster identification (2,269 players) | Working (free, no auth) |
 | PSA Population | Grading spikes | Infrastructure Ready |
 | Card Ladder | Price velocity | Infrastructure Ready |
 
 ## Features
 
 ### Opportunity Finder (Primary)
-- SCP-required: every opportunity backed by verified SportsCardsPro market rate
-- BIN + Auction: both listing types flow through pipeline, tagged separately
+- SCP-required for primary pricing; 130point sold comps and eBay BIN comps as fallbacks
+- BIN + Auction: unified pipeline, one command runs both
+- Lot detection: multiple # signs, X & Y & Z patterns, "N cards" language
 - Volume filtering: rejects cards with "rare", "1 sale per year", "2 sales per year"
 - Price floor: BIN below 30% of SCP hard-rejected (different product)
 - Suspicious flagging: BIN between 30-50% of SCP flagged for "Needs Review"
@@ -83,6 +95,7 @@ See [PIPELINE-OPS.md](./PIPELINE-OPS.md) for all pipeline options and troublesho
 - **Fix grade mismatch** -- compare ungraded-to-ungraded, graded-to-graded
 - **Fix variant matching** -- "Magenta Speckle" != "Magenta"
 - **Add minimum profit threshold** -- $6 profit isn't worth the research time
+- **Expand auction pipeline player coverage** -- checklist scraping for broader player matching beyond 40 DB players
 - **Worker separation** -- data gathering in separate process from core app (see [ADR-004](./docs/architecture/decisions/ADR-004-demand-driven-refresh.md))
 - **Demand-driven refresh** -- no crons, data refreshes only when stale
 - **Cross-validate SCP prices** -- check eBay sold data for high-value opportunities
@@ -107,4 +120,4 @@ See [ROADMAP.md](./docs/ROADMAP.md) for full feature roadmap with milestones.
 
 ## Domain
 
-**`cardpulse.jgaffiliated.com`** (planned)
+**`ragnarokgamez.com`** (planned)

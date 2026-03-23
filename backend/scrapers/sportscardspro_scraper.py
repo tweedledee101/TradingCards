@@ -47,9 +47,15 @@ class SportsCardsProScraper:
             options.add_argument("--headless")
         options.set_preference("general.useragent.override",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0")
-        options.binary_location = "/usr/bin/firefox"
 
-        service = Service(executable_path="/usr/local/bin/geckodriver")
+        # Auto-detect Firefox binary (local vs GitHub Actions)
+        import shutil, os
+        for firefox_path in ['/usr/lib/firefox/firefox', '/usr/bin/firefox-esr', '/usr/bin/firefox']:
+            if shutil.which(firefox_path) or os.path.exists(firefox_path):
+                options.binary_location = firefox_path
+                break
+
+        service = Service(executable_path=shutil.which('geckodriver') or '/usr/local/bin/geckodriver')
         self.driver = webdriver.Firefox(options=options, service=service)
         self.driver.set_page_load_timeout(30)
 
@@ -100,7 +106,7 @@ class SportsCardsProScraper:
         table = soup.find("table", id="games_table")
         
         if not table:
-            logger.warning("No results table found")
+            logger.debug("No results table found")
             return []
 
         results = []
@@ -177,14 +183,20 @@ class SportsCardsProScraper:
             "card_set": None,
             "parallel": "Base",
             "card_year": None,
+            "is_rc": False,
+            "is_auto": False,
         }
 
-        # Extract parallel (in brackets like [Silver], [X-fractor])
-        parallel_match = re.search(r'\[([^\]]+)\]', title)
-        if parallel_match:
-            parallel = parallel_match.group(1)
-            if parallel != "RC":
-                info["parallel"] = parallel
+        # Extract all bracket tags
+        brackets = re.findall(r'\[([^\]]+)\]', title)
+        for tag in brackets:
+            if tag == "RC":
+                info["is_rc"] = True
+            elif "Autograph" in tag or "Auto" in tag:
+                info["is_auto"] = True
+                info["parallel"] = tag
+            else:
+                info["parallel"] = tag
 
         # Extract card number (#USC35, #29, #M1B-8, #II-AA, etc.)
         num_match = re.search(r'#([A-Za-z0-9-]+)', title)
@@ -195,6 +207,11 @@ class SportsCardsProScraper:
         numbered_match = re.search(r'/(\d+)\s*$', title)
         if numbered_match:
             info["print_run"] = int(numbered_match.group(1))
+
+        # Detect auto from set name (handled in raw_title for insert sets)
+        title_lower = title.lower()
+        if 'autograph' in title_lower or ' auto ' in title_lower:
+            info["is_auto"] = True
 
         # Extract player name (before first [ or #)
         name_match = re.match(r'^([A-Za-z\s.\'/-]+?)(?:\s*\[|\s*#)', title)

@@ -2,332 +2,197 @@
 
 ## Overview
 
-This document contains data flow diagrams showing how data moves through the Trading Card Platform.
+Data flows through two pipelines (BIN and Auction), both triggered on demand -- no cron jobs. See ADR-004 for the demand-driven refresh philosophy.
 
-## 1. Nightly Scraping Pipeline
+## 1. BIN Opportunity Pipeline (SCP-First)
 
-```mermaid
-graph TD
-    A[Cron Job 2:00 AM] --> B[eBay Scraper]
-    B --> C{API Call Successful?}
-    C -->|Yes| D[Parse JSON Response]
-    C -->|No| E[Log Error & Retry]
-    E --> B
-    
-    D --> F[Extract Card Info from Titles]
-    F --> G{Card Exists in DB?}
-    
-    G -->|No| H[Insert into cards table]
-    G -->|Yes| I[Get card_id]
-    H --> I
-    
-    I --> J[Insert into sales table]
-    J --> K[Update timestamp]
-    
-    K --> L[Scrape Active Listings]
-    L --> M[Insert into active_listings table]
-    
-    M --> N[Trigger Trend Calculator]
+```
+find_opportunities.py
+    |
+    v
+[Player List] -- top 40 by eBay volume or --players flag
+    |
+    v
+[SCP Selenium] -- 1 search per player --> full catalog (100 variations + prices + volume)
+    |
+    v
+FILTER -- $20-$1000 SCP price range
+       -- Volume filter (reject "rare", "1/year", "2/year")
+    |
+    v
+[eBay Browse API] -- 1 search per variation --> active listings (BIN + Auctions)
+    |
+    v
+VALIDATE -- player name + year + card# + parallel in title
+         -- junk filter (you pick, mystery, repack, lots)
+         -- factory set filter (complete set, montgomery, walmart/target)
+         -- reprint filter (replica, project 2020, shoebox treasures)
+         -- wrong set detection
+         -- lot detection (multiple #, X & Y & Z, "N cards")
+         -- BIN price floor (< 30% of SCP = reject)
+    |
+    v
+CALCULATE -- SCP price - buy price - 13% fees = profit
+    |
+    v
+STORE -- opportunities table (listing_type: buy_it_now or auction)
+    |
+    v
+[Auto-trigger Auction Pipeline via subprocess]
 ```
 
-## 2. Trend Detection Flow
+## 2. Auction Opportunity Pipeline (eBay-First)
 
-```mermaid
-graph TD
-    A[Daily Batch Job 3:00 AM] --> B[Query sales table]
-    B --> C[Group by card_id and date]
-    
-    C --> D[Calculate Metrics]
-    D --> D1[Average Price]
-    D --> D2[Median Price]
-    D --> D3[Sales Count]
-    D --> D4[Price Change 7d]
-    
-    D1 --> E[Query active_listings]
-    D2 --> E
-    D3 --> E
-    E --> F[Calculate Velocity Score]
-    F --> G[velocity = sales / listings]
-    
-    G --> H[Calculate Momentum Score]
-    H --> I[momentum = price change %]
-    
-    I --> J[Query psa_population]
-    J --> K[Calculate PSA Growth Rate]
-    
-    K --> L[Query social_signals]
-    L --> M[Get Sentiment Score]
-    
-    M --> N[Compute Hotness Score]
-    N --> O[hotness = velocity*0.4 + momentum*0.3 + psa*0.2 + social*0.1]
-    
-    O --> P[Insert into price_trends table]
-    P --> Q[Update API Cache]
+```
+find_auction_opportunities.py
+    |
+    v
+[eBay Browse API] -- 110 queries (30 value-focused + 80 player-specific)
+                  -- pagination up to 1000 results/query
+                  -- auctions ending within 48h
+                  -- category 261328 (Trading Card Singles)
+    |
+    v
+DEDUP -- by eBay item ID across all queries
+    |
+    v
+QUALITY FILTER -- card number required (title -> aspects -> full item details)
+               -- player ID: MLB API (2,269) + period/accent normalization + eBay aspects fallback
+               -- lot detection
+               -- budget check (bid + shipping <= max_budget)
+    |
+    v
+SCP VALIDATE -- DB lookup first (4,400 market rates)
+              -- SCP cache (24h TTL, scp_cache table)
+              -- Selenium fallback (card number verified in SCP URL)
+              -- Pass 1: exact parallel match
+              -- Pass 2A: strict text match (all SCP words in eBay title)
+              -- Pass 2B: fuzzy word-overlap scoring (50%+ match)
+              -- Pass 3: signal match (RC/Auto/Relic/print_run)
+              -- Diagnostic logging on failures (first 30)
+    |
+    v
+FALLBACK PRICING (when SCP fails)
+              -- Tier 2: 130point sold comps (DB cache from worm, instant, free)
+              -- Tier 3: eBay active BIN comps (1 API call, median of 3+ listings)
+              -- All fallback-priced opportunities flagged for review
+    |
+    v
+SANITY CHECK -- hybrid listing BIN < 50% of SCP = reject (seller disagrees)
+    |
+    v
+PROFIT CHECK -- SCP * 0.87 - (current bid + shipping) >= $10
+    |
+    v
+STORE -- opportunities table (listing_type: auction, shipping, bid_count, end_time)
 ```
 
-## 3. API Request Flow
+## 3. QA Validation (Post-Pipeline)
 
-```mermaid
-graph LR
-    A[Client Request] --> B[FastAPI Endpoint]
-    B --> C{Endpoint Type}
-    
-    C -->|/trending| D[Query price_trends with filters]
-    C -->|/cards/:id| E[Query cards + sales + trends]
-    C -->|/inventory| F[Query inventory + cards + trends]
-    C -->|/watchlist| G[Query watchlist + cards + trends]
-    
-    D --> H[Apply filters & sorting]
-    E --> I[Join with price history]
-    F --> J[Calculate P&L]
-    G --> K[Check alerts]
-    
-    H --> L[Format JSON Response]
-    I --> L
-    J --> L
-    K --> L
-    
-    L --> M[Return to Client]
+```
+qa_opportunities.py (runs after pipeline, does NOT block it)
+    |
+    v
+[Read opportunities from DB]
+    |
+    v
+RULES -- extreme_roi (>500% = critical)
+      -- high_roi (>300% = warning)
+      -- price_ratio_10x
+      -- no_scp_url
+      -- card_number_mismatch (card# not in SCP URL)
+      -- low_bid_high_scp
+    |
+    v
+UPDATE -- qa_status (pending/clean/flagged/critical)
+       -- qa_flags (JSONB array of triggered rules)
+       -- qa_reviewed_at timestamp
 ```
 
-## 4. Inventory Management Flow
+## 4. API Request Flow
 
-```mermaid
-graph TD
-    A[User Action] --> B{Action Type}
-    
-    B -->|Add to Inventory| C[POST /api/inventory]
-    C --> D[Validate card_id exists]
-    D --> E[Insert into inventory table]
-    E --> F[Set status = owned]
-    F --> G[Return inventory_id]
-    
-    B -->|Record Sale| H[POST /api/inventory/sales]
-    H --> I[Get inventory item]
-    I --> J[Calculate net_profit]
-    J --> K[Calculate ROI %]
-    K --> L[Insert into inventory_sales]
-    L --> M[Update inventory status = sold]
-    M --> N[Return profit metrics]
-    
-    B -->|View Portfolio| O[GET /api/inventory/stats]
-    O --> P[Sum purchase prices]
-    P --> Q[Get current values from price_trends]
-    Q --> R[Calculate unrealized profit]
-    R --> S[Sum realized profit from sales]
-    S --> T[Calculate total ROI]
-    T --> U[Return portfolio stats]
+```
+Client Request --> FastAPI Endpoint
+    |
+    +-- /api/opportunities --> query opportunities table (BIN + Auction)
+    +-- /api/auctions --> query opportunities WHERE listing_type='auction'
+    +-- /api/opportunities-stats --> aggregate profit/ROI/counts
+    +-- /api/cards --> query cards with filters
+    +-- /api/inventory --> portfolio with P&L
+    +-- /api/watchlist --> price monitoring
+    +-- /api/status --> job_runs table (pipeline health)
+    +-- /api/errors --> error_log table (observability)
+    |
+    v
+JSON Response --> React Frontend (Ragnarok Gaming theme)
 ```
 
-## 5. Watchlist & Alert Flow
+## 5. Observability Flow
 
-```mermaid
-graph TD
-    A[User Action] --> B{Action Type}
-    
-    B -->|Add to Watchlist| C[POST /api/watchlist]
-    C --> D[Validate card_id]
-    D --> E[Insert into watchlist table]
-    E --> F[Set target_price & threshold]
-    F --> G[Return watchlist_id]
-    
-    B -->|Check Alerts| H[GET /api/watchlist/alerts]
-    H --> I[Query watchlist + price_trends]
-    I --> J{For each card}
-    J --> K[Get current_price]
-    K --> L[Compare with target_price]
-    L --> M{Within threshold?}
-    M -->|Yes| N[Add to alerts list]
-    M -->|No| O[Skip]
-    N --> P[Return alerts]
-    O --> P
-    
-    B -->|View Watchlist| Q[GET /api/watchlist]
-    Q --> R[Join watchlist + cards + trends]
-    R --> S[Calculate price differences]
-    S --> T[Check alert status]
-    T --> U[Return watchlist with alerts]
+```
+Any pipeline script
+    |
+    v
+[AppLogger] -- stdout (human-readable)
+            -- error_log table (WARN+ persisted, queryable)
+            -- request_id tracking for API requests
+    |
+    v
+[JobTracker] -- job_runs table
+             -- start, progress, completion, failure
+             -- parameters (JSONB), results_summary (JSONB)
+    |
+    v
+/api/status --> UI and tooling check job state
+/api/errors --> query error patterns
 ```
 
-## 6. Complete Data Pipeline
+## Data Sources
 
-```mermaid
-graph TB
-    subgraph "Data Sources"
-        A1[eBay API]
-        A2[PSA Website]
-        A3[Card Ladder]
-        A4[Twitter API]
-        A5[Reddit API]
-    end
-    
-    subgraph "Scrapers"
-        B1[eBay Scraper ✅]
-        B2[PSA Scraper ⏳]
-        B3[Card Ladder Scraper ⏳]
-        B4[Social Scraper ⏳]
-    end
-    
-    subgraph "Database Tables"
-        C1[(cards)]
-        C2[(sales)]
-        C3[(active_listings)]
-        C4[(price_trends)]
-        C5[(inventory)]
-        C6[(inventory_sales)]
-        C7[(watchlist)]
-        C8[(psa_population)]
-        C9[(social_signals)]
-    end
-    
-    subgraph "Processing"
-        D1[Trend Calculator]
-        D2[Hotness Score Engine]
-        D3[P&L Calculator]
-        D4[Alert Checker]
-    end
-    
-    subgraph "API Layer"
-        E1[FastAPI - 18 Endpoints]
-    end
-    
-    subgraph "Clients"
-        F1[React Frontend]
-        F2[Mobile App]
-        F3[External API Users]
-    end
-    
-    A1 --> B1
-    A2 --> B2
-    A3 --> B3
-    A4 --> B4
-    A5 --> B4
-    
-    B1 --> C1
-    B1 --> C2
-    B1 --> C3
-    B2 --> C8
-    B4 --> C9
-    
-    C1 --> D1
-    C2 --> D1
-    C3 --> D1
-    C8 --> D1
-    C9 --> D1
-    
-    D1 --> D2
-    D2 --> C4
-    
-    C5 --> D3
-    C6 --> D3
-    C4 --> D3
-    
-    C7 --> D4
-    C4 --> D4
-    
-    C1 --> E1
-    C2 --> E1
-    C4 --> E1
-    C5 --> E1
-    C6 --> E1
-    C7 --> E1
-    
-    E1 --> F1
-    E1 --> F2
-    E1 --> F3
-```
-
-## 7. Hotness Score Calculation Detail
-
-```mermaid
-graph TD
-    A[Start: Card ID] --> B[Get Last 7 Days Sales]
-    B --> C[Calculate Average Price]
-    
-    C --> D[Get Price 7 Days Ago]
-    D --> E[Calculate Momentum Score]
-    E --> F[momentum = current - old / old * 100]
-    
-    A --> G[Get Active Listings Count]
-    B --> H[Get Sales Count]
-    G --> I[Calculate Velocity]
-    H --> I
-    I --> J[velocity = sales / listings]
-    
-    A --> K[Get PSA Population This Week]
-    A --> L[Get PSA Population Last Week]
-    K --> M[Calculate PSA Growth]
-    L --> M
-    M --> N[psa_growth = this_week - last_week / last_week * 100]
-    
-    A --> O[Get Social Mentions]
-    O --> P[Get Sentiment Score]
-    P --> Q[social_score = mentions * sentiment]
-    
-    F --> R[Combine Scores]
-    J --> R
-    N --> R
-    Q --> R
-    
-    R --> S[hotness = velocity*0.4 + momentum*0.3 + psa*0.2 + social*0.1]
-    S --> T[Normalize to 0-100]
-    T --> U[Store in price_trends]
-```
-
-## 8. Error Handling Flow
-
-```mermaid
-graph TD
-    A[Scraper Runs] --> B{API Available?}
-    B -->|No| C[Log Error]
-    C --> D[Wait 5 minutes]
-    D --> E{Retry Count < 3?}
-    E -->|Yes| A
-    E -->|No| F[Send Alert Email]
-    F --> G[Skip This Run]
-    
-    B -->|Yes| H{Valid Response?}
-    H -->|No| C
-    H -->|Yes| I[Parse Data]
-    
-    I --> J{Data Quality Check}
-    J -->|Fail| K[Log Warning]
-    K --> L[Store with flag]
-    J -->|Pass| M[Store in Database]
-    
-    M --> N{DB Write Success?}
-    N -->|No| O[Rollback Transaction]
-    O --> C
-    N -->|Yes| P[Update Last Run Timestamp]
-```
-
-## Timing Schedule
-
-| Job | Frequency | Duration | Dependencies |
-|-----|-----------|----------|--------------|
-| eBay Sold Scraper | Daily 2:00 AM | ~15 min | None |
-| eBay Active Scraper | Daily 2:30 AM | ~10 min | None |
-| Trend Calculator | Daily 3:00 AM | ~20 min | Sales + Listings data |
-| Report Generator | Daily 3:30 AM | ~5 min | Trend Calculator |
-| PSA Scraper | Weekly Sunday 1:00 AM | ~30 min | None |
-| Social Scraper | Every 4 hours | ~5 min | None |
-| Alert Checker | Hourly | ~2 min | Watchlist + Trends |
+| Source | Integration | Status |
+|--------|------------|--------|
+| eBay Browse API | REST API (OAuth, auto-refresh) | Working |
+| SportsCardsPro | Selenium/Firefox (headless) | Working |
+| MLB Stats API | REST API (free, no auth) | Working |
+| 130point.com | HTTP POST (no auth, 10/min) | Working |
+| PSA Population | Selenium (infrastructure ready) | Not yet active |
+| Card Ladder | Selenium (infrastructure ready) | Not yet active |
 
 ## Data Retention
 
-| Table | Retention | Archive Strategy |
-|-------|-----------|------------------|
-| sales | 2 years | Move to sales_archive after 2 years |
-| active_listings | 90 days | Delete after 90 days |
-| price_trends | Indefinite | Keep all historical trends |
-| inventory | Indefinite | Keep all records |
-| inventory_sales | Indefinite | Keep all sales history |
-| watchlist | Indefinite | User-managed |
-| psa_population | Indefinite | Keep all snapshots |
-| social_signals | 6 months | Aggregate and delete raw data |
+Managed by `run_retention_cleanup()` PostgreSQL function.
 
-## Version
+| Data | Retention | Rationale |
+|------|-----------|-----------|
+| Sold listings | Indefinite | Immutable historical data |
+| Active listings | Until end_date | Deterministic expiry |
+| SCP market rates | 24 hours | Prices update ~daily |
+| Opportunities | Per scan | Replaced each pipeline run |
+| Job runs | 30 days | Operational history |
+| Error log | 30 days | Debugging window |
 
-**Last Updated:** 2025-02-11  
-**Diagram Version:** 2.0.0  
-**Status:** ✅ Current
+## 6. Background Data Worm
+
+```
+worm_130point.py (runs independently, no eBay API calls)
+    |
+    v
+[Query DB] -- cards lacking recent sold comps (48h TTL)
+           -- prioritize: cards with SCP rates, then without
+    |
+    v
+[130point API] -- POST https://back.130point.com/sales/
+               -- plain HTTP, returns HTML with eBay sold data
+               -- 7s between calls (under 10/min limit)
+    |
+    v
+[Parse] -- sale price, date, listing type (auction/fixed), title
+    |
+    v
+STORE -- sold_comps table (player, year, card#, parallel, price)
+      -- pipeline reads this as Tier 2 fallback pricing
+```
+
+---
+
+**Last Updated:** 2026-03-22 (Session 12)

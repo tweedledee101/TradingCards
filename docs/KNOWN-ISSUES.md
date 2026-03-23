@@ -11,7 +11,7 @@ Documented problems found during pipeline runs. Grouped by category so patterns 
 | Category | Count | Impact | Status |
 |----------|-------|--------|--------|
 | [Reprint / Replica Match](#reprint--replica-match) | 5 | High -- inflates profit by 10-100x | Partially Fixed (REPRINT_PATTERNS) |
-| [Wrong Variation Match](#wrong-variation-match) | 4 | High -- completely wrong card | Partially Fixed (KNOWN_SETS) |
+| [Wrong Variation Match](#wrong-variation-match) | 4 | High -- completely wrong card | Partially Fixed (KNOWN_SETS + fuzzy matching) |
 | [Suspiciously Low Buy Price](#suspiciously-low-buy-price) | 1 | Medium -- likely misidentified listing | Fixed (MIN_PRICE_RATIO 0.30) |
 | [Grade Mismatch](#grade-mismatch) | 2 | High -- compares wrong price tier | Open |
 | [Variant Sub-Type Mismatch](#variant-sub-type-mismatch) | 1 | High -- different card entirely | Open |

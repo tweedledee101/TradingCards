@@ -63,7 +63,7 @@ class AppLogger:
 
     def __init__(self, source: str):
         self.source = source
-        self._py_logger = logging.getLogger(f'cardpulse.{source}')
+        self._py_logger = logging.getLogger(f'ragnarok.{source}')
         if not self._py_logger.handlers:
             handler = logging.StreamHandler()
             handler.setFormatter(logging.Formatter(

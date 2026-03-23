@@ -59,61 +59,36 @@
 
 ## Development Commands
 
-### Initial Setup
+### Pipeline Operations
 ```bash
-# Install all dependencies (Linux/Mac)
-./setup.sh
+# Run unified pipeline (BIN + Auction)
+python3 find_opportunities.py --max-budget 200 --min-profit 10 --min-roi 20 --top-players 40
 
-# Install all dependencies (Windows)
-setup.bat
+# Run auction pipeline only (value-focused + player queries)
+python3 find_auction_opportunities.py --max-budget 200 --min-profit 10 --hours 48
 
-# Configure environment
-cp backend/.env.example backend/.env
-# Edit backend/.env with API keys and database credentials
-```
+# Run QA validation (post-pipeline)
+python3 qa_opportunities.py
 
-### Database Management
-```bash
-# Create database
-psql -U postgres -c "CREATE DATABASE trading_cards;"
+# Run 130point data worm (background sold comps builder)
+python3 worm_130point.py --limit 100
+nohup python3 worm_130point.py --limit 1000 > /tmp/worm.log 2>&1 &
 
-# Apply schema
-psql -U postgres -d trading_cards -f backend/models/schema.sql
+# Database migrations (keeps local + RDS in sync)
+python3 migrate.py --both          # apply pending to both
+python3 migrate.py --status --both  # check what's applied
+python3 migrate.py --local          # local only
+python3 migrate.py --rds            # RDS only
 
-# Run migrations
-./migrate.sh  # Linux/Mac
-migrate.bat   # Windows
-```
+# Verify auction items are real auctions
+python3 verify_auction.py
+python3 verify_auction.py --item-id 188166755927
 
-### Backend Development
-```bash
-# Install Python dependencies
-cd backend
-pip install -r requirements.txt
+# Start API server
+nohup /usr/bin/python3 -m backend.api.run > /tmp/api.log 2>&1 &
 
-# Generate sample data (25 realistic cards)
-/usr/bin/python3 -m backend.generate_sample_data
-
-# Start API server (port 8000)
-/usr/bin/python3 -m backend.api.run
-
-# Test API endpoints
-python3 backend/test_api.py
-
-# Test opportunity finder
-python3 -m backend.test_opportunities
-
-# Run data pipeline
-python3 -m backend.run_pipeline --query "Wembanyama rookie" --days 7
-
-# Test pipeline with mock data
-python3 backend/test_pipeline.py
-
-# Start scheduler (daily at 2 AM)
-python3 -m backend.run_scheduler
-
-# Run scheduler immediately (test mode)
-python3 -m backend.run_scheduler --now
+# Start frontend
+cd frontend && nohup npm run dev > /tmp/frontend.log 2>&1 &
 ```
 
 ### Frontend Development

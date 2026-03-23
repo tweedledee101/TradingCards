@@ -1,20 +1,14 @@
 # Feature Roadmap
 
-**Last Updated:** 2026-03-20
+**Last Updated:** 2026-03-22
 
 ## Milestone 1 -- "Make Money From the UI"
 
-### 1.1 Store Opportunities in Database
-Pipeline currently prints to stdout. Need an `opportunities` table so results persist.
-- Worker writes results in small batches (trickle-insert, 10 rows at a time)
-- API serves cached results instantly
-- Frontend reads from API, not terminal output
+### 1.1 Store Opportunities in Database -- DONE
+Opportunities table exists with full pipeline results. BIN and auction opportunities stored with listing_type, shipping, bid_count, end_time.
 
-### 1.2 Wire Pipeline Into UI
-Connect stored opportunities to the API/frontend.
-- API endpoint serves pre-computed opportunities from the database
-- Frontend Opportunities page reads from new endpoint
-- Include eBay buy links, card images, profit/ROI calculations
+### 1.2 Wire Pipeline Into UI -- DONE
+API serves opportunities from database. Frontend Opportunities page shows BIN and Auction tabs with eBay buy links, card images, profit/ROI, SCP verification links.
 
 ### 1.3 Worker Separation
 Data gathering must run in a separate process from the core app.
@@ -50,8 +44,8 @@ Show how long ago each eBay listing was posted.
 ## Milestone 3 -- "eBay Account Integration"
 
 ### 3.1 eBay OAuth User Login
-Users link their eBay account to CardPulse via OAuth consent flow.
-- "Allow CardPulse to view your purchases and selling activity"
+Users link their eBay account to Ragnarok Gaming via OAuth consent flow.
+- "Allow Ragnarok Gaming to view your purchases and selling activity"
 - Standard eBay OAuth2 user token flow
 - Tokens stored securely per user, refreshed automatically
 
@@ -103,6 +97,19 @@ Dashboard summary instead of scrolling 50 individual opportunities.
 - "Today: 47 opportunities. Top 5 by profit. 3 new since last scan. Total potential: $1,240"
 - Quick signal on whether it's worth diving deeper today
 
+### 4.5 UI Behavior Tracking
+Track how users interact with opportunities to build a feedback loop between QA flags and user decisions.
+- `user_events` table: event_type, opportunity_id, metadata (JSONB), created_at
+- `/api/events` POST endpoint -- frontend fires on key actions
+- Events tracked: view_opportunity, click_buy_link, click_scp_link, dismiss, add_to_watchlist, filter_change, sort_change
+- Time-on-opportunity tracking (how long user spends evaluating each card)
+- Join user_events to opportunities.qa_flags for pattern detection:
+  - "User dismisses 90% of extreme_roi flags" -> auto-reject those
+  - "User always clicks SCP link on needs_review" -> surface SCP more prominently
+  - "User never clicks opportunities under $15 profit" -> raise min threshold suggestion
+- Post-session analysis: what did the user do when they encountered flagged listings? How did they resolve them?
+- Feeds into price spike prediction (Milestone 9) as a signal source
+
 ## Milestone 5 -- "Ship It"
 
 ### 5.1 AWS Deployment
@@ -110,7 +117,7 @@ Dashboard summary instead of scrolling 50 individual opportunities.
 - Worker on ECS task or Lambda (spins up on demand, dies when done)
 - Database on RDS PostgreSQL
 - Frontend on CloudFront + S3
-- cardpulse.jgaffiliated.com goes live
+- ragnarokgamez.com goes live
 
 ### 5.2 Redesign Remaining Pages
 Inventory, Watchlist, CardDetail pages updated to Ragnarok Gaming theme.
@@ -268,6 +275,67 @@ Automatically find and evaluate lot listings across platforms.
 - No competitor does this well. Most tools focus on individual card pricing.
 - Competitive moat: the more lots users catalog, the better the statistical model gets
 
+## Milestone 9 -- "Predict the Spike"
+
+Predict card price spikes before they happen by combining standard leading indicators with nuanced, hard-to-detect signals that the market misses.
+
+### 9.1 Standard Leading Indicators
+Industry-accepted signals that correlate with price movement.
+- **Sales velocity acceleration**: sudden increase in sales volume for a specific card/player
+- **PSA submission spikes**: more people grading a card = expected supply increase OR demand signal
+- **SCP price velocity**: week-over-week price changes across Ungraded/Grade 9/PSA 10
+- **eBay sold price trends**: median sold price moving up over 7/14/30 day windows
+- **Active listing count changes**: supply drying up (fewer listings) or flooding (more listings)
+- **Bid count acceleration**: auctions getting more bids than historical average
+
+### 9.2 Nuanced / Non-Obvious Signals
+The edge. Signals that most tools and dealers miss entirely.
+- **Social media attention**: Twitter/X mentions, Instagram posts, Reddit threads about a player or card. A viral highlight reel or controversy can move prices within hours.
+- **Artist features**: Cards designed by specific artists (e.g., Topps Project 70 artists, Topps Chrome Black artists) spike when the artist gains attention or announces new work. Track artist social accounts.
+- **Local community behavior**: Facebook group chatter, Discord server activity, Whatnot break schedules featuring specific players. Local hype precedes market-wide price movement.
+- **Prospect call-ups / roster moves**: Minor league player gets called up to MLB -- their prospect cards spike immediately. MLB Stats API already integrated, monitor transaction feeds.
+- **Award announcements / milestones**: MVP voting, All-Star selections, milestone games (3000 hits, 500 HR). Predictable calendar events that move prices.
+- **Injury news**: Player returns from injury (prices spike) or gets injured (prices crash). Real-time news feeds.
+- **New product releases**: When a new Topps Chrome or Prizm set drops, existing cards of featured players can spike or dip depending on the new card's reception.
+- **Breaker schedule analysis**: When major Whatnot/YouTube breakers schedule breaks of specific products, demand for those players increases in the 24-48 hours before the break.
+- **Cross-sport correlation**: NBA/NFL draft picks who played multiple sports -- their baseball cards spike when drafted in another sport.
+- **International events**: World Baseball Classic, Olympics -- international player cards spike during and after.
+
+### 9.3 Signal Scoring Engine
+Weight and combine signals into a "spike probability" score.
+- Each signal source produces a normalized score (0-100)
+- Weighted combination based on historical accuracy of each signal
+- Confidence level based on how many independent signals agree
+- Time horizon: "likely within 24 hours" vs "likely within 7 days" vs "likely within 30 days"
+- Output: player + card + spike_probability + confidence + time_horizon + contributing_signals
+
+### 9.4 Alert System
+Notify user when spike probability exceeds threshold.
+- "Bobby Witt Jr cards likely to spike in 24h -- social media volume 5x normal + All-Star announcement tomorrow"
+- Pair with existing opportunity finder: if a spike is predicted AND underpriced listings exist, that's the highest-priority alert
+- User configurable: which players, what confidence threshold, what time horizon
+
+### 9.5 Backtesting Framework
+Validate prediction accuracy against historical data.
+- Replay past signals against actual price movements
+- Track prediction accuracy over time: "predicted 47 spikes, 31 actually happened (66% accuracy)"
+- Use accuracy data to retune signal weights
+- Feeds back into 9.3 scoring engine
+
+### Data Sources Required
+| Source | Signal Type | Integration |
+|--------|------------|-------------|
+| Twitter/X API | Social mentions, viral moments | API (paid tier) or scrape |
+| Reddit API | r/baseballcards, r/sportscards discussion | Free API |
+| Instagram | Player/artist posts, card community posts | Scrape or Meta API |
+| Discord | Community server activity | Bot integration |
+| MLB Stats API | Call-ups, roster moves, milestones | Already integrated (free) |
+| ESPN/sports news | Injuries, awards, trades | RSS feeds or API |
+| Whatnot | Break schedules, live auction activity | Scrape or future API |
+| YouTube | Breaker schedules, card review videos | YouTube Data API (free tier) |
+| Topps/Panini | Product release calendars | Scrape announcement pages |
+| Facebook Groups | Local community chatter | NovaAct (already scaffolded) |
+
 ---
 
 ## eBay API Strategy
@@ -278,12 +346,12 @@ Automatically find and evaluate lot listings across platforms.
 - **Usage**: ~1,200 calls per full 40-player opportunity scan
 
 ### ACTION ITEM: Apply for Compatible Application Status
-eBay's Compatible Application program grants higher API limits to apps that drive purchases on eBay. CardPulse qualifies -- it literally sends users to buy things on eBay.
+eBay's Compatible Application program grants higher API limits to apps that drive purchases on eBay. Ragnarok Gaming qualifies -- it literally sends users to buy things on eBay.
 
 **How to apply:**
 1. Go to https://developer.ebay.com/my/keys
 2. Navigate to the Compatible Application program
-3. Describe the app: "CardPulse helps trading card dealers find underpriced listings on eBay by comparing active listing prices to SportsCardsPro market rates. Users click through to eBay to purchase cards directly."
+3. Describe the app: "Ragnarok Gaming helps trading card dealers find underpriced listings on eBay by comparing active listing prices to SportsCardsPro market rates. Users click through to eBay to purchase cards directly."
 4. Expected approval: 50,000-200,000+ calls/day
 
 **Why eBay will approve this:**

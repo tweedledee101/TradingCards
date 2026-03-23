@@ -50,14 +50,9 @@ jobs:
       - name: Set up database schema
         run: |
           PGPASSWORD=testpass psql -h localhost -U postgres -d trading_cards_test -f backend/models/schema.sql
-          PGPASSWORD=testpass psql -h localhost -U postgres -d trading_cards_test -f backend/models/migration_market_rates.sql
-          PGPASSWORD=testpass psql -h localhost -U postgres -d trading_cards_test -f backend/models/migration_scp_url.sql
 
-      - name: Apply additional migrations
-        run: |
-          for f in backend/models/migration_*.sql; do
-            PGPASSWORD=testpass psql -h localhost -U postgres -d trading_cards_test -f "$f" 2>/dev/null || true
-          done
+      - name: Apply migrations
+        run: python3 migrate.py
 
       - name: Run unit tests
         run: pytest tests/unit/ -v --tb=short -x

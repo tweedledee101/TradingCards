@@ -25,6 +25,37 @@ export const getOpportunityStats = async () => {
   return response.data;
 };
 
+export const getPlayerStats = async (playerName) => {
+  const response = await api.get(`/api/players/${encodeURIComponent(playerName)}/stats`);
+  return response.data;
+};
+
+export const getPlayerPriceHistory = async (playerName, days = 90) => {
+  const response = await api.get(`/api/players/${encodeURIComponent(playerName)}/price-history`, { params: { days } });
+  return response.data;
+};
+
+export const getPlayerTiming = async (playerName) => {
+  const response = await api.get(`/api/players/${encodeURIComponent(playerName)}/timing`);
+  return response.data;
+};
+
+// Scheduled Bids
+export const getScheduledBids = async () => {
+  const response = await api.get('/api/scheduled-bids');
+  return response.data;
+};
+
+export const createScheduledBid = async (data) => {
+  const response = await api.post('/api/scheduled-bids', data);
+  return response.data;
+};
+
+export const cancelScheduledBid = async (id) => {
+  const response = await api.delete(`/api/scheduled-bids/${id}`);
+  return response.data;
+};
+
 // Trending
 export const getTrendingCards = async (limit = 25, filters = {}) => {
   const params = new URLSearchParams({ limit, ...filters });

@@ -52,13 +52,15 @@ class JobTracker:
         self.run_id = run.id
         return self
 
-    def update(self, processed: int):
-        """Update progress"""
+    def update(self, processed: int, total: int = None):
+        """Update progress. Optionally reset total for multi-step jobs."""
         if not self.run_id or not self.db:
             return
         run = self.db.query(JobRun).get(self.run_id)
         if run:
             run.items_processed = processed
+            if total is not None:
+                run.items_total = total
             self.db.commit()
 
     def complete(self, summary: dict = None):

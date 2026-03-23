@@ -152,27 +152,42 @@ def get_cards(db: Session = Depends(get_db)):
 
 **Frequency**: 100% of API endpoints use dependency injection
 
-### Webhook Integration Pattern
-**Pattern**: External scrapers push data via POST webhooks
+### Caching Pattern
+**Pattern**: Multi-source pricing data cached in DB with TTL
 ```python
-# Scraper sends data
-requests.post(
-    'http://localhost:8000/api/webhooks/novaact/psa',
-    json={
-        'player_name': 'Victor Wembanyama',
-        'card_year': 2023,
-        'psa_10_count': 1250,
-        'total_graded': 5000
-    }
-)
+# scp_cache table: player_name + card_year + card_number -> JSONB variants
+# 24-hour TTL -- after that, re-scrapes via Selenium
+cached = db.query(SCPCache).filter(
+    SCPCache.player_name.ilike(player_name),
+    SCPCache.card_year == card_year,
+    SCPCache.card_number.ilike(card_number),
+    SCPCache.created_at > cache_cutoff
+).first()
 
-# API receives and stores
-@router.post("/api/webhooks/novaact/psa")
-def receive_psa_data(data: PSAWebhookData, db: Session = Depends(get_db)):
-    """Validate and store PSA data"""
+# sold_comps table: 130point eBay sold data (populated by background worm)
+# 48-hour TTL -- worm re-crawls cards with stale/missing comps
+comps = db.query(SoldComp).filter(
+    func.lower(SoldComp.player_name) == player_name.lower(),
+    SoldComp.card_year == card_year,
+    func.lower(SoldComp.card_number) == card_number.lower(),
+    SoldComp.created_at > cache_cutoff
+).all()
 ```
 
-**Frequency**: Used for all external scraper integrations (PSA, Card Ladder)
+**Frequency**: Used in auction pipeline SCP validation + fallback pricing
+
+### Multi-Pass Matching Pattern
+**Pattern**: Progressively looser matching with confidence tracking and diagnostics
+```python
+# Pass 1: exact parallel name match (match_type='exact')
+# Pass 2A: strict text match -- ALL words of SCP parallel in eBay title (match_type='text_match')
+# Pass 2B: fuzzy word-overlap scoring -- 50%+ word overlap, best unambiguous match (match_type='text_match')
+# Pass 3: narrow by signals - RC/Auto/Relic/print_run (match_type='signal_match', flagged=True)
+# No match: skip with diagnostic output (variants found, pass attempts, failure reason)
+# BIN sanity check: if hybrid listing BIN < 50% of SCP price, reject (seller disagrees)
+```
+
+**Frequency**: Used in auction pipeline SCP matching
 
 ## Code Idioms and Patterns
 

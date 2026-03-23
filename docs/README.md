@@ -7,6 +7,7 @@
 
 ## How Things Work
 - [OPPORTUNITY-FINDER.md](./OPPORTUNITY-FINDER.md) - Arbitrage scoring, pricing logic, API usage
+- [KNOWN-ISSUES.md](./KNOWN-ISSUES.md) - Documented false positive patterns and pipeline bugs
 
 ## Architecture
 - [system-architecture.md](./architecture/system-architecture.md) - System design and component overview
@@ -17,6 +18,7 @@
 - [ADR-001](./architecture/decisions/ADR-001-postgresql-database.md) - Why PostgreSQL
 - [ADR-002](./architecture/decisions/ADR-002-ebay-primary-source.md) - Why eBay as primary source
 - [ADR-003](./architecture/decisions/ADR-003-testing-strategy.md) - Testing strategy (pytest)
+- [ADR-004](./architecture/decisions/ADR-004-demand-driven-refresh.md) - Demand-driven refresh (no crons)
 
 ## Setup
 - [installation.md](./setup/installation.md) - Development environment setup

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { getOpportunities, getAuctions } from '../api/client';
+import { getOpportunities, getAuctions, getScheduledBids, cancelScheduledBid } from '../api/client';
+import CardDetailModal from '../components/CardDetailModal';
 
 const Opportunities = () => {
   const [auctions, setAuctions] = useState([]);
@@ -10,7 +11,9 @@ const Opportunities = () => {
   const [expandedAuction, setExpandedAuction] = useState(null);
   const [expandedBin, setExpandedBin] = useState(null);
   const [expandedReview, setExpandedReview] = useState(null);
+  const [selectedCard, setSelectedCard] = useState(null);
   const [filters, setFilters] = useState({ maxBid: '', minProfit: '', minRoi: '' });
+  const [myBids, setMyBids] = useState([]);
 
   useEffect(() => { fetchAll(); }, []);
 
@@ -18,18 +21,27 @@ const Opportunities = () => {
     setLoading(true);
     setError(null);
     try {
-      const [auctionData, binData] = await Promise.all([
+      const [auctionData, binData, bidsData] = await Promise.all([
         getAuctions().catch(() => ({ auctions: [] })),
         getOpportunities().catch(() => ({ opportunities: [] })),
+        getScheduledBids().catch(() => ({ bids: [] })),
       ]);
       setAuctions(auctionData.auctions || []);
       setBinDeals(binData.opportunities || []);
       setScannedAt(binData.scanned_at || null);
+      setMyBids(bidsData.bids || []);
     } catch (err) {
       setError('Failed to load data');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleCancelBid = async (id) => {
+    try {
+      await cancelScheduledBid(id);
+      setMyBids(prev => prev.filter(b => b.id !== id));
+    } catch (err) { /* ignore */ }
   };
 
   const clean = auctions.filter(a => !a.flagged);
@@ -92,6 +104,21 @@ const Opportunities = () => {
 
       {error && <div className="card-surface p-4 mb-6 text-loss text-sm">{error}</div>}
 
+      {/* MY BIDS STRIP */}
+      {myBids.length > 0 && (
+        <div className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <h2 className="text-lg font-display font-semibold text-blue-400">My Bids</h2>
+            <span className="text-xs text-frost-dim bg-surface-card px-2 py-0.5 rounded-md">{myBids.length}</span>
+          </div>
+          <div className="flex gap-3 overflow-x-auto pb-2">
+            {myBids.map(bid => (
+              <MyBidCard key={bid.id} bid={bid} onCancel={() => handleCancelBid(bid.id)} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* LIVE AUCTIONS */}
       <SectionHeader title="Live Auctions" subtitle="Ending soon - bid below SCP market rate" count={filteredAuctions.length} />
 
@@ -102,7 +129,8 @@ const Opportunities = () => {
           {filteredAuctions.map((a, i) => (
             <AuctionCard key={a.ebay_item_id || i} auction={a} rank={i + 1}
               isExpanded={expandedAuction === (a.ebay_item_id || i)}
-              onToggle={() => setExpandedAuction(expandedAuction === (a.ebay_item_id || i) ? null : (a.ebay_item_id || i))} />
+              onToggle={() => setExpandedAuction(expandedAuction === (a.ebay_item_id || i) ? null : (a.ebay_item_id || i))}
+              onDrillIn={() => setSelectedCard({ data: a, type: 'auction' })} />
           ))}
         </div>
       )}
@@ -115,7 +143,8 @@ const Opportunities = () => {
             {filteredBin.map((opp, i) => (
               <BinCard key={opp.card_id || i} opp={opp} rank={i + 1}
                 isExpanded={expandedBin === (opp.card_id || i)}
-                onToggle={() => setExpandedBin(expandedBin === (opp.card_id || i) ? null : (opp.card_id || i))} />
+                onToggle={() => setExpandedBin(expandedBin === (opp.card_id || i) ? null : (opp.card_id || i))}
+                onDrillIn={() => setSelectedCard({ data: opp, type: 'bin' })} />
             ))}
           </div>
         </>
@@ -137,15 +166,26 @@ const Opportunities = () => {
             {flaggedAuctions.map((a, i) => (
               <AuctionCard key={`review-${a.ebay_item_id || i}`} auction={a} rank={i + 1} isFlagged
                 isExpanded={expandedReview === (a.ebay_item_id || i)}
-                onToggle={() => setExpandedReview(expandedReview === (a.ebay_item_id || i) ? null : (a.ebay_item_id || i))} />
+                onToggle={() => setExpandedReview(expandedReview === (a.ebay_item_id || i) ? null : (a.ebay_item_id || i))}
+                onDrillIn={() => setSelectedCard({ data: a, type: 'auction' })} />
             ))}
             {flaggedBin.map((opp, i) => (
               <BinCard key={`review-bin-${i}`} opp={opp} rank={i + 1}
                 isExpanded={expandedReview === `flagged-bin-${i}`}
-                onToggle={() => setExpandedReview(expandedReview === `flagged-bin-${i}` ? null : `flagged-bin-${i}`)} />
+                onToggle={() => setExpandedReview(expandedReview === `flagged-bin-${i}` ? null : `flagged-bin-${i}`)}
+                onDrillIn={() => setSelectedCard({ data: opp, type: 'bin' })} />
             ))}
           </div>
         </>
+      )}
+
+      {/* Drill-in Modal */}
+      {selectedCard && (
+        <CardDetailModal
+          opportunity={selectedCard.data}
+          type={selectedCard.type}
+          onClose={() => setSelectedCard(null)}
+        />
       )}
     </div>
   );
@@ -167,11 +207,7 @@ const EmptyState = ({ message }) => (
 );
 
 
-const AuctionCard = ({ auction: a, rank, isExpanded, onToggle, isFlagged }) => {
-  const hoursLeft = a.hours_left || 0;
-  const urgency = hoursLeft <= 1 ? 'text-loss' : hoursLeft <= 6 ? 'text-amber-400' : 'text-frost-dim';
-  const timeLabel = hoursLeft < 1 ? `${Math.round(hoursLeft * 60)}m` : `${hoursLeft.toFixed(1)}h`;
-
+const AuctionCard = ({ auction: a, rank, isExpanded, onToggle, onDrillIn, isFlagged }) => {
   return (
     <div className={`card-surface overflow-hidden ${isFlagged ? 'border-amber-500/30' : ''}`}>
       <div role="button" tabIndex={0} aria-expanded={isExpanded}
@@ -180,13 +216,10 @@ const AuctionCard = ({ auction: a, rank, isExpanded, onToggle, isFlagged }) => {
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}>
 
         {/* Time left */}
-        <div className={`w-12 text-center shrink-0 ${urgency}`}>
-          <div className="text-sm font-bold font-mono">{timeLabel}</div>
-          <div className="text-[9px] uppercase tracking-wider">left</div>
-        </div>
+        <CountdownTimer endTime={a.end_time} />
 
         {/* Image */}
-        <div className="w-10 h-14 rounded-md overflow-hidden bg-surface-raised shrink-0">
+        <div className="w-10 h-14 rounded-md overflow-hidden bg-surface-raised shrink-0 cursor-pointer" onClick={e => { e.stopPropagation(); onDrillIn(); }}>
           {a.image_url ? (
             <img src={a.image_url} alt="" loading="lazy" className="w-full h-full object-cover" onError={e => { e.target.style.display = 'none'; }} />
           ) : (
@@ -198,6 +231,7 @@ const AuctionCard = ({ auction: a, rank, isExpanded, onToggle, isFlagged }) => {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <span className="text-sm font-semibold text-frost-light truncate">{a.player_name}</span>
+            <ConfidenceBadge source={a.price_source} />
             {a.parallel && a.parallel !== 'Base' && <span className="badge-neutral text-[10px]">{a.parallel}</span>}
             {a.is_rookie && <span className="badge-ember text-[10px]">RC</span>}
             {a.grade_company && <span className="badge-neutral text-[10px]">{a.grade_company} {a.grade_value}</span>}
@@ -247,6 +281,19 @@ const AuctionCard = ({ auction: a, rank, isExpanded, onToggle, isFlagged }) => {
             <Stat label="Condition" value={a.condition || 'Unknown'} />
           </div>
           <div className="text-xs text-frost-dim mb-3 truncate">{a.title}</div>
+          {a.qa_flags && a.qa_flags.length > 0 && (
+            <div className="space-y-1 mb-3">
+              {a.qa_flags.map((f, i) => (
+                <div key={i} className={`text-xs px-2 py-1 rounded ${
+                  f.severity === 'critical' ? 'bg-loss/10 text-loss border border-loss/20'
+                  : f.severity === 'warning' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                  : 'bg-surface-raised text-frost-dim border border-surface-border'
+                }`}>
+                  <span className="font-medium">{f.rule}</span>: {f.reason}
+                </div>
+              ))}
+            </div>
+          )}
           <div className="flex gap-2">
             <a href={a.ebay_url} target="_blank" rel="noopener noreferrer"
               className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/20 hover:bg-amber-500/30 transition-colors">
@@ -265,6 +312,10 @@ const AuctionCard = ({ auction: a, rank, isExpanded, onToggle, isFlagged }) => {
               className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-raised text-frost-dim border border-surface-border hover:text-frost-light transition-colors">
               Copy Search
             </button>
+            <button onClick={onDrillIn}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-raised text-frost-dim border border-surface-border hover:text-frost-light transition-colors">
+              Full Details
+            </button>
           </div>
         </div>
       )}
@@ -273,7 +324,7 @@ const AuctionCard = ({ auction: a, rank, isExpanded, onToggle, isFlagged }) => {
 };
 
 
-const BinCard = ({ opp, rank, isExpanded, onToggle }) => {
+const BinCard = ({ opp, rank, isExpanded, onToggle, onDrillIn }) => {
   const arb = opp.arbitrage || {};
   const buyListings = opp.buy_listings || [];
 
@@ -288,7 +339,7 @@ const BinCard = ({ opp, rank, isExpanded, onToggle }) => {
           <div className="text-xs font-medium text-gain bg-gain/10 rounded-md px-1.5 py-0.5">BIN</div>
         </div>
 
-        <div className="w-10 h-14 rounded-md overflow-hidden bg-surface-raised shrink-0">
+        <div className="w-10 h-14 rounded-md overflow-hidden bg-surface-raised shrink-0 cursor-pointer" onClick={e => { e.stopPropagation(); onDrillIn(); }}>
           {opp.image_url ? (
             <img src={opp.image_url} alt="" loading="lazy" className="w-full h-full object-cover" onError={e => { e.target.style.display = 'none'; }} />
           ) : (
@@ -299,6 +350,7 @@ const BinCard = ({ opp, rank, isExpanded, onToggle }) => {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
             <span className="text-sm font-semibold text-frost-light truncate">{opp.player_name}</span>
+            <ConfidenceBadge source={opp.price_source} />
             {opp.parallel && opp.parallel !== 'Base' && <span className="badge-neutral text-[10px]">{opp.parallel}</span>}
             {opp.is_rookie && <span className="badge-ember text-[10px]">RC</span>}
           </div>
@@ -369,11 +421,93 @@ const BinCard = ({ opp, rank, isExpanded, onToggle }) => {
               className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-raised text-frost-dim border border-surface-border hover:text-frost-light transition-colors">
               Copy Search
             </button>
+            <button onClick={onDrillIn}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-raised text-frost-dim border border-surface-border hover:text-frost-light transition-colors">
+              Full Details
+            </button>
           </div>
+          {opp.qa_flags && opp.qa_flags.length > 0 && (
+            <div className="space-y-1 mt-3">
+              {opp.qa_flags.map((f, i) => (
+                <div key={i} className={`text-xs px-2 py-1 rounded ${
+                  f.severity === 'critical' ? 'bg-loss/10 text-loss border border-loss/20'
+                  : f.severity === 'warning' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                  : 'bg-surface-raised text-frost-dim border border-surface-border'
+                }`}>
+                  <span className="font-medium">{f.rule}</span>: {f.reason}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
+};
+
+
+const CountdownTimer = ({ endTime }) => {
+  const [remaining, setRemaining] = useState(() => calcRemaining(endTime));
+
+  useEffect(() => {
+    if (!endTime) return;
+    const id = setInterval(() => setRemaining(calcRemaining(endTime)), 1000);
+    return () => clearInterval(id);
+  }, [endTime]);
+
+  if (!endTime || remaining <= 0) {
+    return (
+      <div className="w-32 text-center shrink-0">
+        <div className="text-[10px] font-bold uppercase tracking-wider bg-surface-raised rounded px-1.5 py-1 text-frost-dim">Ended</div>
+      </div>
+    );
+  }
+
+  const hours = Math.floor(remaining / 3600);
+  const mins = Math.floor((remaining % 3600) / 60);
+  const secs = remaining % 60;
+  const urgency = hours < 1 ? 'text-loss' : hours < 6 ? 'text-amber-400' : 'text-frost-dim';
+
+  let display, sub;
+  if (hours >= 24) {
+    const days = Math.floor(hours / 24);
+    const remHours = hours % 24;
+    display = `${days}d ${remHours}h ${mins.toString().padStart(2, '0')}m ${secs.toString().padStart(2, '0')}s`;
+    sub = 'left';
+  } else if (hours >= 1) {
+    display = `${hours}h ${mins.toString().padStart(2, '0')}m ${secs.toString().padStart(2, '0')}s`;
+    sub = 'left';
+  } else {
+    display = `${mins}:${secs.toString().padStart(2, '0')}`;
+    sub = 'left';
+  }
+
+  return (
+    <div className={`w-32 text-center shrink-0 ${urgency}`}>
+      <div className="text-xs font-bold font-mono">{display}</div>
+      <div className="text-[9px] uppercase tracking-wider">{sub}</div>
+    </div>
+  );
+};
+
+const calcRemaining = (endTime) => {
+  if (!endTime) return 0;
+  const end = new Date(endTime).getTime();
+  return Math.max(0, Math.floor((end - Date.now()) / 1000));
+};
+
+
+const ConfidenceBadge = ({ source }) => {
+  if (!source || source === 'scp') {
+    return <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gain/15 text-gain border border-gain/20">SCP</span>;
+  }
+  if (source === 'sold_comps') {
+    return <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/20">Sold Comps</span>;
+  }
+  if (source === 'ebay_comps') {
+    return <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20">Market Comps</span>;
+  }
+  return null;
 };
 
 
@@ -383,6 +517,79 @@ const Stat = ({ label, value, gain }) => (
     <div className={`text-sm font-mono font-semibold ${gain ? 'text-gain' : 'text-frost-light'}`}>{value}</div>
   </div>
 );
+
+
+const MyBidCard = ({ bid, onCancel }) => {
+  const [remaining, setRemaining] = useState(() => calcRemaining(bid.end_time));
+
+  useEffect(() => {
+    if (!bid.end_time) return;
+    const id = setInterval(() => setRemaining(calcRemaining(bid.end_time)), 1000);
+    return () => clearInterval(id);
+  }, [bid.end_time]);
+
+  const hours = Math.floor(remaining / 3600);
+  const mins = Math.floor((remaining % 3600) / 60);
+  const secs = remaining % 60;
+  const pad = (n) => n.toString().padStart(2, '0');
+  const ended = remaining <= 0;
+  const approaching = !ended && remaining <= bid.snipe_seconds * 2;
+  const urgent = !ended && remaining <= 3600;
+
+  let timeDisplay;
+  if (ended) timeDisplay = 'Ended';
+  else if (hours >= 24) timeDisplay = `${Math.floor(hours/24)}d ${hours%24}h ${pad(mins)}m ${pad(secs)}s`;
+  else if (hours >= 1) timeDisplay = `${hours}h ${pad(mins)}m ${pad(secs)}s`;
+  else timeDisplay = `${mins}:${pad(secs)}`;
+
+  return (
+    <div className={`card-surface min-w-[260px] max-w-[300px] shrink-0 p-3 ${
+      approaching ? 'border-loss/50 animate-pulse' : urgent ? 'border-amber-500/30' : ''
+    }`}>
+      <div className="flex items-start gap-2 mb-2">
+        {bid.image_url && (
+          <div className="w-8 h-11 rounded overflow-hidden bg-surface-raised shrink-0">
+            <img src={bid.image_url} alt="" className="w-full h-full object-cover" onError={e => { e.target.style.display = 'none'; }} />
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <div className="text-xs font-semibold text-frost-light truncate">{bid.player_name}</div>
+          <div className="text-[10px] text-frost-dim truncate">
+            {bid.card_year} {bid.card_set}{bid.card_number ? ` #${bid.card_number}` : ''}
+            {bid.parallel ? ` - ${bid.parallel}` : ''}
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center justify-between mb-2">
+        <div className={`text-xs font-mono font-bold ${
+          ended ? 'text-frost-dim' : approaching ? 'text-loss' : urgent ? 'text-amber-400' : 'text-frost-light'
+        }`}>
+          {timeDisplay}
+        </div>
+        <div className="text-xs font-mono font-semibold text-blue-400">
+          Max: ${bid.max_bid?.toFixed(2)}
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
+        <span className="text-[9px] text-frost-dim">Snipe {bid.snipe_seconds}s before end</span>
+        <div className="flex gap-1.5">
+          {bid.ebay_url && (
+            <a href={bid.ebay_url} target="_blank" rel="noopener noreferrer"
+              className="px-2 py-0.5 rounded text-[9px] font-medium bg-surface-raised text-frost-dim border border-surface-border hover:text-frost-light transition-colors">
+              View
+            </a>
+          )}
+          {!ended && (
+            <button onClick={onCancel}
+              className="px-2 py-0.5 rounded text-[9px] font-medium bg-loss/10 text-loss border border-loss/20 hover:bg-loss/20 transition-colors">
+              Cancel
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
 
 
 export default Opportunities;

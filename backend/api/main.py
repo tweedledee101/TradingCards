@@ -6,7 +6,7 @@ import uuid
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from backend.api.routes import trending, cards, health, inventory, watchlist, webhooks, ebay_compliance, opportunities, sourcing
+from backend.api.routes import trending, cards, health, inventory, watchlist, webhooks, ebay_compliance, opportunities, sourcing, scheduled_bids
 from backend.utils.logger import get_logger, set_request_id, clear_request_id
 
 log = get_logger('api')
@@ -74,3 +74,4 @@ app.include_router(watchlist.router, prefix="/api", tags=["Watchlist"])
 app.include_router(webhooks.router, prefix="/api", tags=["Webhooks"])
 app.include_router(ebay_compliance.router, prefix="/api", tags=["eBay Compliance"])
 app.include_router(sourcing.router, prefix="/api", tags=["Sourcing"])
+app.include_router(scheduled_bids.router, prefix="/api", tags=["Scheduled Bids"])

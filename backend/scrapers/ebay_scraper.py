@@ -336,7 +336,11 @@ class EbayScraper:
             
             # Parallel/Variety
             elif name in ['Parallel/Variety', 'Parallel', 'Variety']:
-                data['parallel'] = value if value else 'Base'
+                val = value if value else 'Base'
+                # Strip brackets if eBay returns "[Base]" literally
+                if isinstance(val, str) and val.startswith('[') and val.endswith(']'):
+                    val = val[1:-1]
+                data['parallel'] = val
             
             # Grading
             elif name in ['Professional Grader', 'Grader']:
@@ -348,7 +352,7 @@ class EbayScraper:
                     pass
             
             # Card details
-            elif name == 'Player':
+            elif name in ('Player', 'Player/Athlete', 'Athlete', 'Player Name'):
                 data['player_name'] = value
             elif name == 'Year':
                 try:
@@ -700,6 +704,204 @@ class EbayScraper:
             return items
         except requests.exceptions.RequestException as e:
             print(f"Error fetching active listings: {e}")
+            return []
+
+    def search_active_bin_comps(self, query: str, category_id: str = '261328') -> List[Dict]:
+        """Search active BIN listings as market comps for a specific card.
+
+        Returns BIN prices only (no auctions) for calculating median market value.
+        Used as fallback when SCP has no matching variant.
+
+        Args:
+            query: Specific card search (e.g. "Juan Soto 2026 Topps Mojo Refractor #91C-44")
+            category_id: eBay category (default 261328 = Trading Card Singles)
+
+        Returns:
+            List of dicts with price, title, condition, listing_type
+        """
+        filter_str = f"buyingOptions:{{FIXED_PRICE}}"
+        if category_id:
+            filter_str += f",categoryId:{{{category_id}}}"
+
+        params = {
+            "q": query,
+            "filter": filter_str,
+            "sort": "price",
+            "limit": 50,
+        }
+
+        try:
+            self.headers["Authorization"] = f"Bearer {self.token_manager.get_token()}"
+            response = requests.get(
+                f"{self.base_url}/item_summary/search",
+                headers=self.headers,
+                params=params,
+                timeout=30,
+            )
+            if response.status_code == 401:
+                self.token_manager._refresh_token()
+                self.headers["Authorization"] = f"Bearer {self.token_manager.get_token()}"
+                response = requests.get(
+                    f"{self.base_url}/item_summary/search",
+                    headers=self.headers,
+                    params=params,
+                    timeout=30,
+                )
+            response.raise_for_status()
+            time.sleep(0.5)
+
+            results = []
+            for item in response.json().get('itemSummaries', []):
+                price = float(item.get('price', {}).get('value', 0))
+                if price < 1.0:
+                    continue
+                buying = item.get('buyingOptions', [])
+                if 'AUCTION' in buying and 'FIXED_PRICE' not in buying:
+                    continue
+                results.append({
+                    'price': price,
+                    'title': item.get('title', ''),
+                    'condition': item.get('condition', 'Ungraded'),
+                })
+            return results
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching BIN comps for '{query}': {e}")
+            return []
+
+    def search_auctions_ending_soon(self, query: str, hours: int = 48, offset: int = 0, category_id: str = '261328') -> List[Dict]:
+        """
+        Search for auction-only listings ending within `hours`.
+
+        Returns richer data than get_active_listings: shipping cost,
+        bid count, end time, and item aspects (for card number extraction).
+
+        Args:
+            query: Search term (e.g. "2024 Topps Chrome")
+            hours: Max hours until auction ends (default 48)
+            offset: Pagination offset
+            category_id: eBay category (default 261328 = Trading Card Singles)
+
+        Returns:
+            List of auction dicts with title, price, shipping, bid_count,
+            end_time, card_info, image_url, ebay_item_id, aspects
+        """
+        end_deadline = datetime.now() + timedelta(hours=hours)
+
+        filter_str = f"buyingOptions:{{AUCTION}},itemEndDate:[..{end_deadline.isoformat()}Z]"
+        if category_id:
+            filter_str += f",categoryId:{{{category_id}}}"
+
+        params = {
+            "q": query,
+            "filter": filter_str,
+            "sort": "endTimeSoonest",
+            "limit": 200,
+            "offset": offset,
+            "fieldgroups": "EXTENDED",
+        }
+
+        try:
+            self.headers["Authorization"] = f"Bearer {self.token_manager.get_token()}"
+
+            response = requests.get(
+                f"{self.base_url}/item_summary/search",
+                headers=self.headers,
+                params=params,
+                timeout=30,
+            )
+
+            if response.status_code == 401:
+                self.token_manager._refresh_token()
+                self.headers["Authorization"] = f"Bearer {self.token_manager.get_token()}"
+                response = requests.get(
+                    f"{self.base_url}/item_summary/search",
+                    headers=self.headers,
+                    params=params,
+                    timeout=30,
+                )
+
+            response.raise_for_status()
+            time.sleep(0.5)
+
+            data = response.json()
+            items = []
+
+            for item in data.get('itemSummaries', []):
+                title = item.get('title', '')
+                if not title:
+                    continue
+
+                price = float(item.get('price', {}).get('value', 0))
+                if price < 1.0:
+                    continue
+
+                # Shipping
+                shipping = 0.0
+                ship_opts = item.get('shippingOptions', [])
+                if ship_opts:
+                    cost = ship_opts[0].get('shippingCost', {})
+                    shipping = float(cost.get('value', 0))
+
+                # Bid count
+                bid_count = item.get('bidCount', 0)
+
+                # End time
+                end_time = item.get('itemEndDate')
+
+                # Image
+                image_url = None
+                thumbs = item.get('thumbnailImages', [])
+                if thumbs:
+                    image_url = thumbs[0].get('imageUrl')
+                if not image_url:
+                    img = item.get('image', {})
+                    image_url = img.get('imageUrl') if img else None
+
+                card_info = self._extract_card_info(title, item.get('condition'))
+
+                # Item aspects from EXTENDED fieldgroup
+                aspects = {}
+                for aspect in item.get('localizedAspects', []):
+                    name = aspect.get('name', '')
+                    val = aspect.get('value', '')
+                    if isinstance(val, list):
+                        val = val[0] if val else ''
+                    aspects[name] = val
+
+                # Check actual buyingOptions -- eBay returns hybrid listings
+                buying_options = item.get('buyingOptions', [])
+                if 'FIXED_PRICE' in buying_options and 'AUCTION' not in buying_options:
+                    continue  # Pure BIN -- skip, not an auction
+
+                listing_type = 'auction'
+                bin_price = None
+                current_bid = price  # default: eBay's price field
+                if 'FIXED_PRICE' in buying_options and 'AUCTION' in buying_options:
+                    listing_type = 'auction_bin'  # Hybrid -- auction with BIN option
+                    # For hybrids, price field is BIN. currentBidPrice is the actual bid.
+                    bid_obj = item.get('currentBidPrice', {})
+                    if bid_obj and bid_obj.get('value'):
+                        bin_price = price  # Store BIN separately
+                        current_bid = float(bid_obj['value'])
+
+                items.append({
+                    'ebay_item_id': item.get('itemId'),
+                    'title': title,
+                    'price': current_bid,
+                    'bin_price': bin_price,
+                    'shipping': shipping,
+                    'bid_count': bid_count,
+                    'end_time': end_time,
+                    'listing_type': listing_type,
+                    'card_info': card_info,
+                    'aspects': aspects,
+                    'image_url': image_url,
+                    'condition': item.get('condition'),
+                })
+
+            return items
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching auctions for '{query}': {e}")
             return []
 
 

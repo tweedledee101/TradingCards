@@ -3,10 +3,12 @@ Opportunities endpoints - serves pipeline results from the database
 """
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func as sqlfunc
+from sqlalchemy import func as sqlfunc, or_
 from typing import Optional
+from datetime import datetime, timedelta
+import unicodedata
 from backend.utils.database import get_db
-from backend.models import Opportunity, JobRun
+from backend.models import Opportunity, JobRun, Card, Sale, ActiveListing, MarketRate
 
 router = APIRouter()
 
@@ -87,11 +89,18 @@ def get_opportunity_stats(db: Session = Depends(get_db)):
 def get_auctions(
     min_profit: Optional[float] = Query(default=None),
     max_budget: Optional[float] = Query(default=None),
+    include_ended: bool = Query(default=False),
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db)
 ):
-    """Returns auction opportunities from the latest pipeline scan."""
+    """Returns auction opportunities from the latest pipeline scan.
+    By default, excludes auctions that have already ended."""
+    from datetime import datetime
     query = db.query(Opportunity).filter(Opportunity.listing_type == 'auction')
+    if not include_ended:
+        query = query.filter(
+            (Opportunity.end_time > datetime.now()) | (Opportunity.end_time.is_(None))
+        )
     if min_profit:
         query = query.filter(Opportunity.profit >= min_profit)
     if max_budget:
@@ -100,11 +109,234 @@ def get_auctions(
     return {"success": True, "count": len(opps), "auctions": [_auction_to_dict(o) for o in opps]}
 
 
+@router.get("/players/{player_name}/stats")
+def get_player_stats(player_name: str, db: Session = Depends(get_db)):
+    """Player-level analytics for the opportunity drill-in modal."""
+    name_lower = player_name.lower()
+    # Strip accents: Acuña -> Acuna, so we match both DB spellings
+    name_normalized = unicodedata.normalize('NFD', name_lower)
+    name_ascii = ''.join(c for c in name_normalized if unicodedata.category(c) != 'Mn')
+    # Also strip trailing periods: "Jr." -> "Jr"
+    name_ascii = name_ascii.rstrip('.')
+
+    thirty_days_ago = datetime.now() - timedelta(days=30)
+
+    # Match cards by either exact or accent-stripped name
+    card_filter = or_(
+        sqlfunc.lower(Card.player_name) == name_lower,
+        sqlfunc.lower(Card.player_name) == name_ascii,
+        sqlfunc.lower(Card.player_name) == name_ascii.rstrip(' jr').rstrip(' ') + ' jr',
+    )
+
+    card_count = db.query(sqlfunc.count(Card.id)).filter(card_filter).scalar() or 0
+
+    card_ids = db.query(Card.id).filter(card_filter).subquery()
+    total_sales = db.query(sqlfunc.count(Sale.id)).filter(Sale.card_id.in_(card_ids)).scalar() or 0
+    recent_sales = db.query(sqlfunc.count(Sale.id)).filter(
+        Sale.card_id.in_(card_ids), Sale.sale_date >= thirty_days_ago
+    ).scalar() or 0
+    avg_sale = db.query(sqlfunc.avg(Sale.sale_price)).filter(
+        Sale.card_id.in_(card_ids), Sale.sale_date >= thirty_days_ago
+    ).scalar()
+
+    active_count = db.query(sqlfunc.count(ActiveListing.id)).filter(
+        ActiveListing.card_id.in_(card_ids)
+    ).scalar() or 0
+
+    velocity = round(recent_sales / active_count, 2) if active_count > 0 else 0
+
+    rates_count = db.query(sqlfunc.count(MarketRate.id)).filter(
+        MarketRate.card_id.in_(card_ids)
+    ).scalar() or 0
+
+    opp_count = db.query(sqlfunc.count(Opportunity.id)).filter(
+        sqlfunc.lower(Opportunity.player_name) == name_lower
+    ).scalar() or 0
+
+    # Sell-through data: sales grouped by price bucket relative to SCP
+    # For cards with market rates, compute how fast they sell at various price points
+    sell_through = []
+    rated_cards = db.query(Card.id, MarketRate.ungraded_price).join(
+        MarketRate, Card.id == MarketRate.card_id
+    ).filter(card_filter, MarketRate.ungraded_price > 0).all()
+
+    if rated_cards:
+        rate_map = {c_id: float(price) for c_id, price in rated_cards}
+        rated_ids = list(rate_map.keys())
+
+        sales_with_rate = db.query(Sale.card_id, Sale.sale_price, Sale.sale_date).filter(
+            Sale.card_id.in_(rated_ids),
+            Sale.sale_date >= datetime.now() - timedelta(days=90),
+        ).all()
+
+        # Bucket sales by % of SCP: <80%, 80-90%, 90-100%, 100-110%, >110%
+        buckets = {
+            'below_80': {'sales': 0, 'total_days': 0, 'label': '<80% of SCP'},
+            '80_to_90': {'sales': 0, 'total_days': 0, 'label': '80-90%'},
+            '90_to_100': {'sales': 0, 'total_days': 0, 'label': '90-100%'},
+            'at_market': {'sales': 0, 'total_days': 0, 'label': '100-110%'},
+            'above_110': {'sales': 0, 'total_days': 0, 'label': '>110%'},
+        }
+
+        for sale in sales_with_rate:
+            scp = rate_map.get(sale.card_id, 0)
+            if scp <= 0:
+                continue
+            ratio = float(sale.sale_price) / scp
+            if ratio < 0.80:
+                buckets['below_80']['sales'] += 1
+            elif ratio < 0.90:
+                buckets['80_to_90']['sales'] += 1
+            elif ratio < 1.00:
+                buckets['90_to_100']['sales'] += 1
+            elif ratio < 1.10:
+                buckets['at_market']['sales'] += 1
+            else:
+                buckets['above_110']['sales'] += 1
+
+        total_rated_sales = sum(b['sales'] for b in buckets.values())
+        days_in_window = 90
+
+        for key, bucket in buckets.items():
+            if bucket['sales'] > 0:
+                # avg days between sales at this price point
+                avg_days_to_sell = round(days_in_window / bucket['sales'], 1)
+            else:
+                avg_days_to_sell = None
+            sell_through.append({
+                'bucket': bucket['label'],
+                'sales': bucket['sales'],
+                'pct_of_total': round(bucket['sales'] / total_rated_sales * 100, 1) if total_rated_sales > 0 else 0,
+                'avg_days_to_sell': avg_days_to_sell,
+            })
+
+    return {
+        "player_name": player_name,
+        "cards": card_count,
+        "total_sales": total_sales,
+        "recent_sales_30d": recent_sales,
+        "avg_sale_price_30d": round(float(avg_sale), 2) if avg_sale else None,
+        "active_listings": active_count,
+        "velocity": velocity,
+        "market_rates": rates_count,
+        "opportunities": opp_count,
+        "sell_through": sell_through,
+    }
+
+
+@router.get("/players/{player_name}/price-history")
+def get_player_price_history(player_name: str, days: int = Query(default=90), db: Session = Depends(get_db)):
+    """Daily avg sale price for sparkline chart."""
+    name_lower = player_name.lower()
+    name_normalized = unicodedata.normalize('NFD', name_lower)
+    name_ascii = ''.join(c for c in name_normalized if unicodedata.category(c) != 'Mn').rstrip('.')
+
+    card_filter = or_(
+        sqlfunc.lower(Card.player_name) == name_lower,
+        sqlfunc.lower(Card.player_name) == name_ascii,
+        sqlfunc.lower(Card.player_name) == name_ascii.rstrip(' jr').rstrip(' ') + ' jr',
+    )
+    card_ids = db.query(Card.id).filter(card_filter).subquery()
+    cutoff = datetime.now() - timedelta(days=days)
+
+    rows = db.query(
+        sqlfunc.cast(Sale.sale_date, sqlfunc.DATE).label('day'),
+        sqlfunc.count(Sale.id).label('sales'),
+        sqlfunc.avg(Sale.sale_price).label('avg_price'),
+        sqlfunc.min(Sale.sale_price).label('min_price'),
+        sqlfunc.max(Sale.sale_price).label('max_price'),
+    ).filter(
+        Sale.card_id.in_(card_ids),
+        Sale.sale_date >= cutoff,
+    ).group_by('day').order_by('day').all()
+
+    # Get SCP avg for reference line
+    avg_scp = db.query(sqlfunc.avg(MarketRate.ungraded_price)).filter(
+        MarketRate.card_id.in_(card_ids),
+        MarketRate.ungraded_price > 0,
+    ).scalar()
+
+    return {
+        "player_name": player_name,
+        "days": days,
+        "scp_avg": round(float(avg_scp), 2) if avg_scp else None,
+        "history": [{
+            "date": row.day.isoformat(),
+            "sales": row.sales,
+            "avg_price": round(float(row.avg_price), 2),
+            "min_price": round(float(row.min_price), 2),
+            "max_price": round(float(row.max_price), 2),
+        } for row in rows]
+    }
+
+
+@router.get("/players/{player_name}/timing")
+def get_player_timing(player_name: str, db: Session = Depends(get_db)):
+    """Day-of-week and hour-of-day sale patterns for timing analysis."""
+    name_lower = player_name.lower()
+    name_normalized = unicodedata.normalize('NFD', name_lower)
+    name_ascii = ''.join(c for c in name_normalized if unicodedata.category(c) != 'Mn').rstrip('.')
+
+    card_filter = or_(
+        sqlfunc.lower(Card.player_name) == name_lower,
+        sqlfunc.lower(Card.player_name) == name_ascii,
+        sqlfunc.lower(Card.player_name) == name_ascii.rstrip(' jr').rstrip(' ') + ' jr',
+    )
+    card_ids = db.query(Card.id).filter(card_filter).subquery()
+    cutoff = datetime.now() - timedelta(days=90)
+
+    # Day of week: 0=Sun, 6=Sat
+    dow_rows = db.query(
+        sqlfunc.extract('dow', Sale.sale_date).label('dow'),
+        sqlfunc.count(Sale.id).label('sales'),
+        sqlfunc.avg(Sale.sale_price).label('avg_price'),
+    ).filter(
+        Sale.card_id.in_(card_ids),
+        Sale.sale_date >= cutoff,
+    ).group_by('dow').order_by('dow').all()
+
+    day_names = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+    # Hour of day
+    hour_rows = db.query(
+        sqlfunc.extract('hour', Sale.sale_date).label('hour'),
+        sqlfunc.count(Sale.id).label('sales'),
+        sqlfunc.avg(Sale.sale_price).label('avg_price'),
+    ).filter(
+        Sale.card_id.in_(card_ids),
+        Sale.sale_date >= cutoff,
+    ).group_by('hour').order_by('hour').all()
+
+    return {
+        "player_name": player_name,
+        "by_day": [{
+            "day": day_names[int(r.dow)],
+            "dow": int(r.dow),
+            "sales": r.sales,
+            "avg_price": round(float(r.avg_price), 2),
+        } for r in dow_rows],
+        "by_hour": [{
+            "hour": int(r.hour),
+            "sales": r.sales,
+            "avg_price": round(float(r.avg_price), 2),
+        } for r in hour_rows],
+    }
+
+
 def _auction_to_dict(o: Opportunity) -> dict:
     """Map DB row to the shape the frontend AuctionCard expects."""
+    shipping = float(o.shipping) if o.shipping else 0
+    total_cost = float(o.buy_price) + shipping
     fees = float(o.scp_price) * 0.13
-    net_profit = float(o.scp_price) - float(o.buy_price) - fees
-    roi = (net_profit / float(o.buy_price) * 100) if float(o.buy_price) > 0 else 0
+    net_profit = float(o.scp_price) - total_cost - fees
+    roi = (net_profit / total_cost * 100) if total_cost > 0 else 0
+
+    hours_left = 0
+    if o.end_time:
+        from datetime import datetime
+        delta = o.end_time - datetime.now()
+        hours_left = max(0, round(delta.total_seconds() / 3600, 1))
+
     return {
         "player_name": o.player_name,
         "card_year": o.card_year,
@@ -120,10 +352,11 @@ def _auction_to_dict(o: Opportunity) -> dict:
         "ebay_url": o.ebay_url,
         "ebay_item_id": o.ebay_item_id,
         "current_bid": float(o.buy_price),
-        "bid_count": 0,
-        "hours_left": 0,
-        "shipping": 0,
-        "total_cost": float(o.buy_price),
+        "bid_count": o.bid_count or 0,
+        "hours_left": hours_left,
+        "end_time": o.end_time.isoformat() if o.end_time else None,
+        "shipping": shipping,
+        "total_cost": round(total_cost, 2),
         "fees": round(fees, 2),
         "condition": "Unknown",
         "scp_sell_price": float(o.scp_price),
@@ -131,8 +364,12 @@ def _auction_to_dict(o: Opportunity) -> dict:
         "scp_ungraded": float(o.scp_price),
         "scp_grade_9": float(o.scp_grade_9) if o.scp_grade_9 else None,
         "scp_psa_10": float(o.scp_psa_10) if o.scp_psa_10 else None,
+        "scp_volume": o.scp_volume,
         "net_profit": round(net_profit, 2),
         "roi": round(roi, 1),
+        "price_source": o.price_source or 'scp',
+        "qa_status": o.qa_status or 'pending',
+        "qa_flags": o.qa_flags or [],
     }
 
 
@@ -166,5 +403,8 @@ def _opp_to_dict(o: Opportunity) -> dict:
             "price": float(o.buy_price),
             "net_profit": float(o.profit),
             "url": o.ebay_url
-        }]
+        }],
+        "price_source": o.price_source or 'scp',
+        "qa_status": o.qa_status or 'pending',
+        "qa_flags": o.qa_flags or [],
     }

@@ -4,12 +4,12 @@ Description: 'eBay Compliance Webhook - Lambda + API Gateway'
 Parameters:
   DomainName:
     Type: String
-    Default: cardpulse.jgaffiliated.com
+    Default: ragnarokgamez.com
     Description: Domain name for the API endpoint
   
   HostedZoneId:
     Type: String
-    Description: Route53 Hosted Zone ID for jgaffiliated.com
+    Description: Route53 Hosted Zone ID for ragnarokgamez.com
 
 Resources:
   # Lambda Execution Role

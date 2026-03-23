@@ -1,32 +1,28 @@
-name: Opportunity Pipeline
+name: Auction Pipeline
 
 on:
   workflow_dispatch:
     inputs:
-      players:
-        description: 'Comma-separated player names (blank = top 40 by volume)'
+      hours:
+        description: 'Auctions ending within X hours'
         required: false
-        default: ''
+        default: '48'
       max_budget:
-        description: 'Max buy price'
+        description: 'Max bid + shipping'
         required: false
         default: '200'
       min_profit:
-        description: 'Min profit after fees'
+        description: 'Min profit after all costs'
         required: false
         default: '10'
-      min_roi:
-        description: 'Min ROI %'
+      years:
+        description: 'Years to search (comma-separated)'
         required: false
-        default: '20'
-      min_scp_price:
-        description: 'Min SCP price to consider'
+        default: '2023,2024,2025,2026'
+      sport:
+        description: 'Sport to search'
         required: false
-        default: '5'
-      max_scp_price:
-        description: 'Max SCP price'
-        required: false
-        default: '1000'
+        default: 'baseball'
 
 jobs:
   scan:
@@ -51,7 +47,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y firefox-esr
-          # geckodriver
           GECKO_VER=$(curl -s https://api.github.com/repos/mozilla/geckodriver/releases/latest | grep tag_name | cut -d '"' -f 4)
           curl -sL "https://github.com/mozilla/geckodriver/releases/download/${GECKO_VER}/geckodriver-${GECKO_VER}-linux64.tar.gz" | tar xz
           sudo mv geckodriver /usr/local/bin/
@@ -63,7 +58,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python3 migrate.py --rds
 
-      - name: Run opportunity pipeline
+      - name: Run auction pipeline
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
@@ -71,16 +66,9 @@ jobs:
           EBAY_APP_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CERT_ID: ${{ secrets.EBAY_CLIENT_SECRET }}
         run: |
-          ARGS="--max-budget ${{ inputs.max_budget }} --min-profit ${{ inputs.min_profit }} --min-roi ${{ inputs.min_roi }} --min-scp-price ${{ inputs.min_scp_price }} --max-scp-price ${{ inputs.max_scp_price }}"
-          if [ -n "${{ inputs.players }}" ]; then
-            ARGS="$ARGS --players \"${{ inputs.players }}\""
-          fi
-          eval python3 find_opportunities.py $ARGS
-
-      - name: Upload logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pipeline-logs
-          path: /tmp/*.log
-          retention-days: 7
+          python3 find_auction_opportunities.py \
+            --hours ${{ inputs.hours }} \
+            --max-budget ${{ inputs.max_budget }} \
+            --min-profit ${{ inputs.min_profit }} \
+            --years "${{ inputs.years }}" \
+            --sport "${{ inputs.sport }}"

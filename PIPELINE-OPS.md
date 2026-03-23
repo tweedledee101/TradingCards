@@ -46,7 +46,92 @@ Sets are configured in `backend/config/sets.py` (also has Basketball/Football se
 --days 7             # Discovery lookback days (default: 7)
 ```
 
-## Running Opportunity Finder
+## Running Auction Finder (eBay-First)
+
+Searches eBay for auctions ending soon, validates against SCP.
+
+### Basic Usage
+```bash
+# Default: 48h window, $10 min profit, $200 max budget, baseball
+python3 find_auction_opportunities.py
+
+# Tighter window, higher profit threshold
+python3 find_auction_opportunities.py --hours 24 --min-profit 15
+
+# Specific years only
+python3 find_auction_opportunities.py --years 2025,2026
+
+# Dry run (no DB storage)
+python3 find_auction_opportunities.py --dry-run
+```
+
+### Auction Finder Flags
+```bash
+--hours 48           # Auctions ending within X hours (default: 48)
+--min-profit 10      # Min profit after bid + shipping + fees (default: $10)
+--max-budget 200     # Max bid + shipping (default: $200)
+--years 2023,2024,2025,2026  # Years to search (default: all four)
+--sport baseball     # Sport (default: baseball)
+--dry-run            # Show results without storing in DB
+```
+
+### What The Auction Finder Does
+
+1. Searches eBay using 110 value-focused + player-specific queries (30 value: numbered parallels, autos, refractors, premium products + 80 player: top 40 players x 2 queries each)
+2. Paginates up to 1000 results per query (5 pages x 200)
+3. Filters to eBay category 261328 (Trading Card Singles)
+4. Deduplicates across all queries by eBay item ID
+5. Quality filter: card number required (title -> aspects -> full item details)
+6. Player identification: MLB Stats API roster (2,269 players) + period/accent normalization + eBay aspects fallback (Player/Athlete/Player Name)
+7. SCP validation: database lookup first (4,400 market rates), SCP cache (24h TTL), Selenium fallback
+8. Multi-pass SCP matching: Pass 1 exact parallel, Pass 2A strict text, Pass 2B fuzzy word-overlap (50%+), Pass 3 signal match (RC/Auto/Relic/print_run)
+9. BIN sanity check: hybrid listing BIN < 50% of SCP = reject (seller disagrees)
+10. Profit check: SCP * 0.87 - (current bid + shipping) >= $10
+11. Fallback pricing: 130point sold comps (DB cache) -> eBay active BIN comps (1 API call)
+12. Diagnostic logging: first 30 no_scp cards show variants found, pass attempts, failure reason
+13. Stores opportunities with listing_type='auction', shipping, bid_count, end_time
+
+---
+
+## Running 130point Data Worm (Background)
+
+Crawls 130point.com for eBay sold data. Zero eBay API calls. Builds `sold_comps` cache.
+
+### Basic Usage
+```bash
+# Default: 100 cards
+python3 worm_130point.py
+
+# Longer run (background)
+nohup python3 worm_130point.py --limit 1000 > /tmp/worm.log 2>&1 &
+
+# Focus on one player
+python3 worm_130point.py --player "Juan Soto"
+```
+
+### Worm Flags
+```bash
+--limit 100          # Max cards to crawl (default: 100)
+--player "Name"      # Focus on a specific player
+```
+
+### What The Worm Does
+1. Queries DB for cards lacking recent sold comps (48h TTL)
+2. Prioritizes cards with SCP market rates (cross-validation value)
+3. Then cards without SCP rates (discovery value)
+4. Hits 130point backend API (plain HTTP POST, no Selenium)
+5. Parses sold prices, dates, listing types from HTML response
+6. Stores in `sold_comps` table
+7. Rate: ~8 queries/min (under 130point's 10/min limit)
+
+### Rate Limits
+- 130point: 10 requests/minute, 429 = blocked 1 hour
+- We enforce 7s between calls (safe margin)
+- Capacity: ~14,000 queries/day
+
+---
+
+## Running Opportunity Finder (SCP-First / BIN)
 
 ### Basic Usage
 ```bash
@@ -121,13 +206,17 @@ curl http://localhost:8000/api/opportunities-stats
 
 ## Running on GitHub Actions (Off-Laptop)
 
-The pipeline can run on GitHub Actions instead of the local laptop. Requires RDS database.
+Both pipelines can run on GitHub Actions. Requires RDS database.
 
 ### Setup
-1. Deploy RDS: `aws cloudformation create-stack --stack-name cardpulse-rds --template-body file://aws/cloudformation/rds.yaml`
-2. Migrate data: `bash aws/migrate-to-rds.sh`
-3. Set GitHub secrets: `DATABASE_URL`, `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`
-4. Trigger: Actions tab -> "Run Pipeline" -> Run workflow
+1. RDS is deployed: `cardpulse-db.ckvp9bhavaww.us-east-1.rds.amazonaws.com:5432` (legacy name, domain is ragnarokgamez.com)
+2. Schema + migrations applied (001-011)
+3. GitHub secrets configured: `DATABASE_URL`, `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`
+4. Trigger: Actions tab -> choose workflow -> Run workflow
+
+### Available Workflows
+- **Opportunity Pipeline** (`.github/workflows/pipeline.yml`) -- BIN pipeline
+- **Auction Pipeline** (`.github/workflows/auction-pipeline.yml`) -- Auction-first pipeline
 
 ### Workflow Inputs
 - `players`: comma-separated (default: top 40 by volume)
@@ -303,3 +392,25 @@ sudo -u postgres psql -d trading_cards -c "SELECT COUNT(*) as flagged FROM oppor
 | 009 | Opportunities table |
 | 009b | SCP URL, grade_9, psa_10, image_url on opportunities |
 | 010 | listing_type on opportunities (BIN vs auction) |
+| 011 | Auction fields (shipping, bid_count, end_time, scp_volume) |
+| 012 | QA fields (qa_status, qa_flags, qa_reviewed_at) |
+| 013 | SCP cache table (scp_cache with JSONB variants, 24h TTL) |
+| 014 | Sold comps table (130point eBay sold data cache) |
+| 015 | Price source tracking (scp, sold_comps, ebay_comps) |
+| 016 | Scheduled bids table (snipe queue) |
+
+**Migration tracking**: `schema_migrations` table on both local + RDS.
+
+```bash
+# Check migration status
+python3 migrate.py --status --both
+
+# Apply pending migrations to both databases
+python3 migrate.py --both
+
+# Apply to one target only
+python3 migrate.py --local
+python3 migrate.py --rds
+```
+
+**Rule**: When you add a new migration file to `backend/models/`, run `python3 migrate.py --both` to keep local and RDS in sync.

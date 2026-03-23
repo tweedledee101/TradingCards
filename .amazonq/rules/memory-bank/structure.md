@@ -66,20 +66,27 @@ TradingCards/
 
 ## Core Components
 
-### 1. Backend Data Pipeline
-**Location**: `backend/services/data_pipeline.py`
+### 1. Opportunity Pipelines
+**BIN Pipeline**: `find_opportunities.py` (SCP-first, then eBay BIN search)
+**Auction Pipeline**: `find_auction_opportunities.py` (eBay-first, then SCP validation)
+**Unified**: `find_opportunities.py --max-budget 200` runs BIN then auto-runs auction via subprocess
 
-Orchestrates data collection from multiple sources:
-- Coordinates scraper execution (eBay, PSA, Card Ladder)
-- Processes raw data into normalized format
-- Calculates trend metrics (velocity, momentum, hotness)
-- Stores results in PostgreSQL database
+**Auction Pipeline Steps**:
+1. Search eBay for auctions ending within N hours (110 queries: 30 value-focused + 80 player-specific, with pagination up to 1000/query)
+2. Quality filter: card number + player (period-normalized, accent-stripped) + not junk + within budget
+3. SCP validation: DB lookup first, then SCP cache (24h TTL), then Selenium fallback
+4. Multi-pass SCP matching: Pass 1 exact parallel, Pass 2A strict text match, Pass 2B fuzzy word-overlap scoring, Pass 3 signal match (RC/Auto/Relic/print_run)
+5. BIN sanity check: if hybrid listing's BIN price < 50% of SCP, reject (seller disagrees with SCP)
+6. Fallback pricing: 130point sold comps (DB cache) -> eBay BIN comps (1 API call) when SCP fails
+7. Profit check: SCP * 0.87 - (current_bid + shipping) >= min_profit
+8. Store in DB with listing_type='auction'
+9. Diagnostic logging: first 30 no_scp cards show variants found, pass attempts, and failure reason
 
 **Key Services**:
-- `data_pipeline.py`: Main orchestration
-- `trend_calculator.py`: Hotness score algorithm (15-90 range)
-- `opportunity_analyzer.py`: Arbitrage detection (profit after fees)
-- `sell_through_calculator.py`: Market confidence metrics
+- `data_pipeline.py`: BIN orchestration
+- `opportunity_analyzer.py`: BIN arbitrage detection
+- `find_auction_opportunities.py`: Auction pipeline (standalone)
+- `qa_opportunities.py`: Post-pipeline QA validation
 
 ### 2. Scrapers
 **Location**: `backend/scrapers/`
@@ -89,6 +96,8 @@ Data collection from external sources:
   - 80+ parallel patterns (Lime Green, Blue Foil Pattern II, Raywave Refractor, Silver Refractor, wave variants, etc.)
   - Insert set detection (Master Of The Game, 1986 Retro, Milestone, National Chicle, Decade's Next, etc.)
   - 79 card sets including 16 Leaf sub-sets
+  - Hybrid auction+BIN detection: uses `currentBidPrice` for actual bid, stores BIN price separately
+  - Player aspect extraction: accepts Player, Player/Athlete, Athlete, Player Name fields
 - **SportsCardsPro Scraper**: Selenium/Firefox for Ungraded/Grade 9/PSA 10 market rates (WORKING)
 - **PSA Scraper**: Selenium-based scraper for grading population data (untested)
 - **Card Ladder Scraper**: Selenium-based scraper for price benchmarks (untested)
@@ -101,16 +110,17 @@ Data collection from external sources:
 ### 3. REST API
 **Location**: `backend/api/`
 
-FastAPI-based REST API with 18+ endpoints:
+FastAPI-based REST API with 20+ endpoints:
+- `/api/opportunities` - BIN opportunities (default BIN-only, `listing_type=all` for both)
+- `/api/auctions` - Auction opportunities (auto-filters expired auctions by default)
+- `/api/opportunities-stats` - Quick stats
 - `/api/cards` - Card listings with filtering/sorting
-- `/api/opportunities` - Arbitrage opportunities
 - `/api/inventory` - Portfolio management
 - `/api/watchlist` - Price monitoring
-- `/api/grading/{card_id}` - PSA population data
-- `/api/price-benchmarks/{card_id}` - Card Ladder benchmarks
+- `/api/status` - Job tracker status
 - `/api/webhooks/novaact/*` - Scraper data intake
 
-**Features**: Advanced filtering, pagination, sorting, CSV export
+**Features**: Advanced filtering, pagination, sorting, expired auction filtering
 
 ### 4. Frontend Dashboard
 **Location**: `frontend/src/`
@@ -141,16 +151,22 @@ Runtime state management for all background jobs:
 ### 7. Database Schema
 **Location**: `backend/models/schema.sql`
 
-PostgreSQL database with 9 tables:
+PostgreSQL database with 11+ tables:
 - `cards` - Core card data
-- `price_history` - Historical price tracking (14 days)
-- `sales_data` - Individual sale records
-- `grading_population` - PSA grading data
-- `price_benchmarks` - Card Ladder benchmarks
+- `sales` - Individual sale records
+- `active_listings` - Current eBay listings
+- `market_rates` - SCP prices (Ungraded/Grade 9/PSA 10)
+- `scp_cache` - Cached SCP Selenium search results (24h TTL, migration_013)
+- `sold_comps` - 130point eBay sold data cache (48h TTL, migration_014)
+- `opportunities` - Pipeline-discovered arbitrage (BIN + auction)
+- `scheduled_bids` - Snipe queue (max_bid, snipe_seconds, end_time, status)
+- `schema_migrations` - Migration tracking (filename, applied_at)
+- `job_runs` - Background job state tracking
+- `error_log` - Runtime error/event log
 - `inventory` - User portfolio tracking
 - `watchlist` - Price monitoring
-- `accuracy_tracking` - Prediction validation
-- `sell_through_metrics` - Market confidence
+- `grading_population` - PSA grading data
+- `price_benchmarks` - Card Ladder benchmarks
 
 ### 8. Data Refresh Architecture (ADR-004)
 **Pattern**: Demand-driven refresh with deterministic staleness. No crons.
@@ -170,15 +186,24 @@ NEVER refresh because a clock says so. Every API call and scrape must produce va
 
 See: `docs/architecture/decisions/ADR-004-demand-driven-refresh.md`
 
+### 9. Database Migration Runner
+**Location**: `migrate.py`
+
+Tracks and applies database migrations to any target database:
+- `schema_migrations` table records which migration files have been applied
+- `python3 migrate.py --both`: applies pending to local + RDS
+- `python3 migrate.py --status --both`: shows applied vs pending per target
+- `python3 migrate.py --local` / `--rds`: target one database
+- Handles already-existing objects gracefully (records as applied)
+- Rule: if you update cloud DB structurally, run `--both` to keep local in sync
+
 ## Architectural Patterns
 
 ### Data Flow Architecture
 ```
-External Sources → Scrapers → Database → API → Frontend
-                                  ↓
-                     Graduated SCP Search (3 queries + set validation)
-                                  ↓
-                        Opportunity Analyzer (SCP-required, 3x sanity check)
+BIN Pipeline:  SCP-first → eBay search per variation → profit check → DB
+Auction Pipeline: eBay auction search → quality filter → SCP validation (cache + Selenium) → profit check → DB
+Both: → API → Frontend (Opportunities page, BIN + Auction sections)
 ```
 
 ### Service Layer Pattern
@@ -233,10 +258,11 @@ players:
 - Database: PostgreSQL 13+
 
 ### Production (Planned)
-- **Domain**: cardpulse.jgaffiliated.com
+- **Domain**: ragnarokgamez.com
 - **Backend**: AWS ECS (Docker containers)
 - **Frontend**: AWS CloudFront + S3
-- **Database**: AWS RDS (PostgreSQL)
+- **Database**: AWS RDS (PostgreSQL) -- deployed: `cardpulse-db.ckvp9bhavaww.us-east-1.rds.amazonaws.com` (legacy name)
+- **ACM cert**: `arn:aws:acm:us-east-1:635601810497:certificate/8dda492b-b16f-45bf-965e-9268abaabe78` (ragnarokgamez.com + *.ragnarokgamez.com)
 - **Scrapers**: AWS ECS Tasks or Lambda (demand-driven, NOT scheduled)
 - **IaC**: CloudFormation templates
 - **Refresh**: Demand-driven with caching (ADR-004), no crons

@@ -242,9 +242,49 @@ class Opportunity(Base):
     scp_grade_9 = Column(DECIMAL(10, 2))
     scp_psa_10 = Column(DECIMAL(10, 2))
     listing_type = Column(String(20), default='buy_it_now')
+    shipping = Column(DECIMAL(10, 2), default=0)
+    bid_count = Column(Integer, default=0)
+    end_time = Column(TIMESTAMP)
+    scp_volume = Column(Text)
     flagged = Column(Boolean, default=False)
+    qa_status = Column(String(20), default='pending')
+    qa_flags = Column(JSONB, default=[])
+    qa_reviewed_at = Column(TIMESTAMP)
+    price_source = Column(String(20), default='scp')
     scan_id = Column(Integer, ForeignKey('job_runs.id'))
     created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class SCPCache(Base):
+    """Caches SCP Selenium search results to avoid re-scraping"""
+    __tablename__ = 'scp_cache'
+
+    id = Column(Integer, primary_key=True)
+    player_name = Column(String(255), nullable=False)
+    card_year = Column(Integer)
+    card_number = Column(String(50), nullable=False)
+    search_query = Column(Text)
+    variants = Column(JSONB, nullable=False, default=[])
+    created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
+
+
+class SoldComp(Base):
+    """130point eBay sold data cache -- actual completed sale prices"""
+    __tablename__ = 'sold_comps'
+
+    id = Column(Integer, primary_key=True)
+    player_name = Column(String(255), nullable=False)
+    card_year = Column(Integer)
+    card_set = Column(String(255))
+    card_number = Column(String(50))
+    parallel = Column(String(100))
+    sale_price = Column(DECIMAL(10, 2), nullable=False)
+    sale_type = Column(String(20))
+    sale_date = Column(String(50))
+    listing_title = Column(Text)
+    source = Column(String(50), default='130point')
+    search_query = Column(Text)
+    created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
 
 
 class ErrorLog(Base):
@@ -261,6 +301,28 @@ class ErrorLog(Base):
     request_id = Column(String(36))
     stack_trace = Column(Text)
     created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class ScheduledBid(Base):
+    """Snipe queue -- scheduled bids for auctions"""
+    __tablename__ = 'scheduled_bids'
+
+    id = Column(Integer, primary_key=True)
+    player_name = Column(String(255), nullable=False)
+    card_year = Column(Integer)
+    card_set = Column(String(255))
+    card_number = Column(String(50))
+    parallel = Column(String(100))
+    max_bid = Column(DECIMAL(10, 2), nullable=False)
+    snipe_seconds = Column(Integer, nullable=False, default=10)
+    ebay_item_id = Column(String(50))
+    ebay_url = Column(Text)
+    image_url = Column(Text)
+    scp_price = Column(DECIMAL(10, 2))
+    end_time = Column(TIMESTAMP)
+    status = Column(String(20), nullable=False, default='scheduled')
+    notes = Column(Text)
+    created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
 
 
 class MarketRate(Base):

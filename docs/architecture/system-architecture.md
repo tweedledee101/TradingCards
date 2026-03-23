@@ -3,459 +3,201 @@
 ## High-Level Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      Data Sources                            │
-├──────────┬──────────┬──────────┬──────────┬─────────────────┤
-│  eBay    │ Facebook │  COMC    │ Whatnot  │    Mercari      │
-│  API     │Marketplace│  Web    │   Web    │     Web         │
-│  ✅      │   ✅     │   ✅     │   ✅     │     ✅          │
-└────┬─────┴────┬─────┴────┬─────┴────┬─────┴────┬────────────┘
-     │          │          │          │          │
-     ▼          ▼          ▼          ▼          ▼
-┌────────────────────────────────────────────────────────────┐
-│              Multi-Platform Sourcing Layer                 │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
-│  │  eBay    │  │ Facebook │  │  COMC    │  │ Whatnot  │  │
-│  │ Scraper  │  │  Search  │  │  Search  │  │  Search  │  │
-│  │   ✅     │  │   ✅     │  │   ✅     │  │   ✅     │  │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────┘  │
-│  ┌──────────┐  ┌──────────┐                               │
-│  │ Mercari  │  │130point  │                               │
-│  │  Search  │  │ Scraper  │                               │
-│  │   ✅     │  │   ✅     │                               │
-│  └──────────┘  └──────────┘                               │
-└────────┬───────────────────────────────────────────────────┘
-         │
-         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                   PostgreSQL Database                        │
-│  ┌──────┐  ┌───────┐  ┌──────────┐  ┌───────────┐         │
-│  │cards │  │ sales │  │ listings │  │ inventory │         │
-│  │  ✅  │  │  ✅   │  │   ✅     │  │    ✅     │         │
-│  │+image│  │       │  │          │  │           │         │
-│  │+card#│  │       │  │          │  │           │         │
-│  │+paral│  │       │  │          │  │           │         │
-│  │+grade│  │       │  │          │  │           │         │
-│  └──────┘  └───────┘  └──────────┘  └───────────┘         │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐                 │
-│  │  trends  │  │watchlist │  │inv_sales │                 │
-│  │   ✅     │  │   ✅     │  │   ✅     │                 │
-│  └──────────┘  └──────────┘  └──────────┘                 │
-└────────┬────────────────────────────────────────────────────┘
-         │
-         ▼
-┌─────────────────────────────────────────────────────────────┐
-│              Arbitrage Detection Engine                      │
-│  ┌────────────────┐  ┌────────────────┐  ┌──────────────┐ │
-│  │  Multi-Platform│  │  Arbitrage     │  │  ROI         │ │
-│  │  Sourcing      │  │  Calculator    │  │  Analyzer    │ │
-│  │     ✅         │  │     ✅         │  │     ✅       │ │
-│  └────────────────┘  └────────────────┘  └──────────────┘ │
-│  ┌────────────────┐  ┌────────────────┐                   │
-│  │  Variant       │  │  Visual        │                   │
-│  │  Matcher       │  │  Identifier    │                   │
-│  │     ✅         │  │     ✅         │                   │
-│  └────────────────┘  └────────────────┘                   │
-└────────┬────────────────────────────────────────────────────┘
-         │
-         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    REST API Layer (FastAPI)                  │
-│  ┌────────────────────────────────────────────────────┐    │
-│  │  19 Endpoints - ✅ Complete                        │    │
-│  │  - GET /api/trending (filtering, sorting)         │    │
-│  │  - GET /api/trending/rookies                      │    │
-│  │  - GET /api/stats                                 │    │
-│  │  - GET /api/cards/{id} (price history)           │    │
-│  │  - GET /api/cards (pagination)                    │    │
-│  │  - GET /api/sourcing/{id} (multi-platform) ✨    │    │
-│  │  - POST /api/inventory                            │    │
-│  │  - GET /api/inventory (by status)                 │    │
-│  │  - GET /api/inventory/stats                       │    │
-│  │  - POST /api/inventory/sales                      │    │
-│  │  - GET /api/inventory/{id}                        │    │
-│  │  - POST /api/watchlist                            │    │
-│  │  - GET /api/watchlist                             │    │
-│  │  - DELETE /api/watchlist/{id}                     │    │
-│  │  - GET /api/watchlist/alerts                      │    │
-│  │  - GET /health                                    │    │
-│  └────────────────────────────────────────────────────┘    │
-└────────┬────────────────────────────────────────────────────┘
-         │
-         ▼
-┌─────────────────────────────────────────────────────────────┐
-│              Frontend Dashboard (React + Vite)               │
-│  ┌────────────────────────────────────────────────────┐    │
-│  │  ✅ Complete                                       │    │
-│  │  - Trending cards with card images ✨             │    │
-│  │  - Multi-platform sourcing links ✨               │    │
-│  │  - Variant differentiation (card #, parallel) ✨  │    │
-│  │  - Card detail pages with price charts            │    │
-│  │  - Profit calculator with eBay fees               │    │
-│  │  - Inventory dashboard with P&L tracking          │    │
-│  │  - Watchlist with price alerts                    │    │
-│  │  - Navigation between all features                │    │
-│  └────────────────────────────────────────────────────┘    │
-└─────────────────────────────────────────────────────────────┘
+                    Data Sources
+    ┌──────────┬──────────────┬───────────────┐
+    │ eBay     │ SportsCards  │ MLB Stats     │
+    │ Browse   │ Pro          │ API           │
+    │ API      │ (Selenium)   │ (REST)        │
+    └────┬─────┴──────┬───────┴───────┬───────┘
+         │            │               │
+         v            v               v
+    ┌─────────────────────────────────────────┐
+    │         Pipeline Layer                   │
+    │                                          │
+    │  find_opportunities.py (BIN, SCP-first)  │
+    │       |                                  │
+    │       └─> find_auction_opportunities.py  │
+    │           (Auction, eBay-first)          │
+    │       |                                  │
+    │       └─> qa_opportunities.py            │
+    │           (Background QA validation)     │
+    └────────────────┬────────────────────────┘
+                     │
+                     v
+    ┌─────────────────────────────────────────┐
+    │         PostgreSQL Database               │
+    │                                          │
+    │  cards | sales | active_listings         │
+    │  market_rates | opportunities            │
+    │  inventory | watchlist | price_trends    │
+    │  job_runs | error_log                    │
+    └────────────────┬────────────────────────┘
+                     │
+                     v
+    ┌─────────────────────────────────────────┐
+    │         FastAPI REST API (port 8000)      │
+    │                                          │
+    │  /api/opportunities  /api/auctions       │
+    │  /api/cards          /api/inventory       │
+    │  /api/watchlist      /api/status          │
+    │  /api/errors         /health              │
+    └────────────────┬────────────────────────┘
+                     │
+                     v
+    ┌─────────────────────────────────────────┐
+    │    React Frontend (port 3000)            │
+    │    Ragnarok Gaming dark theme            │
+    │                                          │
+    │  Trending | Opportunities | Card Detail  │
+    │  Inventory | Watchlist                   │
+    └─────────────────────────────────────────┘
 ```
 
 ## Component Details
 
-### 1. Scraper Layer
+### 1. Pipeline Layer
 
-**Purpose:** Collect raw data from multiple sources
+Two pipelines, unified under one command:
 
-**Components:**
-- **eBay Scraper** ✅ - Sold listings and active listings via Browse API
-- **PSA Scraper** ⏳ - Population reports via web scraping (Phase 2)
-- **Card Ladder Scraper** ⏳ - Price benchmarks (Phase 2)
-- **Terapeak Scraper** ⏳ - Sell-through rates (Phase 2)
-- **Social Scraper** ⏳ - Twitter/Reddit mentions (Phase 2)
-- **Release Calendar Scraper** ⏳ - Topps/Panini releases (Phase 2)
+**BIN Pipeline** (`find_opportunities.py`) -- SCP-first
+- Scrapes SCP for player catalog (100 variations/player)
+- Filters by price range ($20-$1000) and volume
+- Searches eBay for matching BIN + auction listings
+- Validates: player + year + card# + parallel in title
+- Filters: junk, factory sets, reprints, wrong sets, lots
+- Calculates profit after 13% eBay fees
+- Auto-triggers auction pipeline on completion
 
-**Schedule:**
-- eBay: Daily at 2 AM EST (via APScheduler)
-- PSA: Weekly on Sundays (planned)
-- Social: Every 4 hours (planned)
+**Auction Pipeline** (`find_auction_opportunities.py`) -- eBay-first
+- Searches eBay using 110 value-focused + player-specific queries with pagination
+- Player identification via MLB Stats API (2,269 players) + period/accent normalization + eBay aspects fallback
+- SCP validation: DB first, SCP cache (24h TTL), Selenium fallback with card number verification
+- Multi-pass matching: exact -> strict text -> fuzzy word-overlap -> signal-based
+- Fallback pricing: 130point sold comps (DB cache) -> eBay BIN comps (1 API call)
+- BIN sanity check: hybrid listing BIN < 50% of SCP = reject
+- Profit check: SCP * 0.87 - (bid + shipping) >= $10
+- Diagnostic logging on no_scp match failures
 
-**Technology:** Python, requests, BeautifulSoup, Selenium
+**Background Worm** (`worm_130point.py`) -- data builder
+- Crawls 130point.com for eBay sold data (plain HTTP, no Selenium)
+- Builds `sold_comps` cache for pipeline fallback pricing
+- Zero eBay API calls, ~14,000 queries/day capacity
+- Prioritizes cards with SCP rates (cross-validation), then without (discovery)
 
-**Features:**
-- Title parsing (player, year, rookie status, grading)
-- Duplicate detection by eBay item ID
-- Error handling and retry logic
-- Target list configuration (YAML)
-- Daily report generation (CSV + text)
+**QA Validation** (`qa_opportunities.py`) -- post-pipeline
+- Runs after pipeline, does not block it
+- Flags: extreme_roi, high_roi, price_ratio_10x, card_number_mismatch
+- Updates qa_status/qa_flags on opportunities
 
-### 2. Database Layer
+### 2. Data Sources
 
-**Purpose:** Persistent storage for all data
+| Source | Method | Rate Limit | Status |
+|--------|--------|-----------|--------|
+| eBay Browse API | REST (OAuth) | 5,000/day | Working |
+| SportsCardsPro | Selenium/Firefox | N/A (headless) | Working |
+| MLB Stats API | REST (free) | None | Working |
+| 130point.com | HTTP POST (no auth) | 10/min | Working |
+| PSA Population | Selenium | N/A | Infrastructure ready |
+| Card Ladder | Selenium | N/A | Infrastructure ready |
 
-**Technology:** PostgreSQL 14+
+### 3. Database Layer
 
-**Tables (9 total, 5 more planned):**
-- `cards` ✅ - Master card catalog
-- `sales` ✅ - Historical transactions
-- `active_listings` ✅ - Current market supply (with title/URL)
-- `price_trends` ✅ - Pre-computed metrics (with momentum_score)
-- `inventory` ✅ - User card ownership
-- `inventory_sales` ✅ - Sales from inventory
-- `watchlist` ✅ - Price monitoring
-- `psa_population` ⏳ - Grading data (table exists, scraper needed - Phase 2)
-- `social_signals` ⏳ - Social media data (table exists, scrapers needed - Phase 2)
-- `sell_through_rates` ⏳ - Terapeak data (Phase 2)
-- `price_benchmarks` ⏳ - Card Ladder data (Phase 2)
-- `release_calendar` ⏳ - Product releases (Phase 2)
-- `buy_recommendations` ⏳ - Optimal entry prices (Phase 3)
-- `sell_strategies` ⏳ - Exit recommendations (Phase 3)
+PostgreSQL 13+ with 13 migrations applied. Key tables:
+- `cards` (25,434) -- master catalog
+- `sales` (42,313) -- eBay sold data
+- `active_listings` (44,165) -- current eBay listings
+- `market_rates` (4,400) -- SCP prices (Ungraded/Grade 9/PSA 10)
+- `scp_cache` -- SCP Selenium results cached 24h (migration_013)
+- `sold_comps` -- 130point eBay sold data cache (migration_014)
+- `opportunities` -- pipeline results with QA fields
+- `job_runs` -- pipeline health tracking
+- `error_log` -- structured error persistence
 
-See [Database Design](./database-design.md) for detailed schema.
+See [Database Design](./database-design.md) for full schema.
 
-### 3. Trend Detection Engine
+### 4. REST API
 
-**Purpose:** Compute hotness scores and identify trending cards
+FastAPI with 18+ endpoints. Key routes:
+- `/api/opportunities` -- BIN + Auction results with filters
+- `/api/auctions` -- Auction-only results
+- `/api/opportunities-stats` -- Aggregate metrics
+- `/api/status` -- Job health from job_runs table
+- `/api/errors` -- Error patterns from error_log
 
-**Algorithms:**
+Features: pagination, filtering, sorting, CORS, Swagger docs at `/docs`.
 
-**Velocity Score:**
-```python
-velocity = sales_count / active_listings_count
-```
+### 5. Frontend
 
-**Momentum Score:**
-```python
-momentum = (current_avg_price - price_7d_ago) / price_7d_ago * 100
-```
+React 18 + Vite + Tailwind CSS.
 
-**Hotness Score (Current - Phase 1):**
-```python
-# eBay-only scoring (~60% accuracy)
-hotness = (
-    velocity * 0.4 +      # eBay sales/listings
-    momentum * 0.35 +     # eBay price change
-    social * 0.25         # Placeholder (0)
-)
-```
+**Theme**: Ragnarok Gaming dark (charcoal #0f1117 + ember orange #e8590c)
+**Fonts**: Cinzel (display), Inter (body)
 
-**Opportunity Score (Target - Phase 2):**
-```python
-# Multi-source scoring (~85-90% accuracy)
-opportunity = (
-    hotness * 0.25 +           # eBay trends
-    sell_through * 0.20 +      # Terapeak
-    price_velocity * 0.15 +    # Card Ladder
-    grading_spike * 0.15 +     # PSA
-    social_momentum * 0.15 +   # Twitter/Reddit
-    release_timing * 0.10      # Calendar
-)
-```
+Pages:
+- **Trending** (Home) -- top cards by volume/momentum
+- **Opportunities** -- BIN + Auction tabs, Needs Review section, eBay buy links, SCP verify links
+- **Card Detail** -- price history, grading data
+- **Inventory** -- portfolio with P&L
+- **Watchlist** -- price monitoring
 
-**Execution:** Daily batch job at 3 AM EST (after scraping)
+### 6. Observability
 
-**Status:** ✅ Complete (Phase 1 - eBay only)
-
-**Planned Enhancements (Phase 2-3):**
-- Multi-source opportunity scoring
-- Buy decision engine
-- Sell strategy engine
-- Morning intelligence report
-
-### 4. REST API Layer
-
-**Purpose:** Expose data to frontend and external consumers
-
-**Technology:** FastAPI, Uvicorn
-
-**Endpoints (18 total):**
-
-**Trending & Stats:**
-- `GET /api/trending` - Top trending cards with filtering/sorting
-- `GET /api/trending/rookies` - Hot rookie cards
-- `GET /api/stats` - Market statistics
-
-**Cards:**
-- `GET /api/cards/{id}` - Card details with price history
-- `GET /api/cards` - Search cards with pagination
-
-**Inventory:**
-- `POST /api/inventory` - Add card to inventory
-- `GET /api/inventory` - Get inventory by status
-- `GET /api/inventory/stats` - Portfolio statistics
-- `POST /api/inventory/sales` - Record sale
-- `GET /api/inventory/{id}` - Item details
-
-**Watchlist:**
-- `POST /api/watchlist` - Add to watchlist
-- `GET /api/watchlist` - Get watchlist with alerts
-- `DELETE /api/watchlist/{id}` - Remove from watchlist
-- `GET /api/watchlist/alerts` - Get price alerts
-
-**Health:**
-- `GET /health` - Health check
-
-**Features:**
-- Advanced filtering (price, hotness, sport)
-- Flexible sorting (hotness, velocity, price, volume)
-- Pagination support
-- Swagger documentation
-- CORS enabled
-
-**Authentication:** None (future: API key + OAuth)
-
-**Status:** ✅ Complete
-
-### 5. Frontend Dashboard
-
-**Purpose:** Visualize trending cards and analytics
-
-**Technology:** React, Vite, Recharts, TailwindCSS
-
-**Pages:**
-- **Home** (`/`) - Trending cards table
-- **Card Detail** (`/card/:id`) - Price charts, profit calculator
-- **Inventory** (`/inventory`) - Portfolio dashboard
-- **Watchlist** (`/watchlist`) - Price monitoring
-
-**Components:**
-- `TrendingTable` - Sortable table with buy recommendations
-- `PriceChart` - Historical price visualization
-- `ProfitCalculator` - Interactive calculator with eBay fees
-
-**Features:**
-- Real-time profit/loss calculations
-- ROI percentages
-- Price alerts
-- Status filtering (owned/listed/sold)
-- Navigation between all features
-
-**Status:** ✅ Complete (requires Node.js 16+)
-
-### 6. Automation Layer
-
-**Purpose:** Scheduled data collection and processing
-
-**Technology:** APScheduler
-
-**Jobs:**
-- **Daily Collection** - 2 AM EST
-- **Target Lists** - YAML configuration
-- **Report Generation** - CSV and text reports
-
-**Configuration:**
-```yaml
-players:
-  - name: "Victor Wembanyama"
-    queries: ["Wembanyama rookie", "Wembanyama Prizm"]
-  - name: "Scoot Henderson"
-    queries: ["Henderson rookie"]
-  # ... 6 more players
-```
-
-**Status:** ✅ Complete
-
-## Data Flow
-
-### Nightly Pipeline
-
-```
-1. 2:00 AM - eBay scraper runs
-   ├─> Fetch sold listings (last 7 days)
-   ├─> Parse card details from titles
-   ├─> Find or create card in database
-   └─> Insert into `sales` table
-
-2. 2:30 AM - Active listings scraper
-   ├─> Fetch current BIN/auction listings
-   └─> Insert into `active_listings` table
-
-3. 3:00 AM - Trend calculator runs
-   ├─> Aggregate sales by card
-   ├─> Calculate velocity scores
-   ├─> Compute price changes
-   ├─> Calculate momentum scores
-   ├─> Calculate hotness scores
-   └─> Insert into `price_trends` table
-
-4. 3:30 AM - Report generator
-   ├─> Query top 25 trending cards
-   ├─> Generate CSV report
-   └─> Generate text report
-```
-
-### User Actions
-
-```
-Inventory Management:
-   User adds card → POST /api/inventory → Insert into `inventory`
-   User records sale → POST /api/inventory/sales → Calculate profit/ROI
-   User views portfolio → GET /api/inventory/stats → Aggregate P&L
-
-Watchlist:
-   User adds card → POST /api/watchlist → Insert into `watchlist`
-   System checks prices → Compare with target → Trigger alerts
-   User views alerts → GET /api/watchlist/alerts → Return matches
-```
+- **Structured logging** (`backend/utils/logger.py`) -- WARN+ persisted to error_log table
+- **Job tracking** (`backend/utils/job_tracker.py`) -- every pipeline run recorded
+- **Request tracing** -- request_id on API calls
+- **Data retention** -- self-managing via PostgreSQL function
 
 ## Deployment Architecture
 
-```
-┌─────────────────────────────────────────┐
-│         jgaffiliates.com                │
-│                                         │
-│  ┌───────────────────────────────────┐ │
-│  │  <subdomain>.jgaffiliates.com     │ │
-│  │                                   │ │
-│  │  ┌──────────┐    ┌─────────────┐ │ │
-│  │  │ Frontend │    │  API Server │ │ │
-│  │  │  (React) │◄───┤  (FastAPI)  │ │ │
-│  │  │  Port    │    │  Port 8000  │ │ │
-│  │  │  3000    │    └──────┬──────┘ │ │
-│  │  └──────────┘           │        │ │
-│  │                  ┌───────▼──────┐ │ │
-│  │                  │  PostgreSQL  │ │ │
-│  │                  │  Port 5432   │ │ │
-│  │                  └──────────────┘ │ │
-│  │                                   │ │
-│  │  ┌────────────────────────────┐  │ │
-│  │  │  APScheduler (Cron Jobs)   │  │ │
-│  │  │  - Daily at 2 AM           │  │ │
-│  │  └────────────────────────────┘  │ │
-│  └───────────────────────────────────┘ │
-└─────────────────────────────────────────┘
-```
+### Current: Local Development (WSL Ubuntu)
+- Backend: Python 3.9, PostgreSQL 13
+- Frontend: Node.js 16, Vite dev server
+- Selenium: Firefox + geckodriver
+
+### Production (Planned)
+- **Domain**: ragnarokgamez.com
+- **ACM cert**: `arn:aws:acm:us-east-1:635601810497:certificate/8dda492b-b16f-45bf-965e-9268abaabe78`
+- **Core app**: ECS (API + frontend, always running)
+- **Worker**: ECS task (pipelines, spins up on demand)
+- **Database**: RDS PostgreSQL (deployed: `cardpulse-db.ckvp9bhavaww.us-east-1.rds.amazonaws.com`)
+- **Frontend**: CloudFront + S3
+- **Refresh**: Demand-driven (ADR-004), no crons
+
+### Already Deployed
+- RDS PostgreSQL (free tier, schema + migrations 001-014)
+- eBay compliance Lambda + API Gateway
+- GitHub Actions workflows (BIN + Auction pipelines)
 
 ## Technology Stack
 
-| Layer | Technology | Version | Status |
-|-------|-----------|---------|--------|
-| Database | PostgreSQL | 14+ | ✅ |
-| Backend | Python | 3.11+ | ✅ |
-| API | FastAPI | Latest | ✅ |
-| ORM | SQLAlchemy | Latest | ✅ |
-| Scraping | Requests | Latest | ✅ |
-| Scheduling | APScheduler | Latest | ✅ |
-| Frontend | React | 18 | ✅ |
-| Build Tool | Vite | Latest | ✅ |
-| Styling | TailwindCSS | Latest | ✅ |
-| Charts | Recharts | Latest | ✅ |
-| Hosting | TBD | - | ⏳ |
-
-## Scalability Considerations
-
-**Current Phase:** Single server, unlimited cards tracked
-
-**Future Scaling:**
-- Database read replicas for API queries
-- Redis cache for trending cards
-- Celery for distributed scraping
-- S3 for historical data archival
-- CDN for frontend assets
+| Layer | Technology | Version |
+|-------|-----------|---------|
+| Database | PostgreSQL | 13+ |
+| Backend | Python | 3.9+ |
+| API | FastAPI | 0.104.1 |
+| ORM | SQLAlchemy | 2.0.23 |
+| Scraping | Selenium + Firefox | 4.15.2 |
+| Frontend | React | 18.2.0 |
+| Build | Vite | 5.0.0 |
+| Styling | Tailwind CSS | 3.3.6 |
+| Testing | pytest | 7.4.3 |
+| Hosting | AWS (ECS, RDS, CloudFront) | Planned |
 
 ## Security
 
-- API rate limiting (planned)
-- Database connection pooling ✅
-- Secrets in environment variables ✅
-- HTTPS only (production)
-- Input sanitization ✅
-- SQL injection prevention (SQLAlchemy ORM) ✅
+- SQL injection prevention (SQLAlchemy ORM)
+- CORS middleware configured
+- Secrets in environment variables (.env gitignored)
+- eBay OAuth token auto-refresh
+- No user auth yet (solo user, pre-launch)
 
-## Monitoring
+## Key Architectural Decisions
 
-**Planned:**
-- Scraper success/failure logs
-- API response times
-- Database query performance
-- Alert on scraper failures
-- Daily data quality checks
+- [ADR-001](decisions/ADR-001-postgresql-database.md) -- PostgreSQL as primary database
+- [ADR-002](decisions/ADR-002-ebay-primary-source.md) -- eBay as primary data source
+- [ADR-003](decisions/ADR-003-testing-strategy.md) -- pytest testing strategy
+- [ADR-004](decisions/ADR-004-demand-driven-refresh.md) -- Demand-driven refresh (no crons)
 
-## Version History
+---
 
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0.0 | 2025-02-11 | Initial architecture design |
-| 2.0.0 | 2025-02-11 | Added inventory, watchlist, frontend |
-
-## Next Steps
-
-### Phase 1: Foundation ✅ COMPLETE
-- ✅ All 18 endpoints operational
-- ✅ Frontend dashboard deployed
-- ✅ eBay data collection automated
-- ✅ Documentation complete
-
-### Phase 2: Multi-Source Intelligence ⏳ PLANNED
-1. **PSA Population Scraper** (Week 1-2)
-   - Web scraping implementation
-   - Grading spike detection
-   - PSA 10 rate calculations
-
-2. **Card Ladder & Terapeak** (Week 3-4)
-   - Price benchmark scraper
-   - Sell-through rate integration
-   - Velocity calculations
-
-3. **Social Signals** (Week 5-6)
-   - Twitter/Reddit API integration
-   - Sentiment analysis
-   - Social momentum scoring
-
-### Phase 3: Decision Engines ⏳ PLANNED
-4. **Intelligence Engine** (Week 7-8)
-   - Multi-source aggregation
-   - Opportunity scoring (7-factor)
-   - Anomaly detection
-
-5. **Buy/Sell Engines** (Week 9-10)
-   - Buy decision engine (optimal prices)
-   - Sell strategy engine (grade vs. raw)
-   - Morning intelligence report
-
-### Phase 4: Production ⏳ PLANNED
-6. **Deployment** (Week 11-13)
-   - Production hosting
-   - User authentication
-   - Email alerts
-   - Mobile optimization
-
-**See [Gap Analysis](../TRADING-WORKFLOW-GAP-ANALYSIS.md) for detailed implementation plan.**
+**Last Updated:** 2026-03-22 (Session 12)

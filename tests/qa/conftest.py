@@ -6,8 +6,9 @@ so tests don't need PostgreSQL or real data.
 import pytest
 from datetime import datetime, date, timedelta
 from decimal import Decimal
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, Text
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.dialects.postgresql import JSONB
 from backend.models import (
     Base, Card, Sale, ActiveListing, MarketRate
 )
@@ -15,8 +16,23 @@ from backend.models import (
 
 @pytest.fixture
 def db():
-    """Create a fresh in-memory database for each test"""
+    """Create a fresh in-memory database for each test.
+    
+    Remaps PostgreSQL JSONB to Text so SQLite can handle it.
+    """
     engine = create_engine("sqlite:///:memory:")
+
+    # SQLite can't handle JSONB -- remap to Text at compile time
+    @event.listens_for(engine, "connect")
+    def _set_sqlite_pragma(dbapi_conn, connection_record):
+        pass  # placeholder for future pragmas
+
+    # Swap JSONB columns to Text for SQLite compatibility
+    for table in Base.metadata.tables.values():
+        for col in table.columns:
+            if isinstance(col.type, JSONB):
+                col.type = Text()
+
     Base.metadata.create_all(engine)
     Session = sessionmaker(bind=engine)
     session = Session()

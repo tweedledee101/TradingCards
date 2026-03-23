@@ -8,7 +8,7 @@ SCP-to-eBay Opportunity Pipeline
 4. Show opportunities with buy links
 
 Usage:
-    python3 find_opportunities.py --max-budget 200 --min-profit 5 --min-roi 20
+    python3 find_opportunities.py --max-budget 200 --min-profit 10 --min-roi 20
     python3 find_opportunities.py --players "Colton Cowser,Bobby Witt Jr"
 """
 import argparse
@@ -341,7 +341,7 @@ def get_hot_players(limit=40):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='SCP-to-eBay Opportunity Pipeline')
     parser.add_argument('--max-budget', type=float, default=200, help='Max buy price (default: $200)')
-    parser.add_argument('--min-profit', type=float, default=5, help='Min profit after fees (default: $5)')
+    parser.add_argument('--min-profit', type=float, default=10, help='Min profit after fees (default: $10)')
     parser.add_argument('--min-roi', type=float, default=20, help='Min ROI %% (default: 20)')
     parser.add_argument('--min-scp-price', type=float, default=20, help='Min SCP price to consider (default: $20)')
     parser.add_argument('--max-scp-price', type=float, default=1000, help='Max SCP price (default: $1000)')
@@ -497,8 +497,10 @@ if __name__ == '__main__':
         # Store in database
         db = SessionLocal()
         try:
-            # Clear previous scan results
-            db.query(Opportunity).delete()
+            # Clear previous BIN scan results only -- preserve auction results
+            db.query(Opportunity).filter(
+                (Opportunity.listing_type == 'buy_it_now') | (Opportunity.listing_type.is_(None))
+            ).delete(synchronize_session=False)
             db.commit()
 
             for opp in all_opportunities:
@@ -556,6 +558,7 @@ if __name__ == '__main__':
                     image_url=opp.get('image_url'),
                     listing_type=opp.get('listing_type', 'buy_it_now'),
                     flagged=opp.get('flagged', False),
+                    price_source='scp',
                     scan_id=tracker.run_id
                 )
                 db.add(row)
@@ -579,6 +582,19 @@ if __name__ == '__main__':
 
         # Self-pruning: clean stale data if it's been >24h
         run_if_stale()
+
+        # Run auction pipeline automatically
+        print("\n" + "=" * 80)
+        print("STARTING AUCTION PIPELINE...")
+        print("=" * 80 + "\n")
+        import subprocess
+        auction_cmd = [
+            'python3', 'find_auction_opportunities.py',
+            '--hours', '48',
+            '--min-profit', str(args.min_profit),
+            '--max-budget', str(args.max_budget),
+        ]
+        subprocess.run(auction_cmd, cwd='/home/tweedledee101/TradingCards')
 
     except Exception as e:
         log.error(f'Pipeline failed: {e}', category='pipeline_crash', context={

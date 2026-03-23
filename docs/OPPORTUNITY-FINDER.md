@@ -136,13 +136,14 @@ For each card with enough sales:
 
 ### 3. Arbitrage Analysis
 
-- **Buy Price**: Cheapest current BIN listing (auctions excluded from arbitrage calc)
-- **Sell Price**: SCP market rate (must pass set validation + sanity check)
+- **Buy Price**: Cheapest current BIN listing or current auction bid
+- **Sell Price**: SCP market rate (must pass set validation + sanity check + card number verification in SCP URL)
 - **Fees**: 13% (eBay 12.9% + PayPal ~0.1%)
-- **Net Profit**: Sell price - fees - buy price (minimum $3)
+- **Net Profit**: Sell price - fees - buy price (minimum $5 BIN, $10 auction)
 - **ROI**: (Net profit / Buy price) x 100
 - **Buy Listings**: Direct eBay links to each profitable BIN listing with price and net profit
-- **Auction Listings**: Shown separately with current bid and potential profit (not used for arbitrage calc)
+- **Auction Listings**: Shown separately with current bid, shipping, bid count, end time, and potential profit
+- **QA Validation**: Post-pipeline rules flag extreme_roi, card_number_mismatch, etc. (does not block pipeline)
 
 ### 4. Momentum Signals
 
@@ -252,9 +253,10 @@ Navigate to "Opportunities" section and try the endpoints.
 
 ## Next Steps
 
-1. **Filter noise** - Skip "Complete Your Set" and "You Pick" listings
-2. **Grade-and-flip** - Use PSA 10 SCP rates to find raw cards worth grading
-3. **Automated scheduling** - Cron-based daily pipeline runs
+1. **Grade matching** - Compare ungraded-to-ungraded, graded-to-graded
+2. **Variant precision** - "Magenta Speckle" != "Magenta"
+3. **Volume threshold** - Reject "3 sales per year" and below
+4. **Sold price validation** - Cross-check SCP with eBay sold comps for high-value opportunities
 
 ---
 

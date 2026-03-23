@@ -36,39 +36,29 @@ A data-driven arbitrage opportunity finder for trading card dealers that identif
 
 ## Key Features
 
-### 🎯 Opportunity Finder (Primary Feature)
-- **Arbitrage Analysis**: Buy price vs sell price with profit after fees and ROI calculations
-- **Momentum Validation**: Price trends (rising/stable/falling), sales velocity, sell-through rates
-- **Opportunity Score**: 0-100 scoring (70% arbitrage + 30% momentum)
-- **Confidence Levels**: VERY HIGH 🔥, HIGH ✅, MEDIUM ⚠️, LOW 🥶
-- **Dynamic Filters**: Budget range, minimum profit, minimum ROI, momentum direction
-- **Fee Calculation**: Automatic eBay (12.9%) + PayPal fee deductions
-
-### 💼 Portfolio Management
-- **Inventory Tracking**: Record purchases with storage location management
-- **Profit/Loss Tracking**: Real-time P&L calculations per card and portfolio-wide
-- **ROI Analytics**: Portfolio-wide return on investment metrics
-- **Sales Recording**: Track sales with automatic profit calculation
-
-### 👀 Watchlist & Alerts
-- **Price Monitoring**: Set target prices for specific cards
-- **Price Alerts**: Notifications when cards hit target prices
-- **Trend Monitoring**: Track hotness scores for watchlist cards
-
-### 📊 Market Analytics
-- **Price History**: 14-day historical price trends
-- **Volume Analysis**: Sales volume tracking and momentum
-- **Market Statistics**: Overall market overview and benchmarks
-- **Buy Zone Calculator**: Velocity-adjusted buy recommendations
-- **Card Detail Pages**: Full metadata with grading population and price benchmarks
-
-### 🤖 Automation
-- **Automated Target Discovery**: Auto-discover 50-100 trending cards daily from eBay market signals (zero manual curation)
-- **Daily Discovery**: Runs at 1 AM to populate target list before scraper runs
-- **Daily Collection**: Automated data scraping at 2 AM using auto-generated targets
-- **Manual Favorites**: Preserve personal favorites across auto-updates
-- **Daily Reports**: CSV and text reports of trending opportunities
-- **Sample Data Generator**: 25 realistic cards for testing
+### Opportunity Finder (Primary Feature)
+- **BIN + Auction pipelines**: unified command runs both sequentially
+- **Three-tier pricing**: SCP primary, 130point sold comps secondary, eBay BIN comps tertiary
+- **Multi-pass SCP matching**: exact parallel -> strict text match -> fuzzy word-overlap (50%+ match) -> signal match (RC/Auto/Relic/print_run)
+- **SCP caching**: Selenium results cached 24h in `scp_cache` table, instant on re-runs
+- **Auction pipeline**: eBay-first, 110 value+player queries (was 101 set-specific), pagination up to 1000/query, MLB Stats API for 2,269 player roster
+- **Player extraction**: MLB API + accent normalization + period stripping (Jr./Sr.) + eBay aspects fallback (Player/Athlete/Player Name) for retired/minor league players
+- **Expired auction filtering**: API auto-hides ended auctions, frontend shows "Ended" label
+- **BIN/Auction classification**: checks eBay `buyingOptions` field, tags hybrids as `auction_bin`, uses `currentBidPrice` for actual bid
+- **BIN sanity check**: if hybrid listing's BIN price < 50% of SCP, reject (seller knows the card's value)
+- **Lot detection**: multiple # signs, X & Y & Z patterns, "N cards" language
+- **Volume filtering**: rejects cards with "rare", "1 sale per year", "2 sales per year"
+- **Price floor**: BIN below 30% of SCP hard-rejected
+- **Suspicious flagging**: BIN between 30-50% of SCP flagged for "Needs Review"
+- **Factory set filter**: complete set, montgomery club, walmart/target exclusive
+- **Reprint filter**: replica, project 2020, shoebox treasures, sticker, ACEO
+- **Wrong set detection**: rejects listings with mismatched set names
+- **DB cross-check**: validates SCP URL matches parallel name to catch bad data
+- **Direct buy links**: clickable eBay listing URLs
+- **Card images from eBay thumbnails**
+- **SCP verification links**
+- **All 3 SCP price tiers shown (Ungraded, Grade 9, PSA 10)**
+- **QA validation**: post-pipeline background rules (extreme_roi, card_number_mismatch, etc.)
 
 ## Target Users
 - **Professional Card Dealers**: Primary audience - users who buy and flip cards for profit
@@ -111,6 +101,8 @@ A data-driven arbitrage opportunity finder for trading card dealers that identif
 |--------|---------|--------|
 | eBay Browse API | Sold listings, active listings | Working (Real Data) |
 | SportsCardsPro | Market rates (Ungraded/Grade 9/PSA 10) | Working (Selenium/Firefox, graduated search + set validation) |
+| 130point.com | eBay sold comps (actual sale prices + volume) | Working (HTTP POST, background worm) |
+| MLB Stats API | Player roster (2,269 players) | Working (free, no auth) |
 | eBay Trending Discovery | Auto-discover hot cards | Code Ready (Testing) |
 | PSA Population | Grading spikes | Infrastructure Ready (Testing) |
 | Card Ladder | Price velocity, benchmarks | Infrastructure Ready (Testing) |
@@ -119,7 +111,7 @@ A data-driven arbitrage opportunity finder for trading card dealers that identif
 | Twitter/Reddit | Social sentiment | Planned |
 | Release Calendars | New releases | Planned |
 
-**Current Status**: 2/9 sources with real data, 2/9 infrastructure ready
+**Current Status**: 4/11 sources with real data, 2/11 infrastructure ready
 
 ## Cross-Platform Strategy
 
@@ -149,7 +141,7 @@ See `docs/ROADMAP.md` Milestone 7 for full details.
 
 ### Planned: Compatible Application Status
 - Apply at https://developer.ebay.com/my/keys
-- CardPulse drives purchases on eBay -- legitimate commerce app
+- Ragnarok Gaming drives purchases on eBay -- legitimate commerce app
 - Expected: 50,000-200,000+ calls/day
 - Costs nothing, takes a few days to approve
 
@@ -168,10 +160,15 @@ See `docs/ROADMAP.md` Milestone 7 for full details.
 - SCP prices trusted for 24 hours
 
 ## Deployment
-- **Domain**: cardpulse.jgaffiliated.com
+- **Domain**: ragnarokgamez.com
+- **ACM cert**: `arn:aws:acm:us-east-1:635601810497:certificate/8dda492b-b16f-45bf-965e-9268abaabe78`
 - **Infrastructure**: 100% AWS (ECS, RDS, CloudFront) -- no Lambda for scheduling
+- **RDS**: deployed at `cardpulse-db.ckvp9bhavaww.us-east-1.rds.amazonaws.com` (legacy name)
 - **Deployment**: CloudFormation (Infrastructure as Code)
 - **Refresh**: Demand-driven (ADR-004), no crons
 - **Worker**: Separate process from core app, trickle-inserts to DB
 - **Current Phase**: Milestone 1 -- get opportunities into the UI
+- **Database**: 23 migrations tracked (schema_migrations), latest: scheduled_bids table
+- **Database targets**: Local PostgreSQL + RDS (synced via `migrate.py --both`)
+- **Primary DB**: RDS (`cardpulse-db.ckvp9bhavaww.us-east-1.rds.amazonaws.com`)
 - **Full roadmap**: `docs/ROADMAP.md`
