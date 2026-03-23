@@ -1,6 +1,8 @@
 name: Auction Pipeline
 
 on:
+  schedule:
+    - cron: '0 9,21 * * *'   # 9 AM + 9 PM UTC (5 AM + 5 PM ET) -- offset from BIN
   workflow_dispatch:
     inputs:
       hours:

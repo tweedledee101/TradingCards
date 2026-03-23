@@ -41,6 +41,47 @@ Show how long ago each eBay listing was posted.
 - Helps prioritize which deals to jump on first
 - eBay API already returns listing dates -- just surface them
 
+## Milestone 2.5 -- "Business Operating System"
+
+Transform the platform from a tool into a daily business planner. Connects goals, capital, inventory, time, and opportunities into one workflow.
+
+See [ADR-006](./architecture/decisions/ADR-006-business-planner.md) for full scope.
+
+### 2.5.1 Goal Setting & Capital Tracking
+- `business_goals` table: annual income target, starting capital, weekly hours, margin targets
+- Capital tracker: available cash updated on every buy/sell, deposits/withdrawals
+- Goal decomposition: annual -> monthly -> weekly -> daily targets, adjusted for compounding
+- Honest trajectory math: $1K starting capital at 25% margin = ~$14.5K Year 1, not $120K
+
+### 2.5.2 Daily Plan Generator
+- `daily_plans` table with prioritized action list (list cards, buy opportunities, reprice stale, lot base cards)
+- Time-aware: knows you have 2.5 hours tonight, fills that time with highest-value actions
+- Connects Opportunity Finder (what to buy) + Inventory (what to list) + Market Data (what to reprice)
+- Catch-up logic: missed yesterday? Deficit spread over next 7 days, never panic-mode
+
+### 2.5.3 Daily Snapshots & Progress Tracking
+- `daily_snapshots` table: capital, inventory count/value, revenue/profit (daily/MTD/YTD)
+- Weekly progress bar, monthly trend chart, 12-month trajectory projection
+- Actual vs target tracking at every level (day, week, month, year)
+
+### 2.5.4 Business Dashboard (New Home Page)
+- Goal strip (always visible): YTD progress, available capital, inventory value
+- Today's plan: checkable action list with time estimates and expected revenue
+- Weekly progress bar with daily breakdown
+- Monthly/annual trajectory charts
+- Replaces Trending page as the default landing page
+
+### 2.5.5 Inventory Triage
+- Categorize owned cards: list now, lot and clear, hold, dump, grade candidates
+- Stale listing detection (>14 days, recommend price drops)
+- Base card lot recommendations (group by team, list as lots of 25-50)
+
+### Dependencies
+- Opportunity Finder producing reliable results (Milestone 1)
+- Reliable pricing data (Milestone 2)
+- Inventory data entry (cold start -- start with 60 listed cards, ignore base initially)
+- eBay OAuth (Milestone 3) solves the data entry problem long-term
+
 ## Milestone 3 -- "eBay Account Integration"
 
 ### 3.1 eBay OAuth User Login
