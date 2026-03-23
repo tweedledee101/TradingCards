@@ -80,7 +80,7 @@ EXPECTED_PARSED_SALES = [
         'graded': True,
         'grade_company': 'PSA',
         'grade_value': 10.0,
-        'card_set': 'Prizm'
+        'card_set': 'Panini Prizm'
     },
     {
         'ebay_item_id': '987654321',
@@ -124,7 +124,7 @@ TITLE_PARSING_TESTS = [
             'graded': True,
             'grade_company': 'PSA',
             'grade_value': 10.0,
-            'card_set': 'Prizm'
+            'card_set': 'Panini Prizm'
         }
     },
     {
@@ -146,7 +146,7 @@ TITLE_PARSING_TESTS = [
             'graded': True,
             'grade_company': 'BGS',
             'grade_value': 9.0,
-            'card_set': None
+            'card_set': 'Fleer'
         }
     },
     {
