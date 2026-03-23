@@ -114,10 +114,10 @@ class TestCardOperations:
     
     @pytest.mark.integration
     def test_unique_constraint(self, clean_db):
-        """Test unique constraint on (player_name, card_year, card_set, card_number)"""
+        """Test unique constraint on cards table"""
         insert_sql = text("""
-            INSERT INTO cards (player_name, card_year, card_set, card_number, is_rookie, sport)
-            VALUES (:name, :year, :set, :number, :rookie, :sport)
+            INSERT INTO cards (player_name, card_year, card_set, card_number, is_rookie, sport, parallel, grade_company, grade_value)
+            VALUES (:name, :year, :set, :number, :rookie, :sport, :parallel, :grade_company, :grade_value)
         """)
         
         params = {
@@ -126,14 +126,17 @@ class TestCardOperations:
             'set': 'Prizm',
             'number': '1',
             'rookie': True,
-            'sport': 'Basketball'
+            'sport': 'Basketball',
+            'parallel': 'Base',
+            'grade_company': 'PSA',
+            'grade_value': 10.0
         }
         
         # First insert should succeed
         clean_db.execute(insert_sql, params)
         clean_db.commit()
         
-        # Second insert should fail
+        # Second insert with same values should fail
         with pytest.raises(Exception):  # IntegrityError
             clean_db.execute(insert_sql, params)
             clean_db.commit()
