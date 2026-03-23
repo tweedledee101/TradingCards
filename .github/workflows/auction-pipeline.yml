@@ -73,9 +73,14 @@ jobs:
           EBAY_APP_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CERT_ID: ${{ secrets.EBAY_CLIENT_SECRET }}
         run: |
+          HOURS="${{ inputs.hours }}"
+          MAX_BUDGET="${{ inputs.max_budget }}"
+          MIN_PROFIT="${{ inputs.min_profit }}"
+          YEARS="${{ inputs.years }}"
+          SPORT="${{ inputs.sport }}"
           python3 find_auction_opportunities.py \
-            --hours ${{ inputs.hours }} \
-            --max-budget ${{ inputs.max_budget }} \
-            --min-profit ${{ inputs.min_profit }} \
-            --years "${{ inputs.years }}" \
-            --sport "${{ inputs.sport }}"
+            --hours ${HOURS:-48} \
+            --max-budget ${MAX_BUDGET:-200} \
+            --min-profit ${MIN_PROFIT:-10} \
+            --years "${YEARS:-2023,2024,2025,2026}" \
+            --sport "${SPORT:-baseball}"

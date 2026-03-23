@@ -121,4 +121,36 @@ export const getWatchlistAlerts = async () => {
   return response.data;
 };
 
+// Business Operating System
+export const getBusinessDashboard = async () => {
+  const response = await api.get('/api/business/dashboard');
+  return response.data;
+};
+
+export const getBusinessTrajectory = async () => {
+  const response = await api.get('/api/business/trajectory');
+  return response.data;
+};
+
+export const getBusinessPlan = async (hours = null) => {
+  const params = hours ? { hours } : {};
+  const response = await api.get('/api/business/plan/today', { params });
+  return response.data;
+};
+
+export const setBusinessGoal = async (data) => {
+  const response = await api.post('/api/business/goals', data);
+  return response.data;
+};
+
+export const recordCapitalTransaction = async (data) => {
+  const response = await api.post('/api/business/capital', data);
+  return response.data;
+};
+
+export const getBusinessHistory = async (days = 30) => {
+  const response = await api.get('/api/business/history', { params: { days } });
+  return response.data;
+};
+
 export default api;

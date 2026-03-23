@@ -49,9 +49,14 @@
 - **python-dateutil 2.8.2** - Date/time utilities
 
 ### Testing
-- **pytest 7.4.3** - Test framework
+- **pytest 7.4.3** - Test framework (167 tests: 63 unit + 11 integration + 70 QA)
 - **pytest-cov 4.1.0** - Coverage reporting
 - **pytest-mock 3.12.0** - Mocking utilities
+
+### CI/CD
+- **GitHub Actions** - 4 workflows (BIN pipeline, Auction pipeline, Daily Report, QA)
+- **Ubuntu 24.04 runners** - `ubuntu-latest` with Mozilla PPA for Firefox ESR
+- **geckodriver 0.36.0** - Pinned version (avoids GitHub API rate limiting)
 
 ### Configuration & Utilities
 - **python-dotenv 1.0.0** - Environment variable management
@@ -73,6 +78,9 @@ python3 qa_opportunities.py
 # Run 130point data worm (background sold comps builder)
 python3 worm_130point.py --limit 100
 nohup python3 worm_130point.py --limit 1000 > /tmp/worm.log 2>&1 &
+
+# Run daily operations report
+python3 daily_report.py
 
 # Database migrations (keeps local + RDS in sync)
 python3 migrate.py --both          # apply pending to both
@@ -109,7 +117,7 @@ npm run preview
 
 ### Testing
 ```bash
-# Run all tests
+# Run all tests (167 passing)
 ./run_tests.sh all
 
 # Run unit tests only
@@ -216,3 +224,9 @@ aws cloudformation validate-template \
 ## Version Control
 - **Git**: Version control system
 - **Platform**: GitHub (https://github.com/tweedledee101/TradingCards)
+- **CI/CD**: GitHub Actions (4 workflows)
+  - BIN Pipeline: cron `0 6,18 * * *` (2AM/2PM ET) + manual
+  - Auction Pipeline: cron `0 9,21 * * *` (5AM/5PM ET) + manual
+  - Daily Report: cron `0 23 * * *` (7PM ET) + manual
+  - QA Pipeline: on push/PR to main
+- **GitHub Secrets**: `DATABASE_URL`, `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`

@@ -1,6 +1,6 @@
 # Feature Roadmap
 
-**Last Updated:** 2026-03-22
+**Last Updated:** 2026-03-23
 
 ## Milestone 1 -- "Make Money From the UI"
 
@@ -41,35 +41,43 @@ Show how long ago each eBay listing was posted.
 - Helps prioritize which deals to jump on first
 - eBay API already returns listing dates -- just surface them
 
-## Milestone 2.5 -- "Business Operating System"
+## Milestone 2.5 -- "Business Operating System" -- DONE
 
 Transform the platform from a tool into a daily business planner. Connects goals, capital, inventory, time, and opportunities into one workflow.
 
 See [ADR-006](./architecture/decisions/ADR-006-business-planner.md) for full scope.
 
-### 2.5.1 Goal Setting & Capital Tracking
+### 2.5.1 Goal Setting & Capital Tracking -- DONE
 - `business_goals` table: annual income target, starting capital, weekly hours, margin targets
 - Capital tracker: available cash updated on every buy/sell, deposits/withdrawals
 - Goal decomposition: annual -> monthly -> weekly -> daily targets, adjusted for compounding
-- Honest trajectory math: $1K starting capital at 25% margin = ~$14.5K Year 1, not $120K
+- Honest trajectory math: $1K starting capital at 25% margin = ~$12.2K Year 1, not $120K
+- `capital_transactions` table: deposits, withdrawals, purchases, sales with optional FK to opportunities/inventory
 
-### 2.5.2 Daily Plan Generator
-- `daily_plans` table with prioritized action list (list cards, buy opportunities, reprice stale, lot base cards)
+### 2.5.2 Daily Plan Generator -- DONE
+- `daily_plans` table with prioritized action list (buy opportunities, list cards, reprice stale, research)
 - Time-aware: knows you have 2.5 hours tonight, fills that time with highest-value actions
 - Connects Opportunity Finder (what to buy) + Inventory (what to list) + Market Data (what to reprice)
 - Catch-up logic: missed yesterday? Deficit spread over next 7 days, never panic-mode
+- Pulls REAL pipeline opportunities sorted by ROI
 
-### 2.5.3 Daily Snapshots & Progress Tracking
+### 2.5.3 Daily Snapshots & Progress Tracking -- DONE
 - `daily_snapshots` table: capital, inventory count/value, revenue/profit (daily/MTD/YTD)
-- Weekly progress bar, monthly trend chart, 12-month trajectory projection
+- Weekly progress bar, monthly trend, 12-month trajectory projection
 - Actual vs target tracking at every level (day, week, month, year)
+- Auto-generated from inventory/sales tables (upserts)
 
-### 2.5.4 Business Dashboard (New Home Page)
-- Goal strip (always visible): YTD progress, available capital, inventory value
-- Today's plan: checkable action list with time estimates and expected revenue
-- Weekly progress bar with daily breakdown
-- Monthly/annual trajectory charts
-- Replaces Trending page as the default landing page
+### 2.5.4 Business Dashboard -- DONE
+- Goal setup form with all parameters (annual target, capital, hours, margins, fees, reinvest %)
+- Top stats: available capital, daily target, today's profit, YTD profit
+- Week + month progress bars with color-coded fill
+- Inventory summary: total cards, listed, unlisted, cost basis
+- Today's action plan: expandable cards with buy links, ROI, profit per item
+- 12-month trajectory chart (Recharts: cumulative profit + working capital)
+- Capital transaction recording (deposit, sale, purchase, withdrawal)
+- Hours override for plan regeneration
+- Route: `/business`, nav link in main navigation
+- Ragnarok Gaming dark theme, consistent with all other pages
 
 ### 2.5.5 Inventory Triage
 - Categorize owned cards: list now, lot and clear, hold, dump, grade candidates

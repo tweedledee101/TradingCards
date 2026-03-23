@@ -325,6 +325,78 @@ class ScheduledBid(Base):
     created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
 
 
+class BusinessGoal(Base):
+    """Annual business goals and constraints"""
+    __tablename__ = 'business_goals'
+
+    id = Column(Integer, primary_key=True)
+    annual_income_target = Column(DECIMAL(10, 2), nullable=False)
+    starting_capital = Column(DECIMAL(10, 2), nullable=False)
+    weekly_hours_weekday = Column(DECIMAL(4, 1), default=12.5)
+    weekly_hours_weekend = Column(DECIMAL(4, 1), default=8.0)
+    target_margin_pct = Column(DECIMAL(5, 2), default=0.25)
+    avg_shipping_cost = Column(DECIMAL(6, 2), default=4.50)
+    platform_fee_pct = Column(DECIMAL(5, 2), default=0.13)
+    reinvest_pct = Column(DECIMAL(5, 2), default=1.00)
+    goal_start_date = Column(Date, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+
+class DailySnapshot(Base):
+    """End-of-day business state capture"""
+    __tablename__ = 'daily_snapshots'
+
+    id = Column(Integer, primary_key=True)
+    snapshot_date = Column(Date, nullable=False, unique=True)
+    available_capital = Column(DECIMAL(10, 2))
+    inventory_count = Column(Integer, default=0)
+    inventory_cost_basis = Column(DECIMAL(10, 2), default=0)
+    inventory_market_value = Column(DECIMAL(10, 2), default=0)
+    listed_count = Column(Integer, default=0)
+    unlisted_count = Column(Integer, default=0)
+    revenue_today = Column(DECIMAL(10, 2), default=0)
+    profit_today = Column(DECIMAL(10, 2), default=0)
+    revenue_mtd = Column(DECIMAL(10, 2), default=0)
+    profit_mtd = Column(DECIMAL(10, 2), default=0)
+    revenue_ytd = Column(DECIMAL(10, 2), default=0)
+    profit_ytd = Column(DECIMAL(10, 2), default=0)
+    cards_bought_today = Column(Integer, default=0)
+    cards_sold_today = Column(Integer, default=0)
+    cards_listed_today = Column(Integer, default=0)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class DailyPlan(Base):
+    """Generated daily action plan"""
+    __tablename__ = 'daily_plans'
+
+    id = Column(Integer, primary_key=True)
+    plan_date = Column(Date, nullable=False)
+    available_hours = Column(DECIMAL(4, 1))
+    target_revenue = Column(DECIMAL(10, 2))
+    target_profit = Column(DECIMAL(10, 2))
+    buy_budget = Column(DECIMAL(10, 2))
+    status = Column(String(20), default='pending')
+    actions = Column(JSONB, default=[])
+    results = Column(JSONB)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class CapitalTransaction(Base):
+    """Tracks every capital movement: buys, sells, deposits, withdrawals"""
+    __tablename__ = 'capital_transactions'
+
+    id = Column(Integer, primary_key=True)
+    transaction_date = Column(Date, nullable=False)
+    amount = Column(DECIMAL(10, 2), nullable=False)
+    type = Column(String(20), nullable=False)  # deposit, withdrawal, purchase, sale
+    description = Column(Text)
+    opportunity_id = Column(Integer, ForeignKey('opportunities.id'))
+    inventory_id = Column(Integer, ForeignKey('inventory.id'))
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
 class MarketRate(Base):
     """Market rates from SportsCardsPro (Ungraded, Grade 9, PSA 10)"""
     __tablename__ = 'market_rates'

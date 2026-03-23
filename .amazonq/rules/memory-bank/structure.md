@@ -57,9 +57,10 @@ TradingCards/
 │   │   └── decisions/   # Architecture decision records
 │   ├── setup/           # Installation guides
 │   └── *.md             # Feature guides and references
-├── tests/               # Test suite
-│   ├── unit/            # Unit tests
-│   ├── integration/     # Integration tests
+├── tests/               # Test suite (167 tests passing)
+│   ├── unit/            # Unit tests (63)
+│   ├── integration/     # Integration tests (11)
+│   ├── qa/              # QA validation tests (70)
 │   └── fixtures/        # Test data fixtures
 └── reports/             # Generated daily reports (CSV, TXT)
 ```
@@ -87,6 +88,7 @@ TradingCards/
 - `opportunity_analyzer.py`: BIN arbitrage detection
 - `find_auction_opportunities.py`: Auction pipeline (standalone)
 - `qa_opportunities.py`: Post-pipeline QA validation
+- `daily_report.py`: Daily operations report (Tiers 2-4: health, quality, decisions)
 
 ### 2. Scrapers
 **Location**: `backend/scrapers/`
@@ -128,8 +130,8 @@ FastAPI-based REST API with 20+ endpoints:
 React SPA with Vite + Tailwind CSS:
 - **Theme**: Ragnarok Gaming dark theme (charcoal #0f1117 + ember orange #e8590c)
 - **Fonts**: Cinzel for display headings, Inter for body
-- **Pages**: Trending (Home), Opportunities, Card Details, Inventory, Watchlist
-- **Components**: CardTable, FilterPanel, PriceChart, OpportunityCard
+- **Pages**: Trending (Home), Opportunities, Business Dashboard, Card Details, Inventory, Watchlist
+- **Components**: CardTable, FilterPanel, PriceChart, OpportunityCard, CardDetailModal
 - **State Management**: React hooks + localStorage
 - **Styling**: Tailwind CSS utility classes
 
@@ -151,7 +153,7 @@ Runtime state management for all background jobs:
 ### 7. Database Schema
 **Location**: `backend/models/schema.sql`
 
-PostgreSQL database with 11+ tables:
+PostgreSQL database with 23 tables:
 - `cards` - Core card data
 - `sales` - Individual sale records
 - `active_listings` - Current eBay listings
@@ -160,6 +162,10 @@ PostgreSQL database with 11+ tables:
 - `sold_comps` - 130point eBay sold data cache (48h TTL, migration_014)
 - `opportunities` - Pipeline-discovered arbitrage (BIN + auction)
 - `scheduled_bids` - Snipe queue (max_bid, snipe_seconds, end_time, status)
+- `business_goals` - Annual targets, capital, hours, margin settings
+- `daily_snapshots` - Daily capital/inventory/profit snapshots
+- `daily_plans` - Generated daily action plans (JSONB actions)
+- `capital_transactions` - Deposits, withdrawals, purchases, sales
 - `schema_migrations` - Migration tracking (filename, applied_at)
 - `job_runs` - Background job state tracking
 - `error_log` - Runtime error/event log
@@ -196,6 +202,50 @@ Tracks and applies database migrations to any target database:
 - `python3 migrate.py --local` / `--rds`: target one database
 - Handles already-existing objects gracefully (records as applied)
 - Rule: if you update cloud DB structurally, run `--both` to keep local in sync
+- 24 migrations tracked on both databases
+
+### 10. Business Operating System
+**Location**: `backend/services/business_planner.py`, `backend/api/routes/business.py`
+
+Connects goals, capital, inventory, and opportunities into daily actionable plans:
+- Goal decomposition: annual -> monthly -> weekly -> daily targets with honest compounding math
+- 12-month trajectory projection (2 turns/month, 25% margin - 13% fees = 12% net)
+- Daily plan generator: pulls real pipeline opportunities, prioritizes by ROI, time-aware
+- Capital tracking: starting capital + all transactions (deposits, withdrawals, purchases, sales)
+- Daily snapshots: auto-generated from inventory/sales tables
+- Catch-up logic: weekly deficit spread over remaining days
+- 6 API endpoints: dashboard, trajectory, today's plan, set goal, record capital, history
+- Frontend: Business Dashboard page with charts, progress bars, action plan
+
+See [ADR-006](docs/architecture/decisions/ADR-006-business-planner.md) for full scope.
+
+### 11. CI/CD Pipeline
+**Location**: `.github/workflows/`
+
+GitHub Actions workflows for automated pipeline execution:
+- `pipeline.yml`: BIN pipeline -- cron `0 6,18 * * *` (2AM/2PM ET) + manual dispatch
+- `auction-pipeline.yml`: Auction pipeline -- cron `0 9,21 * * *` (5AM/5PM ET) + manual dispatch
+- `daily-report.yml`: Daily operations report -- cron `0 23 * * *` (7PM ET) + manual dispatch
+- `qa.yml`: CI test suite -- on push/PR to main (167 tests: 63 unit + 11 integration + 70 QA + frontend build)
+
+Runner setup: Ubuntu 24.04 (`ubuntu-latest`), Python 3.11, Firefox ESR via Mozilla PPA, geckodriver v0.36.0 pinned.
+
+GitHub secrets: `DATABASE_URL`, `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`.
+
+### 11. Daily Operations Report
+**Location**: `daily_report.py`
+
+Comprehensive health check covering:
+- Pipeline health (job_runs table status)
+- Database health (table row counts)
+- Data freshness (latest timestamps, stale cache, expired auctions)
+- Data quality (null SCP prices, negative profits, duplicate eBay IDs)
+- QA flags summary
+- Opportunity summary by listing type
+- 7-day trends
+- Prioritized action items (critical/warning/info)
+
+Outputs to stdout + `/tmp/daily-report.json`. Runs nightly via GitHub Actions.
 
 ## Architectural Patterns
 
@@ -264,5 +314,9 @@ players:
 - **Database**: AWS RDS (PostgreSQL) -- deployed: `cardpulse-db.ckvp9bhavaww.us-east-1.rds.amazonaws.com` (legacy name)
 - **ACM cert**: `arn:aws:acm:us-east-1:635601810497:certificate/8dda492b-b16f-45bf-965e-9268abaabe78` (ragnarokgamez.com + *.ragnarokgamez.com)
 - **Scrapers**: AWS ECS Tasks or Lambda (demand-driven, NOT scheduled)
+- **CI/CD**: GitHub Actions (4 workflows: BIN, Auction, Daily Report, QA)
+- **Tests**: 167 passing (63 unit + 11 integration + 70 QA + frontend build)
+- **Database**: 24 migrations tracked (schema_migrations), latest: business_planner tables
 - **IaC**: CloudFormation templates
-- **Refresh**: Demand-driven with caching (ADR-004), no crons
+- **Refresh**: Demand-driven with caching (ADR-004), no crons for data refresh
+- **Pipeline scheduling**: GitHub Actions cron for pipeline execution (separate from data refresh)

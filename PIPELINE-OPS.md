@@ -210,13 +210,23 @@ Both pipelines can run on GitHub Actions. Requires RDS database.
 
 ### Setup
 1. RDS is deployed: `cardpulse-db.ckvp9bhavaww.us-east-1.rds.amazonaws.com:5432` (legacy name, domain is ragnarokgamez.com)
-2. Schema + migrations applied (001-011)
+2. Schema + migrations applied (001-023, tracked via `schema_migrations`)
 3. GitHub secrets configured: `DATABASE_URL`, `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`
 4. Trigger: Actions tab -> choose workflow -> Run workflow
+
+### Scheduled Runs (Cron)
+- **BIN Pipeline**: 2AM + 2PM ET daily (`0 6,18 * * *` UTC)
+- **Auction Pipeline**: 5AM + 5PM ET daily (`0 9,21 * * *` UTC)
+- **Daily Report**: 7PM ET daily (`0 23 * * *` UTC)
+- **QA Pipeline**: on push/PR to main (CI)
+
+All workflows also support manual `workflow_dispatch` triggers from the Actions UI.
 
 ### Available Workflows
 - **Opportunity Pipeline** (`.github/workflows/pipeline.yml`) -- BIN pipeline
 - **Auction Pipeline** (`.github/workflows/auction-pipeline.yml`) -- Auction-first pipeline
+- **Daily Report** (`.github/workflows/daily-report.yml`) -- Operations report
+- **QA Pipeline** (`.github/workflows/qa.yml`) -- 167 tests (unit + integration + QA + frontend build)
 
 ### Workflow Inputs
 - `players`: comma-separated (default: top 40 by volume)
@@ -377,6 +387,31 @@ sudo -u postgres psql -d trading_cards -c "SELECT listing_type, COUNT(*), ROUND(
 sudo -u postgres psql -d trading_cards -c "SELECT COUNT(*) as flagged FROM opportunities WHERE flagged = true;"
 ```
 
+## Running Daily Operations Report
+
+Generates a comprehensive health check covering pipeline status, data freshness, data quality, and action items.
+
+```bash
+# Run locally
+python3 daily_report.py
+
+# Output goes to stdout + /tmp/daily-report.json
+```
+
+The report covers:
+- **Pipeline health**: last run times, success/failure status from `job_runs` table
+- **Database health**: row counts for all key tables
+- **Data freshness**: latest timestamps, stale SCP cache entries, expired auctions
+- **Data quality**: null SCP prices, negative profits, duplicate eBay IDs
+- **QA flags**: summary of flagged opportunities by rule
+- **Opportunity summary**: counts and avg profit by listing type
+- **Trends**: 7-day opportunity history
+- **Action items**: prioritized as critical/warning/info
+
+Runs automatically at 7PM ET via GitHub Actions (`daily-report.yml`). JSON artifact uploaded for 7 days.
+
+---
+
 ## Migrations Applied
 
 | Migration | What |
@@ -398,8 +433,10 @@ sudo -u postgres psql -d trading_cards -c "SELECT COUNT(*) as flagged FROM oppor
 | 014 | Sold comps table (130point eBay sold data cache) |
 | 015 | Price source tracking (scp, sold_comps, ebay_comps) |
 | 016 | Scheduled bids table (snipe queue) |
+| 017 | Business planner tables (business_goals, daily_snapshots, daily_plans, capital_transactions) |
+| 018-023 | Additional schema refinements (see `backend/models/` for details) |
 
-**Migration tracking**: `schema_migrations` table on both local + RDS.
+**Migration tracking**: `schema_migrations` table on both local + RDS. 24 migrations applied to both.
 
 ```bash
 # Check migration status

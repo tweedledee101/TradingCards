@@ -348,19 +348,24 @@ export const fetchCards = async (filters) => {
 ## Testing Standards
 
 ### Test Organization
-**Pattern**: Separate unit and integration tests
+**Pattern**: Separate unit, integration, and QA tests
 ```
 tests/
-├── unit/
+├── unit/              # 63 tests
 │   ├── test_trend_calculator.py
-│   └── test_ebay_scraper.py
-├── integration/
+│   ├── test_ebay_scraper.py
+│   └── ...
+├── integration/       # 11 tests
 │   └── test_database.py
+├── qa/                # 70 tests
+│   ├── test_scp_matching.py
+│   ├── test_opportunity_analyzer.py
+│   └── test_api_contract.py
 └── fixtures/
     └── sample_data.py
 ```
 
-**Frequency**: 100% of tests follow this structure
+**Total**: 167 tests passing in CI (GitHub Actions)
 
 ### Pytest Conventions
 **Pattern**: Test functions prefixed with `test_`, use fixtures
@@ -379,6 +384,18 @@ def sample_card():
 ```
 
 **Frequency**: 100% of tests use pytest conventions
+
+### eBay Scraper Test Mocking
+**Pattern**: Mock token_manager to avoid needing real credentials in CI
+```python
+@pytest.fixture(autouse=True)
+def mock_token(monkeypatch):
+    mock_tm = Mock()
+    mock_tm.get_valid_token.return_value = "fake-token-for-testing"
+    monkeypatch.setattr("backend.utils.token_manager.token_manager", mock_tm)
+```
+
+**Frequency**: All eBay scraper tests use this pattern
 
 ## Error Handling
 

@@ -4,6 +4,7 @@ import CardDetail from './pages/CardDetail';
 import Inventory from './pages/Inventory';
 import Watchlist from './pages/Watchlist';
 import Opportunities from './pages/Opportunities';
+import BusinessDashboard from './pages/BusinessDashboard';
 import './index.css';
 
 function App() {
@@ -41,6 +42,9 @@ function App() {
               <NavLink to="/watchlist" className={navLinkClass}>
                 Watchlist
               </NavLink>
+              <NavLink to="/business" className={navLinkClass}>
+                Business
+              </NavLink>
             </div>
           </div>
         </nav>
@@ -53,6 +57,7 @@ function App() {
           <Route path="/card/:id" element={<CardDetail />} />
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/watchlist" element={<Watchlist />} />
+          <Route path="/business" element={<BusinessDashboard />} />
         </Routes>
         </main>
       </div>

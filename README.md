@@ -17,20 +17,24 @@ A data-driven arbitrage opportunity finder for trading card dealers. Identifies 
 - **40 players** targeted and fully imported
 - **25,434 cards**, 42,313 sales, 44,165 active listings, 4,400 SCP market rates
 - **133 opportunities** from latest scan (BIN + Auctions)
+- **167 tests passing** in CI (63 unit + 11 integration + 70 QA + frontend build)
+- **Business Operating System**: goal tracking, daily plans, capital management, 12-month trajectory
 - **Three-tier pricing**: SCP -> 130point sold comps -> eBay BIN comps
 - **Unified pipeline**: one command runs BIN + Auction pipelines sequentially
+- **Scheduled pipelines**: GitHub Actions cron (BIN 2AM/2PM ET, Auction 5AM/5PM ET, Daily Report 7PM ET)
 - **Auction pipeline**: MLB Stats API for 2,269 player roster, 110 value+player eBay queries with pagination, SCP validation with multi-pass fuzzy matching
 - **Pipeline quality filters**: price floor (30% of SCP), volume filter, factory set detection, reprint detection, wrong set detection, lot detection, suspicious price flagging
 - **QA validation**: post-pipeline background rules (extreme_roi, card_number_mismatch, etc.) -- does not block pipeline
 - **67 QA tests passing**: SCP matching (40), opportunity analyzer (19), API contract (8)
+- **CI/CD**: GitHub Actions -- BIN, Auction, Daily Report, QA workflows (all green)
 - **Multi-source pricing**: SCP primary, 130point sold comps (free, background worm), eBay BIN comps fallback
 - **Snipe UI**: calculated recommended bid (SCP - fees - profit), live profit preview, Schedule Bid manual entry, My Bids strip
-- **Dual database**: RDS primary + local PostgreSQL synced via `migrate.py --both` (23 migrations, 19 tables)
+- **Dual database**: RDS primary + local PostgreSQL synced via `migrate.py --both` (24 migrations, 23 tables)
 - **Observability**: structured logging, error tracking, job tracking, data retention
 - **Infrastructure**: GitHub Actions workflows (BIN + Auction) + RDS deployed + ACM cert issued
 - **Domain**: ragnarokgamez.com (ACM cert covers root + wildcard)
 - **Sport**: Baseball (Basketball/Football seed players and sets ready)
-- **UI**: Ragnarok Gaming dark theme (Trending + Opportunities pages live)
+- **UI**: Ragnarok Gaming dark theme (Trending + Opportunities + Business Dashboard pages live)
 - **See [STATUS.md](./STATUS.md) for full details**
 
 ## Quick Start

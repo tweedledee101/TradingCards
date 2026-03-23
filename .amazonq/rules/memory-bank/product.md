@@ -167,8 +167,10 @@ See `docs/ROADMAP.md` Milestone 7 for full details.
 - **Deployment**: CloudFormation (Infrastructure as Code)
 - **Refresh**: Demand-driven (ADR-004), no crons
 - **Worker**: Separate process from core app, trickle-inserts to DB
-- **Current Phase**: Milestone 1 -- get opportunities into the UI
-- **Database**: 23 migrations tracked (schema_migrations), latest: scheduled_bids table
+- **Current Phase**: Milestone 2.5 complete -- Business Operating System live, opportunities in the UI, CI/CD live
+- **CI/CD**: GitHub Actions -- 4 workflows (BIN cron 2AM/2PM ET, Auction cron 5AM/5PM ET, Daily Report cron 7PM ET, QA on push/PR)
+- **Tests**: 167 passing (63 unit + 11 integration + 70 QA + frontend build)
+- **Database**: 24 migrations tracked (schema_migrations), latest: business_planner tables
 - **Database targets**: Local PostgreSQL + RDS (synced via `migrate.py --both`)
 - **Primary DB**: RDS (`cardpulse-db.ckvp9bhavaww.us-east-1.rds.amazonaws.com`)
 - **Full roadmap**: `docs/ROADMAP.md`
