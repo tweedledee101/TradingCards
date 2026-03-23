@@ -313,29 +313,11 @@ def find_ebay_opportunities(scraper, variation, max_budget):
     return query, opportunities
 
 
-def get_hot_players(limit=40):
-    """Get players with most sales volume from database"""
-    from backend.utils.database import SessionLocal
-    from backend.models import Card, Sale
-    from sqlalchemy import func
-    from datetime import datetime, timedelta
-
-    db = SessionLocal()
-    cutoff = datetime.now() - timedelta(days=30)
-
-    players = db.query(
-        Card.player_name,
-        func.count(Sale.id).label('sales')
-    ).join(Sale).filter(
-        Sale.sale_date >= cutoff
-    ).group_by(
-        Card.player_name
-    ).order_by(
-        func.count(Sale.id).desc()
-    ).limit(limit).all()
-
-    db.close()
-    return [p.player_name for p in players]
+def get_hot_players(limit=40, sport='Baseball'):
+    """Discover top players by eBay sales volume (live API query every run)"""
+    from backend.discover_players import discover_top_players
+    discovered = discover_top_players(days=7, limit=limit, sport=sport)
+    return [p['player_name'] for p in discovered]
 
 
 if __name__ == '__main__':
