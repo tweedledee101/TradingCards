@@ -64,15 +64,16 @@ def test_multi_platform_sourcing_options():
         target_buy_price=50.0
     )
     
-    # Should have all platforms
-    assert "ebay" in options
-    assert "facebook" in options
-    assert "comc" in options
-    assert "whatnot" in options
-    assert "mercari" in options
+    # Returns nested structure with urls and decision_metrics
+    urls = options["urls"]
+    assert "ebay" in urls
+    assert "facebook" in urls
+    assert "comc" in urls
+    assert "whatnot" in urls
+    assert "mercari" in urls
     
     # eBay URL should include all details
-    ebay_url = options["ebay"]
+    ebay_url = urls["ebay"]
     assert "Paul" in ebay_url
     assert "Skenes" in ebay_url
     assert "2024" in ebay_url
@@ -178,9 +179,10 @@ def test_sourcing_options_without_optional_fields():
         card_set="Prizm"
     )
     
-    # Should still generate URLs for all platforms
-    assert len(options) == 5
-    assert all(isinstance(url, str) for url in options.values())
+    # Returns nested structure
+    urls = options["urls"]
+    assert len(urls) == 5
+    assert all(isinstance(url, str) for url in urls.values())
 
 def test_arbitrage_with_no_opportunities():
     """Test arbitrage calculation when all prices are above market"""

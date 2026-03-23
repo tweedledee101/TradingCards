@@ -13,10 +13,11 @@ from tests.fixtures.sample_data import SAMPLE_CARDS, SAMPLE_SALES, SAMPLE_ACTIVE
 def test_db():
     """
     Create test database connection
-    Uses separate test database to avoid affecting production data
+    Uses DATABASE_URL env var if set, falls back to local test DB
     """
-    # Use test database
-    engine = create_engine('postgresql://carduser:password@localhost/trading_cards_test')
+    import os
+    db_url = os.getenv('DATABASE_URL', 'postgresql://carduser:password@localhost/trading_cards_test')
+    engine = create_engine(db_url)
     Session = sessionmaker(bind=engine)
     session = Session()
     
