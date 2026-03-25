@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Ragnarok Trading API — Lambda (container) + HTTP API Gateway + api.<domain>.
+  Push image to ECR first, then deploy with LambdaImageUri.
+
+Parameters:
+  LambdaImageUri:
+    Type: String
+    Description: ECR image URI (e.g. 123456789012.dkr.ecr.us-east-1.amazonaws.com/ragnarok-trading-api:latest)
+
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+    Description: postgresql://... connection string for RDS
+
+  CognitoRegion:
+    Type: String
+    Default: us-east-1
+
+  CognitoUserPoolId:
+    Type: String
+
+  CognitoClientId:
+    Type: String
+
+  EbayClientId:
+    Type: String
+    NoEcho: false
+
+  EbayClientSecret:
+    Type: String
+    NoEcho: true
+
+  CorsAllowOrigins:
+    Type: String
+    Default: 'http://localhost:3000,https://ragnarokgamez.com,https://www.ragnarokgamez.com'
+    Description: Comma-separated browser origins (matches FastAPI CORS)
+
+  ApiHostname:
+    Type: String
+    Default: api.ragnarokgamez.com
+
+  HostedZoneId:
+    Type: String
+    Description: Route53 hosted zone ID for the parent domain (e.g. ragnarokgamez.com)
+
+  AcmCertificateArn:
+    Type: String
+    Description: ACM certificate ARN in us-east-1 (must include ApiHostname as SAN)
+
+Resources:
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  ApiFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ragnarok-trading-api
+      PackageType: Image
+      Code:
+        ImageUri: !Ref LambdaImageUri
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 60
+      MemorySize: 1536
+      Environment:
+        Variables:
+          DATABASE_URL: !Ref DatabaseUrl
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+          EBAY_CLIENT_ID: !Ref EbayClientId
+          EBAY_CLIENT_SECRET: !Ref EbayClientSecret
+          EBAY_APP_ID: !Ref EbayClientId
+          EBAY_CERT_ID: !Ref EbayClientSecret
+          CORS_ALLOW_ORIGINS: !Ref CorsAllowOrigins
+
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: ragnarok-trading-http-api
+      ProtocolType: HTTP
+      Description: Trading Card Platform REST API
+
+  HttpApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ApiFunction.Arn
+      PayloadFormatVersion: '2.0'
+
+  HttpApiDefaultRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: '$default'
+      Target: !Sub integrations/${HttpApiIntegration}
+
+  HttpApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: '$default'
+      AutoDeploy: true
+
+  ApiLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*/*/*
+
+  ApiCustomDomain:
+    Type: AWS::ApiGatewayV2::DomainName
+    Properties:
+      DomainName: !Ref ApiHostname
+      DomainNameConfigurations:
+        - CertificateArn: !Ref AcmCertificateArn
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  ApiMapping:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Properties:
+      ApiId: !Ref HttpApi
+      DomainName: !Ref ApiCustomDomain
+      Stage: !Ref HttpApiStage
+
+  ApiDnsRecord:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref ApiHostname
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ApiCustomDomain.RegionalDomainName
+        HostedZoneId: !GetAtt ApiCustomDomain.RegionalHostedZoneId
+
+Outputs:
+  HttpApiUrl:
+    Description: Default execute-api URL (before custom domain)
+    Value: !GetAtt HttpApi.ApiEndpoint
+  CustomApiUrl:
+    Description: Public API base URL
+    Value: !Sub https://${ApiHostname}

@@ -1,6 +1,15 @@
 import axios from 'axios';
+import { getAccessToken, clearTokens } from '../auth/tokenStorage';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+/** Production default: API on api subdomain (TLS). Override with VITE_API_URL at build time. */
+function resolveApiBaseUrl() {
+  const fromEnv = import.meta.env.VITE_API_URL;
+  if (fromEnv) return fromEnv;
+  if (import.meta.env.DEV) return 'http://localhost:8000';
+  return 'https://api.ragnarokgamez.com';
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -8,6 +17,28 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+api.interceptors.request.use((config) => {
+  const t = getAccessToken();
+  if (t) {
+    config.headers.Authorization = `Bearer ${t}`;
+  }
+  return config;
+});
+
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401) {
+      clearTokens();
+      const path = typeof window !== 'undefined' ? window.location.pathname : '';
+      if (path && !path.startsWith('/auth/callback')) {
+        window.location.assign('/');
+      }
+    }
+    return Promise.reject(err);
+  }
+);
 
 // Opportunities
 export const getOpportunities = async (params = {}) => {

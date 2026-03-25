@@ -1,12 +1,13 @@
 """
 FastAPI Application - Trading Card Platform
 """
+import os
 import time
 import uuid
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from backend.api.routes import trending, cards, health, inventory, watchlist, webhooks, ebay_compliance, opportunities, sourcing, scheduled_bids, business
+from backend.api.routes import trending, cards, health, inventory, watchlist, webhooks, ebay_compliance, opportunities, sourcing, scheduled_bids, business, auth
 from backend.utils.logger import get_logger, set_request_id, clear_request_id
 
 log = get_logger('api')
@@ -17,10 +18,15 @@ app = FastAPI(
     version="0.3.0"
 )
 
-# CORS middleware
+# CORS: explicit origins when using cookies/credentials; override with CORS_ALLOW_ORIGINS=comma,separated
+_cors_origins = os.getenv(
+    "CORS_ALLOW_ORIGINS",
+    "http://localhost:3000,https://ragnarokgamez.com,https://www.ragnarokgamez.com",
+)
+_cors_list = [o.strip() for o in _cors_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -76,3 +82,4 @@ app.include_router(ebay_compliance.router, prefix="/api", tags=["eBay Compliance
 app.include_router(sourcing.router, prefix="/api", tags=["Sourcing"])
 app.include_router(scheduled_bids.router, prefix="/api", tags=["Scheduled Bids"])
 app.include_router(business.router, prefix="/api", tags=["Business"])
+app.include_router(auth.router, prefix="/api", tags=["Auth"])

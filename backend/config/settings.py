@@ -53,6 +53,11 @@ class Config:
     REDDIT_CLIENT_ID = os.getenv('REDDIT_CLIENT_ID')
     REDDIT_CLIENT_SECRET = os.getenv('REDDIT_CLIENT_SECRET')
     
+    # Cognito Auth (pool + client required for JWT verification; see backend/utils/auth.py)
+    COGNITO_REGION = os.getenv('COGNITO_REGION', 'us-east-1')
+    COGNITO_USER_POOL_ID = os.getenv('COGNITO_USER_POOL_ID', '')
+    COGNITO_CLIENT_ID = os.getenv('COGNITO_CLIENT_ID', '')
+
     # Scraping settings
     USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     REQUEST_DELAY = 2  # seconds between requests

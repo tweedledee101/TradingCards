@@ -569,14 +569,16 @@ if __name__ == '__main__':
         print("\n" + "=" * 80)
         print("STARTING AUCTION PIPELINE...")
         print("=" * 80 + "\n")
+        import os
         import subprocess
+        repo_root = os.path.dirname(os.path.abspath(__file__))
         auction_cmd = [
             'python3', 'find_auction_opportunities.py',
             '--hours', '48',
             '--min-profit', str(args.min_profit),
             '--max-budget', str(args.max_budget),
         ]
-        subprocess.run(auction_cmd, cwd='/home/tweedledee101/TradingCards')
+        subprocess.run(auction_cmd, cwd=repo_root, check=False)
 
     except Exception as e:
         log.error(f'Pipeline failed: {e}', category='pipeline_crash', context={

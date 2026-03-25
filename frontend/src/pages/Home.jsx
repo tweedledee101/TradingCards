@@ -60,6 +60,14 @@ const Home = () => {
         <p className="text-sm text-frost-dim">
           {cards.length} cards ranked by market activity
         </p>
+        {cards.length === 0 && (
+          <p className="mt-3 text-xs text-frost-dim max-w-xl leading-relaxed border border-surface-border rounded-lg px-3 py-2 bg-surface-card/50">
+            This list only includes cards with <span className="text-frost-light">sold eBay listings in the last 30 days</span>.
+            If your database has catalog rows but no recent sales, you will see nothing here — run the sales/card import pipeline (e.g.{' '}
+            <code className="text-[10px] font-mono text-frost-light">python -m backend.run_pipeline_full</code>
+            ) or check the <Link to="/opportunities" className="text-ember-light hover:underline">Opportunities</Link> tab (separate data).
+          </p>
+        )}
       </div>
 
       {/* Sort controls */}

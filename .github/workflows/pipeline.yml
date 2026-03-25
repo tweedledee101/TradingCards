@@ -76,17 +76,20 @@ jobs:
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           EBAY_APP_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CERT_ID: ${{ secrets.EBAY_CLIENT_SECRET }}
+        # inputs.* is empty on schedule(); defaults must be in ${{ }}, not bash ${VAR:-x}.
         run: |
-          MAX_BUDGET="${{ inputs.max_budget }}"
-          MIN_PROFIT="${{ inputs.min_profit }}"
-          MIN_ROI="${{ inputs.min_roi }}"
-          MIN_SCP="${{ inputs.min_scp_price }}"
-          MAX_SCP="${{ inputs.max_scp_price }}"
-          ARGS="--max-budget ${MAX_BUDGET:-200} --min-profit ${MIN_PROFIT:-10} --min-roi ${MIN_ROI:-20} --min-scp-price ${MIN_SCP:-5} --max-scp-price ${MAX_SCP:-1000}"
+          ARGS=(
+            python3 find_opportunities.py
+            --max-budget "${{ inputs.max_budget || '200' }}"
+            --min-profit "${{ inputs.min_profit || '10' }}"
+            --min-roi "${{ inputs.min_roi || '20' }}"
+            --min-scp-price "${{ inputs.min_scp_price || '5' }}"
+            --max-scp-price "${{ inputs.max_scp_price || '1000' }}"
+          )
           if [ -n "${{ inputs.players }}" ]; then
-            ARGS="$ARGS --players \"${{ inputs.players }}\""
+            ARGS+=(--players "${{ inputs.players }}")
           fi
-          eval python3 find_opportunities.py $ARGS
+          "${ARGS[@]}"
 
       - name: Upload logs
         if: always()

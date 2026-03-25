@@ -1,15 +1,8 @@
 """
 Facebook Marketplace Scraper
 
-Searches Facebook Marketplace for underpriced card lots using Selenium.
-Dealers use this to find 40-60% margin opportunities.
+Returns marketplace search URLs (manual check). Browser automation not used here.
 """
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
-import time
 from typing import List, Dict, Optional
 
 class FacebookMarketplaceScraper:

@@ -20,8 +20,10 @@ ZERO = Decimal('0')
 
 class BusinessPlanner:
 
-    def get_active_goal(self, db: Session) -> Optional[BusinessGoal]:
-        return db.query(BusinessGoal).order_by(BusinessGoal.created_at.desc()).first()
+    def get_active_goal(self, db: Session, account_id: int = 1) -> Optional[BusinessGoal]:
+        return db.query(BusinessGoal).filter(
+            BusinessGoal.account_id == account_id
+        ).order_by(BusinessGoal.created_at.desc()).first()
 
     # ── Goal Decomposition ──────────────────────────────────────────
 
@@ -93,15 +95,18 @@ class BusinessPlanner:
 
     # ── Capital Tracking ────────────────────────────────────────────
 
-    def get_available_capital(self, db: Session, goal: BusinessGoal) -> float:
+    def get_available_capital(self, db: Session, goal: BusinessGoal, account_id: int = 1) -> float:
         """Current available capital = starting + all transactions."""
-        total = db.query(sqlfunc.sum(CapitalTransaction.amount)).scalar()
+        total = db.query(sqlfunc.sum(CapitalTransaction.amount)).filter(
+            CapitalTransaction.account_id == account_id
+        ).scalar()
         return float(goal.starting_capital) + (float(total) if total else 0.0)
 
     def record_transaction(self, db: Session, amount: float, txn_type: str,
                            description: str = None, opportunity_id: int = None,
-                           inventory_id: int = None) -> CapitalTransaction:
+                           inventory_id: int = None, account_id: int = 1) -> CapitalTransaction:
         txn = CapitalTransaction(
+            account_id=account_id,
             transaction_date=date.today(),
             amount=Decimal(str(amount)),
             type=txn_type,
@@ -114,12 +119,13 @@ class BusinessPlanner:
         db.refresh(txn)
         return txn
 
-    def get_capital_history(self, db: Session, goal: BusinessGoal, days: int = 30) -> List[Dict]:
+    def get_capital_history(self, db: Session, goal: BusinessGoal, days: int = 30, account_id: int = 1) -> List[Dict]:
         cutoff = date.today() - timedelta(days=days)
         rows = db.query(
             CapitalTransaction.transaction_date,
             sqlfunc.sum(CapitalTransaction.amount).label('net_change'),
         ).filter(
+            CapitalTransaction.account_id == account_id,
             CapitalTransaction.transaction_date >= cutoff
         ).group_by(CapitalTransaction.transaction_date).order_by(
             CapitalTransaction.transaction_date
@@ -128,6 +134,7 @@ class BusinessPlanner:
         running = float(goal.starting_capital)
         # Add all transactions before cutoff
         pre_total = db.query(sqlfunc.sum(CapitalTransaction.amount)).filter(
+            CapitalTransaction.account_id == account_id,
             CapitalTransaction.transaction_date < cutoff
         ).scalar()
         if pre_total:
@@ -145,22 +152,25 @@ class BusinessPlanner:
 
     # ── Snapshot ────────────────────────────────────────────────────
 
-    def generate_snapshot(self, db: Session, goal: BusinessGoal) -> DailySnapshot:
+    def generate_snapshot(self, db: Session, goal: BusinessGoal, account_id: int = 1) -> DailySnapshot:
         """Auto-generate today's snapshot from current DB state."""
         today = date.today()
         month_start = today.replace(day=1)
         year_start = today.replace(month=1, day=1)
 
-        capital = self.get_available_capital(db, goal)
+        capital = self.get_available_capital(db, goal, account_id=account_id)
 
         # Inventory stats
         inv_count = db.query(sqlfunc.count(Inventory.id)).filter(
+            Inventory.account_id == account_id,
             Inventory.status == 'owned'
         ).scalar() or 0
         inv_cost = db.query(sqlfunc.sum(Inventory.purchase_price)).filter(
+            Inventory.account_id == account_id,
             Inventory.status == 'owned'
         ).scalar() or ZERO
         listed = db.query(sqlfunc.count(Inventory.id)).filter(
+            Inventory.account_id == account_id,
             Inventory.status == 'listed'
         ).scalar() or 0
 
@@ -169,27 +179,38 @@ class BusinessPlanner:
             sqlfunc.count(InventorySale.id),
             sqlfunc.coalesce(sqlfunc.sum(InventorySale.sale_price), ZERO),
             sqlfunc.coalesce(sqlfunc.sum(InventorySale.net_profit), ZERO),
-        ).filter(InventorySale.sale_date == today).first()
+        ).filter(
+            InventorySale.account_id == account_id,
+            InventorySale.sale_date == today
+        ).first()
 
         # MTD
         mtd_sales = db.query(
             sqlfunc.coalesce(sqlfunc.sum(InventorySale.sale_price), ZERO),
             sqlfunc.coalesce(sqlfunc.sum(InventorySale.net_profit), ZERO),
-        ).filter(InventorySale.sale_date >= month_start).first()
+        ).filter(
+            InventorySale.account_id == account_id,
+            InventorySale.sale_date >= month_start
+        ).first()
 
         # YTD
         ytd_sales = db.query(
             sqlfunc.coalesce(sqlfunc.sum(InventorySale.sale_price), ZERO),
             sqlfunc.coalesce(sqlfunc.sum(InventorySale.net_profit), ZERO),
-        ).filter(InventorySale.sale_date >= year_start).first()
+        ).filter(
+            InventorySale.account_id == account_id,
+            InventorySale.sale_date >= year_start
+        ).first()
 
         # Today's buys
         today_buys = db.query(sqlfunc.count(CapitalTransaction.id)).filter(
+            CapitalTransaction.account_id == account_id,
             CapitalTransaction.transaction_date == today,
             CapitalTransaction.type == 'purchase',
         ).scalar() or 0
 
         snap = DailySnapshot(
+            account_id=account_id,
             snapshot_date=today,
             available_capital=Decimal(str(round(capital, 2))),
             inventory_count=inv_count,
@@ -207,7 +228,10 @@ class BusinessPlanner:
         )
 
         # Upsert
-        existing = db.query(DailySnapshot).filter(DailySnapshot.snapshot_date == today).first()
+        existing = db.query(DailySnapshot).filter(
+            DailySnapshot.account_id == account_id,
+            DailySnapshot.snapshot_date == today
+        ).first()
         if existing:
             for col in ['available_capital', 'inventory_count', 'inventory_cost_basis',
                         'listed_count', 'unlisted_count', 'revenue_today', 'profit_today',
@@ -226,7 +250,7 @@ class BusinessPlanner:
     # ── Daily Plan Generator ────────────────────────────────────────
 
     def generate_plan(self, db: Session, goal: BusinessGoal,
-                      available_hours: float = None) -> Dict:
+                      account_id: int = 1, available_hours: float = None) -> Dict:
         """
         Generate today's action plan given available time and capital.
         """
@@ -238,7 +262,7 @@ class BusinessPlanner:
             days = 5 if is_weekday else 2
             available_hours = weekly / days
 
-        snapshot = self.generate_snapshot(db, goal)
+        snapshot = self.generate_snapshot(db, goal, account_id=account_id)
         targets = self.get_daily_target(goal, snapshot)
         capital = float(snapshot.available_capital)
         remaining_min = available_hours * 60
@@ -284,6 +308,7 @@ class BusinessPlanner:
 
         # 2. List unlisted inventory (highest margin first)
         unlisted = db.query(Inventory).filter(
+            Inventory.account_id == account_id,
             Inventory.status == 'owned'
         ).order_by(Inventory.purchase_price.desc()).limit(10).all()
 
@@ -310,6 +335,7 @@ class BusinessPlanner:
 
         # 3. Reprice stale listings (>14 days)
         stale_count = db.query(sqlfunc.count(Inventory.id)).filter(
+            Inventory.account_id == account_id,
             Inventory.status == 'listed',
         ).scalar() or 0
         # Rough heuristic: assume 20% of listed cards are stale
@@ -336,7 +362,7 @@ class BusinessPlanner:
             })
 
         # Catchup logic
-        catchup = self._calculate_catchup(db, goal, snapshot)
+        catchup = self._calculate_catchup(db, goal, snapshot, account_id=account_id)
 
         plan_data = {
             "plan_date": today.isoformat(),
@@ -359,7 +385,10 @@ class BusinessPlanner:
         }
 
         # Store plan
-        existing = db.query(DailyPlan).filter(DailyPlan.plan_date == today).first()
+        existing = db.query(DailyPlan).filter(
+            DailyPlan.account_id == account_id,
+            DailyPlan.plan_date == today
+        ).first()
         if existing:
             existing.available_hours = Decimal(str(available_hours))
             existing.target_profit = Decimal(str(targets["daily_target"]))
@@ -368,6 +397,7 @@ class BusinessPlanner:
             db.commit()
         else:
             plan = DailyPlan(
+                account_id=account_id,
                 plan_date=today,
                 available_hours=Decimal(str(available_hours)),
                 target_profit=Decimal(str(targets["daily_target"])),
@@ -380,7 +410,7 @@ class BusinessPlanner:
         return plan_data
 
     def _calculate_catchup(self, db: Session, goal: BusinessGoal,
-                           snapshot: DailySnapshot) -> float:
+                           snapshot: DailySnapshot, account_id: int = 1) -> float:
         """Spread any weekly deficit over the next 7 days."""
         today = date.today()
         week_start = today - timedelta(days=today.weekday())
@@ -389,6 +419,7 @@ class BusinessPlanner:
         week_profit = db.query(
             sqlfunc.coalesce(sqlfunc.sum(DailySnapshot.profit_today), ZERO)
         ).filter(
+            DailySnapshot.account_id == account_id,
             DailySnapshot.snapshot_date >= week_start,
             DailySnapshot.snapshot_date <= today,
         ).scalar()
@@ -406,17 +437,17 @@ class BusinessPlanner:
 
     # ── Dashboard ───────────────────────────────────────────────────
 
-    def get_dashboard(self, db: Session) -> Dict:
+    def get_dashboard(self, db: Session, account_id: int = 1) -> Dict:
         """Full dashboard payload for the frontend."""
-        goal = self.get_active_goal(db)
+        goal = self.get_active_goal(db, account_id=account_id)
         if not goal:
             return {"has_goal": False, "message": "Set your business goal to get started."}
 
-        snapshot = self.generate_snapshot(db, goal)
+        snapshot = self.generate_snapshot(db, goal, account_id=account_id)
         targets = self.get_daily_target(goal, snapshot)
         trajectory = self.compute_trajectory(goal)
         capital = float(snapshot.available_capital)
-        catchup = self._calculate_catchup(db, goal, snapshot)
+        catchup = self._calculate_catchup(db, goal, snapshot, account_id=account_id)
 
         # Week stats
         today = date.today()
@@ -424,6 +455,7 @@ class BusinessPlanner:
         week_profit = db.query(
             sqlfunc.coalesce(sqlfunc.sum(DailySnapshot.profit_today), ZERO)
         ).filter(
+            DailySnapshot.account_id == account_id,
             DailySnapshot.snapshot_date >= week_start,
         ).scalar()
 

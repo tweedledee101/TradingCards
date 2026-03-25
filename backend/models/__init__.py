@@ -10,6 +10,35 @@ from sqlalchemy.sql import func
 Base = declarative_base()
 
 
+class Account(Base):
+    __tablename__ = 'accounts'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255), nullable=False)
+    account_type = Column(String(20), nullable=False, default='individual')
+    created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
+    updated_at = Column(TIMESTAMP, nullable=False, server_default=func.now(), onupdate=func.now())
+
+    users = relationship("User", back_populates="account")
+
+
+class User(Base):
+    __tablename__ = 'users'
+
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey('accounts.id'), nullable=False)
+    cognito_sub = Column(String(128), unique=True)
+    email = Column(String(255), nullable=False, unique=True)
+    display_name = Column(String(255))
+    role = Column(String(20), nullable=False, default='owner')
+    is_active = Column(Boolean, nullable=False, default=True)
+    last_login_at = Column(TIMESTAMP)
+    created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
+    updated_at = Column(TIMESTAMP, nullable=False, server_default=func.now(), onupdate=func.now())
+
+    account = relationship("Account", back_populates="users")
+
+
 class Card(Base):
     __tablename__ = 'cards'
     
@@ -152,6 +181,7 @@ class Inventory(Base):
     __tablename__ = 'inventory'
     
     id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey('accounts.id'), nullable=False, default=1)
     card_id = Column(Integer, ForeignKey('cards.id'))
     purchase_date = Column(Date, nullable=False)
     purchase_price = Column(DECIMAL(10, 2), nullable=False)
@@ -175,6 +205,7 @@ class InventorySale(Base):
     __tablename__ = 'inventory_sales'
     
     id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey('accounts.id'), nullable=False, default=1)
     inventory_id = Column(Integer, ForeignKey('inventory.id'))
     sale_date = Column(Date, nullable=False)
     sale_price = Column(DECIMAL(10, 2), nullable=False)
@@ -193,6 +224,7 @@ class Watchlist(Base):
     __tablename__ = 'watchlist'
     
     id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey('accounts.id'), nullable=False, default=1)
     card_id = Column(Integer, ForeignKey('cards.id'))
     target_price = Column(DECIMAL(10, 2))
     alert_threshold = Column(DECIMAL(5, 2))
@@ -308,6 +340,7 @@ class ScheduledBid(Base):
     __tablename__ = 'scheduled_bids'
 
     id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey('accounts.id'), nullable=False, default=1)
     player_name = Column(String(255), nullable=False)
     card_year = Column(Integer)
     card_set = Column(String(255))
@@ -330,6 +363,7 @@ class BusinessGoal(Base):
     __tablename__ = 'business_goals'
 
     id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey('accounts.id'), nullable=False, default=1)
     annual_income_target = Column(DECIMAL(10, 2), nullable=False)
     starting_capital = Column(DECIMAL(10, 2), nullable=False)
     weekly_hours_weekday = Column(DECIMAL(4, 1), default=12.5)
@@ -348,7 +382,8 @@ class DailySnapshot(Base):
     __tablename__ = 'daily_snapshots'
 
     id = Column(Integer, primary_key=True)
-    snapshot_date = Column(Date, nullable=False, unique=True)
+    account_id = Column(Integer, ForeignKey('accounts.id'), nullable=False, default=1)
+    snapshot_date = Column(Date, nullable=False)
     available_capital = Column(DECIMAL(10, 2))
     inventory_count = Column(Integer, default=0)
     inventory_cost_basis = Column(DECIMAL(10, 2), default=0)
@@ -372,6 +407,7 @@ class DailyPlan(Base):
     __tablename__ = 'daily_plans'
 
     id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey('accounts.id'), nullable=False, default=1)
     plan_date = Column(Date, nullable=False)
     available_hours = Column(DECIMAL(4, 1))
     target_revenue = Column(DECIMAL(10, 2))
@@ -388,6 +424,7 @@ class CapitalTransaction(Base):
     __tablename__ = 'capital_transactions'
 
     id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey('accounts.id'), nullable=False, default=1)
     transaction_date = Column(Date, nullable=False)
     amount = Column(DECIMAL(10, 2), nullable=False)
     type = Column(String(20), nullable=False)  # deposit, withdrawal, purchase, sale

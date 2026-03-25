@@ -1,6 +1,9 @@
-"""Quick test: does the opportunity analyzer find deals now?"""
+"""Quick test: does the opportunity analyzer find deals now? (manual; not CI.)"""
 import sys
-sys.path.insert(0, "/home/tweedledee101/TradingCards")
+from pathlib import Path
+
+_REPO = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_REPO))
 
 from backend.services.opportunity_analyzer import OpportunityAnalyzer
 from backend.utils.database import SessionLocal

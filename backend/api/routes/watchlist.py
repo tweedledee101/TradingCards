@@ -1,7 +1,8 @@
 """
 Watchlist endpoints
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from backend.utils.auth import require_auth
 from pydantic import BaseModel
 from typing import Optional
 from backend.utils.database import SessionLocal
@@ -9,7 +10,7 @@ from backend.models import Watchlist, Card, PriceTrend
 from sqlalchemy import desc, func
 from datetime import date, timedelta
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_auth)])
 
 class WatchlistCreate(BaseModel):
     card_id: int

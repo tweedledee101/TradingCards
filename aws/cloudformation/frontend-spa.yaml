@@ -1,0 +1,152 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Ragnarok Gaming — Static React/Vite SPA on S3 behind CloudFront with HTTPS.
+  ACM certificate ARN must be in us-east-1 (required for CloudFront).
+  Use www + apex only if both names are on the certificate (SANs).
+
+Parameters:
+  DomainName:
+    Type: String
+    Default: ragnarokgamez.com
+    Description: Apex domain (e.g. ragnarokgamez.com)
+
+  HostedZoneId:
+    Type: String
+    Description: Route53 hosted zone ID (hosted zone for DomainName, without /hostedzone prefix)
+
+  AcmCertificateArn:
+    Type: String
+    Description: >-
+      ACM certificate ARN in us-east-1 covering the viewer aliases (e.g. ragnarokgamez.com and www.ragnarokgamez.com)
+
+  IncludeWwwAlias:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Add www.<DomainName> as a CloudFront alternate domain (requires cert SAN)
+
+Conditions:
+  UseWww: !Equals [!Ref IncludeWwwAlias, 'true']
+
+Resources:
+  SiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub 'ragnarok-spa-${AWS::AccountId}-${AWS::Region}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub '${AWS::StackName}-oac'
+        Description: OAC for SPA bucket
+        SigningBehavior: always
+        SigningProtocol: sigv4
+        OriginAccessControlOriginType: s3
+
+  SiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref SiteBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: AllowCloudFrontRead
+            Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub '${SiteBucket.Arn}/*'
+            Condition:
+              StringEquals:
+                'AWS:SourceArn': !Sub
+                  - 'arn:aws:cloudfront::${Account}:distribution/${DistId}'
+                  - Account: !Ref 'AWS::AccountId'
+                    DistId: !Ref CloudFrontDistribution
+
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        HttpVersion: http2and3
+        PriceClass: PriceClass_100
+        Comment: Ragnarok Gaming SPA
+        DefaultRootObject: index.html
+        Aliases: !If
+          - UseWww
+          - - !Ref DomainName
+            - !Sub 'www.${DomainName}'
+          - - !Ref DomainName
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt SiteBucket.RegionalDomainName
+            OriginAccessControlId: !GetAtt OriginAccessControl.Id
+            S3OriginConfig:
+              OriginAccessIdentity: ''
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+        CustomErrorResponses:
+          - ErrorCode: 403
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 404
+            ResponseCode: 200
+            ResponsePagePath: /index.html
+            ErrorCachingMinTTL: 0
+        ViewerCertificate:
+          AcmCertificateArn: !Ref AcmCertificateArn
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+
+  DnsRecordApex:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+
+  DnsRecordWww:
+    Type: AWS::Route53::RecordSet
+    Condition: UseWww
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Sub 'www.${DomainName}'
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2
+
+Outputs:
+  BucketName:
+    Description: Upload dist/ here (aws s3 sync frontend/dist s3://...)
+    Value: !Ref SiteBucket
+  CloudFrontDistributionId:
+    Value: !Ref CloudFrontDistribution
+  CloudFrontDomainName:
+    Description: Distribution hostname (before DNS propagates)
+    Value: !GetAtt CloudFrontDistribution.DomainName
+  SiteUrl:
+    Description: Primary HTTPS URL
+    Value: !Sub 'https://${DomainName}'

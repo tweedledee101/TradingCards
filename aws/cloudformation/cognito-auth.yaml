@@ -1,0 +1,107 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Ragnarok Gaming - Cognito Auth (User Pool + App Client)
+
+Parameters:
+  Environment:
+    Type: String
+    Default: production
+    AllowedValues: [production, staging]
+  DomainName:
+    Type: String
+    Default: ragnarokgamez.com
+
+Resources:
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub ragnarok-${Environment}
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      UsernameConfiguration:
+        CaseSensitive: false
+      MfaConfiguration: 'OFF'
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 8
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: false
+      Schema:
+        - Name: email
+          Required: true
+          Mutable: true
+        - Name: name
+          Required: false
+          Mutable: true
+      UserPoolTags:
+        Project: ragnarok-gaming
+        Environment: !Ref Environment
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub ragnarokgamez-${Environment}
+      UserPoolId: !Ref UserPool
+
+  WebAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: ragnarok-web
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+      AccessTokenValidity: 1       # 1 hour
+      IdTokenValidity: 1           # 1 hour
+      RefreshTokenValidity: 30     # 30 days
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+        RefreshToken: days
+      SupportedIdentityProviders:
+        - COGNITO
+      CallbackURLs:
+        - http://localhost:3000/auth/callback
+        - !Sub https://${DomainName}/auth/callback
+        - !Sub https://www.${DomainName}/auth/callback
+      LogoutURLs:
+        - http://localhost:3000
+        - http://localhost:3000/
+        - !Sub https://${DomainName}
+        - !Sub https://${DomainName}/
+        - !Sub https://www.${DomainName}
+        - !Sub https://www.${DomainName}/
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - openid
+        - email
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+
+Outputs:
+  UserPoolId:
+    Value: !Ref UserPool
+    Export:
+      Name: !Sub ragnarok-${Environment}-user-pool-id
+  UserPoolArn:
+    Value: !GetAtt UserPool.Arn
+    Export:
+      Name: !Sub ragnarok-${Environment}-user-pool-arn
+  WebClientId:
+    Value: !Ref WebAppClient
+    Export:
+      Name: !Sub ragnarok-${Environment}-web-client-id
+  CognitoDomain:
+    Value: !Sub ragnarokgamez-${Environment}.auth.${AWS::Region}.amazoncognito.com
+    Export:
+      Name: !Sub ragnarok-${Environment}-cognito-domain

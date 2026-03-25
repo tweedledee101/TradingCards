@@ -6,10 +6,11 @@ Provides sourcing options from multiple platforms for arbitrage.
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from backend.utils.database import get_db
+from backend.utils.auth import require_auth
 from backend.models import Card
 from backend.services.multi_platform_sourcing import MultiPlatformSourcingService
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_auth)])
 sourcing_service = MultiPlatformSourcingService()
 
 @router.get("/sourcing/{card_id}")

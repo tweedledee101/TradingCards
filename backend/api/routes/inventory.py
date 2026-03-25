@@ -1,7 +1,8 @@
 """
 Inventory management endpoints
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
+from backend.utils.auth import require_auth
 from pydantic import BaseModel
 from typing import Optional
 from datetime import date
@@ -9,7 +10,7 @@ from backend.utils.database import SessionLocal
 from backend.models import Inventory, InventorySale, Card, PriceTrend
 from sqlalchemy import desc, func
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_auth)])
 
 class InventoryCreate(BaseModel):
     card_id: int

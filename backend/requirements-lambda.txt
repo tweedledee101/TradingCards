@@ -1,0 +1,15 @@
+# Minimal deps for FastAPI on Lambda (no Selenium / pytest / dev)
+requests==2.31.0
+python-dotenv==1.0.0
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+ebaysdk==2.2.0
+beautifulsoup4==4.12.2
+pandas>=2.0.0
+numpy>=1.24.0
+fastapi==0.104.1
+pydantic==2.5.0
+python-dateutil==2.8.2
+python-jose[cryptography]==3.3.0
+pyyaml==6.0.1
+mangum==0.17.0

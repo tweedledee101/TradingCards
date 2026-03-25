@@ -1,14 +1,15 @@
 """
 Card detail endpoints
 """
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
+from backend.utils.auth import require_auth
 from datetime import date, timedelta
 from typing import Optional
 from backend.utils.database import SessionLocal
 from backend.models import Card, Sale, ActiveListing, PriceTrend
 from sqlalchemy import func, desc, and_
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_auth)])
 
 @router.get("/cards/{card_id}")
 def get_card_details(card_id: int, days: int = Query(default=30, description="Days of history")):

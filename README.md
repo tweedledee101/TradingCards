@@ -1,5 +1,7 @@
 # Ragnarok Gaming - Trading Card Platform
 
+[![QA Pipeline](https://github.com/tweedledee101/TradingCards/actions/workflows/qa.yml/badge.svg?branch=main)](https://github.com/tweedledee101/TradingCards/actions/workflows/qa.yml)
+
 A data-driven arbitrage opportunity finder for trading card dealers. Identifies profitable card flips by comparing eBay BIN and auction listings against SportsCardsPro market rates, 130point eBay sold comps, and eBay BIN comps with variant matching and volume filtering.
 
 ## How It Works

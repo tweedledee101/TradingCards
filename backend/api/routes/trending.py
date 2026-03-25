@@ -1,15 +1,16 @@
 """
 Trending cards endpoints
 """
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends
 from typing import Optional
+from backend.utils.auth import require_auth
 from backend.services.data_pipeline import DataPipeline
 from backend.utils.database import SessionLocal
 from backend.models import Card, PriceTrend
 from sqlalchemy import desc, and_
 from datetime import date, timedelta
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_auth)])
 pipeline = DataPipeline()
 
 @router.get("/trending")

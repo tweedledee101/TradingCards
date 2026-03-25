@@ -1,5 +1,9 @@
 # Trading Card Platform - Current Status
-**Last Updated:** 2026-03-23 (Session 16)
+**Last Updated:** 2026-03-24 (Session 17)
+
+Session 17: **Production UI live** at https://ragnarokgamez.com (and www) via CloudFormation stack `ragnarok-frontend-spa`: S3 + CloudFront + Route53 alias, ACM cert `8dda492b-...`. Production builds target API at `https://api.ragnarokgamez.com` (`frontend/.env.production`); host the FastAPI app there when ready. QA workflow supports manual **Run workflow** (`workflow_dispatch`). README QA badge links to Actions.
+
+Session 18: **Cognito auth gate** — SPA shows **Sign in** until Hosted UI completes; PKCE + `/auth/callback`; axios sends `Authorization: Bearer`. **API** routes (except `/health`, webhooks, eBay compliance) require **JWT** via `require_auth`. CORS limited to localhost + ragnarokgamez.com (+ www). Cognito stack updated: callback URLs include `/auth/callback`. Backend needs `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` in `backend/.env` (see `.env.example`).
 
 ## SYSTEM STATUS: CI GREEN, PIPELINES SCHEDULED, RDS PRIMARY, BUSINESS PLANNER LIVE
 

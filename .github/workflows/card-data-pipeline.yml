@@ -1,0 +1,76 @@
+# Imports sold listings + active listings + trends into Postgres (cards, sales, etc.).
+# This is the "card data" pipeline — distinct from Opportunity Pipeline (find_opportunities.py)
+# and Auction Pipeline (find_auction_opportunities.py).
+#
+# Requires repo secrets: DATABASE_URL, EBAY_CLIENT_ID, EBAY_CLIENT_SECRET
+#
+# SCP market-rate collection uses Selenium/Firefox and is skipped by default on GitHub.
+
+name: Card Data Pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      sport:
+        description: Sport to focus on
+        required: false
+        default: Baseball
+      top:
+        description: Top N players by volume (discovery step)
+        required: false
+        default: "20"
+      days:
+        description: Discovery lookback days
+        required: false
+        default: "7"
+      skip_scp:
+        description: Skip SCP market rates (recommended — uses Selenium, slow)
+        type: boolean
+        default: true
+      fresh:
+        description: Wipe all card/sale data first (dangerous)
+        type: boolean
+        default: false
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Apply database migrations (RDS)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python3 migrate.py --rds
+
+      - name: Run full card data pipeline
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          EBAY_APP_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CERT_ID: ${{ secrets.EBAY_CLIENT_SECRET }}
+        # workflow_dispatch only; still use || so API/reuse stays safe if schedule is added later.
+        run: |
+          set -euo pipefail
+          SKIP_FLAG=""
+          [ "${{ inputs.skip_scp }}" = "true" ] && SKIP_FLAG="--skip-scp"
+          FRESH_FLAG=""
+          [ "${{ inputs.fresh }}" = "true" ] && FRESH_FLAG="--fresh"
+          python3 -m backend.run_pipeline_full \
+            --sport "${{ inputs.sport || 'Baseball' }}" \
+            --top "${{ inputs.top || '20' }}" \
+            --days "${{ inputs.days || '7' }}" \
+            ${SKIP_FLAG} \
+            ${FRESH_FLAG}

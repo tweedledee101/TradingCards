@@ -23,7 +23,7 @@ python3 find_opportunities.py --max-budget 200 --min-profit 10 --min-roi 20 --to
 ```
 Check results:
 ```bash
-PGPASSWORD='FamilyMan33*1' psql -h cardpulse-db.ckvp9bhavaww.us-east-1.rds.amazonaws.com -U cardpulse -d trading_cards -c "SELECT COUNT(*), listing_type FROM opportunities GROUP BY listing_type;"
+PGPASSWORD='(from backend/.env or Secrets Manager)' psql -h cardpulse-db.ckvp9bhavaww.us-east-1.rds.amazonaws.com -U cardpulse -d trading_cards -c "SELECT COUNT(*), listing_type FROM opportunities GROUP BY listing_type;"
 ```
 
 ### 2. Push to GitHub
@@ -56,7 +56,7 @@ Existing workflows (`.github/workflows/pipeline.yml`, `auction-pipeline.yml`) ma
 
 ## Key Technical Notes
 
-- **RDS connection**: `PGPASSWORD='FamilyMan33*1' psql -h cardpulse-db.ckvp9bhavaww.us-east-1.rds.amazonaws.com -U cardpulse -d trading_cards`
+- **RDS connection**: use `DATABASE_URL` from `backend/.env` or `psql` with env `PGPASSWORD` (never commit passwords to the repo)
 - **Local connection**: `sudo -u postgres psql -d trading_cards`
 - **23 migrations tracked** on both databases via `schema_migrations` table
 - **19 tables** in both databases (identical structure)
