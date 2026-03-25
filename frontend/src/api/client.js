@@ -105,6 +105,18 @@ export const getCard = async (id, days = 30) => {
   return response.data;
 };
 
+/** PSA population data; 404 if none — use try/catch in caller */
+export const getGradingForCard = async (id) => {
+  const response = await api.get(`/api/grading/${id}`);
+  return response.data;
+};
+
+/** External price benchmarks; 404 if none — use try/catch in caller */
+export const getPriceBenchmarksForCard = async (id) => {
+  const response = await api.get(`/api/benchmarks/${id}`);
+  return response.data;
+};
+
 export const searchCards = async (params) => {
   const response = await api.get('/api/cards', { params });
   return response.data;

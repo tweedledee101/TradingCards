@@ -1,6 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { getCard } from '../api/client';
+import { getCard, getGradingForCard, getPriceBenchmarksForCard } from '../api/client';
 
 const PriceChart = lazy(() => import('../components/PriceChart'));
 
@@ -23,14 +23,18 @@ const CardDetail = () => {
         setSellPrice(avg.toFixed(2));
 
         try {
-          const gradingRes = await fetch(`http://localhost:8000/api/grading/${id}`);
-          if (gradingRes.ok) setGradingData(await gradingRes.json());
-        } catch {}
+          const g = await getGradingForCard(id);
+          setGradingData(g);
+        } catch {
+          /* no grading row */
+        }
 
         try {
-          const benchmarkRes = await fetch(`http://localhost:8000/api/benchmarks/${id}`);
-          if (benchmarkRes.ok) setBenchmarkData(await benchmarkRes.json());
-        } catch {}
+          const b = await getPriceBenchmarksForCard(id);
+          setBenchmarkData(b);
+        } catch {
+          /* no benchmarks */
+        }
       } catch (err) {
         console.error(err);
       } finally {
