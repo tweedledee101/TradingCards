@@ -5,8 +5,7 @@ psycopg2-binary==2.9.9
 sqlalchemy==2.0.23
 ebaysdk==2.2.0
 beautifulsoup4==4.12.2
-pandas>=2.0.0
-numpy>=1.24.0
+# numpy/pandas are not imported by the API package; omitting them speeds Lambda Init (avoids ~10s Init timeout on cold start).
 fastapi==0.104.1
 pydantic==2.5.0
 python-dateutil==2.8.2

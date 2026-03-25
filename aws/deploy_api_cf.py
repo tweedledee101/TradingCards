@@ -98,7 +98,20 @@ def main() -> int:
     )
 
     print("Running aws cloudformation deploy ...")
-    subprocess.check_call(cmd)
+    # Use run() not check_call(): CalledProcessError embeds the full argv (secrets in --parameter-overrides).
+    proc = subprocess.run(cmd)
+    if proc.returncode != 0:
+        print(
+            "\nCloudFormation deploy failed (exit %s).\n"
+            "- If you see 'Could not connect to the endpoint URL': this machine cannot reach AWS HTTPS "
+            "(WSL networking, VPN, firewall, or proxy). Try: "
+            "curl -sSI https://cloudformation.us-east-1.amazonaws.com/ | head -5\n"
+            "- Retry from Windows PowerShell, fix WSL DNS, or change VPN.\n"
+            "- Stale Docker layer after editing requirements? Run: DOCKER_BUILD_NO_CACHE=1 ./aws/deploy-api-lambda.sh\n"
+            % proc.returncode,
+            file=sys.stderr,
+        )
+        return proc.returncode
     return 0
 
 

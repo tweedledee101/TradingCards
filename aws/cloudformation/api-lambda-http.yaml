@@ -69,9 +69,14 @@ Resources:
       PackageType: Image
       Code:
         ImageUri: !Ref LambdaImageUri
+      # Pin command so console/older updates cannot leave a stale CMD that ignores the image Dockerfile.
+      ImageConfig:
+        Command:
+          - lambda_entry.handler
       Role: !GetAtt LambdaExecutionRole.Arn
       Timeout: 60
-      MemorySize: 1536
+      # Higher memory = more CPU during Init; heavy FastAPI + SQLAlchemy + crypto can exceed default ~10s Init otherwise (HTTP API returns 500).
+      MemorySize: 3008
       Environment:
         Variables:
           DATABASE_URL: !Ref DatabaseUrl

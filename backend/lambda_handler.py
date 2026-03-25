@@ -1,6 +1,2 @@
-"""AWS Lambda entrypoint for FastAPI (Mangum)."""
-from mangum import Mangum
-
-from backend.api.main import app
-
-handler = Mangum(app, lifespan="off")
+"""Legacy import path; container image uses lambda_entry.handler (see Dockerfile.api-lambda)."""
+from lambda_entry import handler  # noqa: F401
