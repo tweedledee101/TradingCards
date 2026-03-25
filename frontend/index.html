@@ -7,9 +7,38 @@
     <meta name="theme-color" content="#0f1117" />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <title>Ragnarok Gaming</title>
+    <!-- Fonts load in parallel; avoid @import in CSS so Tailwind is not blocked (Lighthouse/CI NO_FCP). -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
+    />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
   </head>
   <body>
-    <div id="root"></div>
+    <!-- Inline shell so first paint does not wait on JS bundle (headless Lighthouse NO_FCP). -->
+    <div id="root">
+      <p
+        style="
+          margin: 0;
+          padding: 2rem;
+          font-family: system-ui, sans-serif;
+          background: #0f1117;
+          color: #e8eaed;
+          font-size: 14px;
+        "
+      >
+        Loading…
+      </p>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
