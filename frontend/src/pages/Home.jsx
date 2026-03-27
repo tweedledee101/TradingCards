@@ -20,7 +20,12 @@ const Home = () => {
       const data = await getTrendingCards(200);
       setCards(data.cards || []);
     } catch (err) {
-      setError('Failed to load trending cards');
+      const st = err.response?.status;
+      setError(
+        st
+          ? `Failed to load trending cards (HTTP ${st})`
+          : 'Failed to load trending cards',
+      );
     } finally {
       setLoading(false);
     }

@@ -21,15 +21,49 @@ const Opportunities = () => {
     setLoading(true);
     setError(null);
     try {
-      const [auctionData, binData, bidsData] = await Promise.all([
-        getAuctions().catch(() => ({ auctions: [] })),
-        getOpportunities().catch(() => ({ opportunities: [] })),
-        getScheduledBids().catch(() => ({ bids: [] })),
+      const [auctionRes, binRes, bidsRes] = await Promise.allSettled([
+        getAuctions(),
+        getOpportunities(),
+        getScheduledBids(),
       ]);
-      setAuctions(auctionData.auctions || []);
-      setBinDeals(binData.opportunities || []);
-      setScannedAt(binData.scanned_at || null);
-      setMyBids(bidsData.bids || []);
+
+      if (auctionRes.status === 'fulfilled') {
+        setAuctions(auctionRes.value.auctions || []);
+      } else {
+        setAuctions([]);
+      }
+
+      if (binRes.status === 'fulfilled') {
+        setBinDeals(binRes.value.opportunities || []);
+        setScannedAt(binRes.value.scanned_at || null);
+      } else {
+        setBinDeals([]);
+        setScannedAt(null);
+      }
+
+      if (bidsRes.status === 'fulfilled') {
+        setMyBids(bidsRes.value.bids || []);
+      } else {
+        setMyBids([]);
+      }
+
+      const auctionFailed = auctionRes.status === 'rejected';
+      const binFailed = binRes.status === 'rejected';
+      const httpFrom = (reason) => reason?.response?.status;
+      if (auctionFailed && binFailed) {
+        const st = httpFrom(binRes.reason) || httpFrom(auctionRes.reason);
+        setError(
+          st
+            ? `Failed to load opportunities (HTTP ${st}). The production API may be down — check the trading API Lambda and CloudWatch.`
+            : 'Failed to load opportunities. The production API may be unavailable.',
+        );
+      } else if (binFailed) {
+        const st = httpFrom(binRes.reason);
+        setError(st ? `Failed to load BIN deals (HTTP ${st}).` : 'Failed to load BIN deals.');
+      } else if (auctionFailed) {
+        const st = httpFrom(auctionRes.reason);
+        setError(st ? `Failed to load auctions (HTTP ${st}).` : 'Failed to load auctions.');
+      }
     } catch (err) {
       setError('Failed to load data');
     } finally {

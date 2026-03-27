@@ -50,6 +50,16 @@ Until step 1 is done, **do not** deploy the frontend stack’s Route53 records f
 
 After frontend code changes: `npm run build` in `frontend/`, then `aws s3 sync dist/ s3://ragnarok-spa-635601810497-us-east-1/ --delete --profile ragnarok`, then invalidate `/*` on that distribution.
 
+**If `describe-stacks` says the stack does not exist:** the bucket and distribution may still be there from an earlier deploy or a renamed stack. **Sync does not require CloudFormation.** Use the bucket you see in `aws s3 ls` matching `ragnarok-spa-<account-id>-us-east-1` (see `frontend-spa.yaml`), then invalidate the distribution that serves `ragnarokgamez.com`:
+
+```bash
+# After: cd frontend && npm run build
+aws s3 sync dist/ s3://ragnarok-spa-635601810497-us-east-1/ --delete --profile ragnarok
+aws cloudfront create-invalidation --distribution-id E1I0LKGWO56GR5 --paths "/*" --profile ragnarok
+```
+
+To confirm the distribution ID if yours differs: `aws cloudfront list-distributions --profile ragnarok` and find the entry whose **Aliases** include `ragnarokgamez.com` (or whose origin is the SPA bucket).
+
 Production builds use `frontend/.env.production`: API base **`https://api.ragnarokgamez.com`**. Point that name at your FastAPI origin (ALB, API Gateway + Lambda, App Runner, etc.) when you host the API in AWS. Until then, the UI loads but data calls will fail until that hostname serves your API with HTTPS and CORS.
 
 ## Deploy the static UI (S3 + CloudFront)
@@ -69,6 +79,7 @@ cd frontend
 npm ci
 npm run build
 # Set API URL for the browser (see below)
+# Outputs use keys BucketName and CloudFrontDistributionId (not WebsiteBucketName).
 BUCKET=$(aws cloudformation describe-stacks --stack-name ragnarok-frontend-spa --region us-east-1 \
   --query "Stacks[0].Outputs[?OutputKey=='BucketName'].OutputValue" --output text)
 aws s3 sync dist/ "s3://${BUCKET}/" --delete

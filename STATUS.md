@@ -1,5 +1,7 @@
 # Trading Card Platform - Current Status
-**Last Updated:** 2026-03-24 (Session 17)
+**Last Updated:** 2026-03-27 (Session 19)
+
+Session 19: **Production API** `api.ragnarokgamez.com` observed returning **HTTP 500** (API Gateway) on `/health` and app routes — documented under WHAT'S BROKEN; Opportunities page no longer swallows API errors (shows same class of failure as Trending).
 
 Session 17: **Production UI live** at https://ragnarokgamez.com (and www) via CloudFormation stack `ragnarok-frontend-spa`: S3 + CloudFront + Route53 alias, ACM cert `8dda492b-...`. Production builds target API at `https://api.ragnarokgamez.com` (`frontend/.env.production`); host the FastAPI app there when ready. QA workflow supports manual **Run workflow** (`workflow_dispatch`). README QA badge links to Actions.
 
@@ -162,6 +164,9 @@ Spencer Strider, Jac Caglianone
 ---
 
 ## WHAT'S BROKEN -- HONEST ASSESSMENT
+
+### Production API host (verified 2026-03-27)
+`https://api.ragnarokgamez.com` returns **HTTP 500** with API Gateway body `{"message":"Internal Server Error"}` for `GET /health` and data routes — a **Lambda/integration failure** (crash, init timeout, or stale image), not “empty database.” SPA login can work while all authenticated API calls fail. **Fix:** CloudWatch Logs for function `ragnarok-trading-api`, then redeploy the API container (`aws/deploy-api-lambda.sh` / stack `ragnarok-api-lambda`) and confirm env (`DATABASE_URL`, Cognito vars) and RDS reachability (VPC/security group) match the template in `aws/cloudformation/api-lambda-http.yaml`.
 
 ### 1. Grade Mismatch
 Pipeline compares ungraded SCP price to graded eBay listings (and vice versa). Example: Juan Soto Gold Stars #224 -- SCP ungraded is $1.50, PSA 10 is $30. Pipeline matched a $9.99 ungraded BIN against the PSA 10 price and showed $17 profit. Completely wrong.
