@@ -9,6 +9,9 @@
 name: Card Data Pipeline
 
 on:
+  schedule:
+    # Daily: fills `sales` (Trending /api/trending). 11:00 UTC ≈ 6–7 AM US ET. SCP skipped on schedule.
+    - cron: '0 11 * * *'
   workflow_dispatch:
     inputs:
       sport:
@@ -61,11 +64,13 @@ jobs:
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           EBAY_APP_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CERT_ID: ${{ secrets.EBAY_CLIENT_SECRET }}
-        # workflow_dispatch only; still use || so API/reuse stays safe if schedule is added later.
+        # Schedule: always --skip-scp (no Selenium on cron). Dispatch: --skip-scp unless you uncheck the input.
         run: |
           set -euo pipefail
-          SKIP_FLAG=""
-          [ "${{ inputs.skip_scp }}" = "true" ] && SKIP_FLAG="--skip-scp"
+          SKIP_FLAG="--skip-scp"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.skip_scp }}" = "false" ]; then
+            SKIP_FLAG=""
+          fi
           FRESH_FLAG=""
           [ "${{ inputs.fresh }}" = "true" ] && FRESH_FLAG="--fresh"
           python3 -m backend.run_pipeline_full \

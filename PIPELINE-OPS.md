@@ -217,14 +217,34 @@ Both pipelines can run on GitHub Actions. Requires RDS database.
 ### Scheduled Runs (Cron)
 - **BIN Pipeline**: 2AM + 2PM ET daily (`0 6,18 * * *` UTC)
 - **Auction Pipeline**: 5AM + 5PM ET daily (`0 9,21 * * *` UTC)
+- **Card Data Pipeline** (sales / Trending): daily `0 11 * * *` UTC (~6–7 AM ET), `--skip-scp` on schedule
 - **Daily Report**: 7PM ET daily (`0 23 * * *` UTC)
 - **QA Pipeline**: on push/PR to main (CI)
 
+**Card Data Pipeline** (`card-data-pipeline.yml`): **daily cron** `0 11 * * *` UTC (~6–7 AM ET) with **`--skip-scp`**. Still supports **Run workflow** manually.
+
 All workflows also support manual `workflow_dispatch` triggers from the Actions UI.
 
+### SPA “Market Movers” / Trending (`GET /api/trending`)
+
+Backend: `backend/api/routes/trending.py`. A card appears only if **all** of the following hold:
+
+| Rule | Detail |
+|------|--------|
+| Auth | JWT required (`require_auth`). |
+| Data | At least one row in **`sales`** joined to **`cards`**. |
+| Recency | `sales.sale_date >= now() - 30 days` (rolling window). |
+| Price floor | Default query param `min_price=5.0`: **average** sale price in that window must be **≥ $5** (cards cheaper than that are dropped). |
+| Limit | Up to `limit` groups (default 100; UI requests 200), ordered by sale count. |
+
+**What does *not* feed Trending:** **`find_opportunities.py`** and the scheduled **Opportunity Pipeline** write **`opportunities`** (and related flow); they do **not** populate **`sales`** for this endpoint. **`sales`** are imported by **`python3 -m backend.run_pipeline_full`** (sold listings step — eBay Browse API, see table at top of this doc). On GitHub, that is the **Card Data Pipeline** workflow only. If RDS has old **`sales.sale_date`** values (all older than 30 days), Trending correctly returns **zero rows** even when **Opportunities** is full.
+
+**Operational fix:** Merge the workflow with **daily cron**, or **Run workflow** once on **Card Data Pipeline** for immediate `sales`. Local: `python3 -m backend.run_pipeline_full --sport Baseball --top 20 --skip-scp`.
+
 ### Available Workflows
-- **Opportunity Pipeline** (`.github/workflows/pipeline.yml`) -- BIN pipeline
-- **Auction Pipeline** (`.github/workflows/auction-pipeline.yml`) -- Auction-first pipeline
+- **Opportunity Pipeline** (`.github/workflows/pipeline.yml`) -- BIN pipeline (`find_opportunities.py`); **scheduled**
+- **Auction Pipeline** (`.github/workflows/auction-pipeline.yml`) -- Auction-first pipeline; **scheduled**
+- **Card Data Pipeline** (`.github/workflows/card-data-pipeline.yml`) -- `backend.run_pipeline_full` (imports **`sales`**, active listings, trends); **daily cron + manual**
 - **Daily Report** (`.github/workflows/daily-report.yml`) -- Operations report
 - **QA Pipeline** (`.github/workflows/qa.yml`) -- 167 tests (unit + integration + QA + frontend build)
 
@@ -235,6 +255,25 @@ All workflows also support manual `workflow_dispatch` triggers from the Actions 
 - `min_roi`: default 20
 - `min_scp_price`: default 20
 - `max_scp_price`: default 1000
+
+### Inspect recent Actions runs (no UI scraping)
+
+Read-only summary of conclusions + failed job steps via the GitHub API:
+
+```bash
+cd /path/to/TradingCards
+# Option A: GitHub CLI (after: gh auth login)
+python3 scripts/summarize_github_actions.py
+
+# Option B: PAT with repo + Actions read
+export GITHUB_TOKEN=ghp_...   # or fine-grained: Actions: Read
+python3 scripts/summarize_github_actions.py --limit 20
+
+# Only opportunity + auction workflows
+python3 scripts/summarize_github_actions.py --workflow pipeline.yml auction-pipeline.yml
+```
+
+Default workflows scanned: `pipeline.yml`, `auction-pipeline.yml`, `card-data-pipeline.yml`, `daily-report.yml`. Failures list each job step that ended `failure` so you can open the run URL and expand the right step.
 
 ## Common Scenarios
 

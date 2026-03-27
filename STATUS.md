@@ -1,7 +1,15 @@
 # Trading Card Platform - Current Status
-**Last Updated:** 2026-03-27 (Session 19)
+**Last Updated:** 2026-03-27 (Session 23)
 
-Session 19: **Production API** `api.ragnarokgamez.com` observed returning **HTTP 500** (API Gateway) on `/health` and app routes — documented under WHAT'S BROKEN; Opportunities page no longer swallows API errors (shows same class of failure as Trending).
+Session 23: **Card Data Pipeline** — added **daily schedule** (`0 11 * * *` UTC) so **`sales`** refresh for Trending; scheduled runs **always `--skip-scp`** (dispatch unchanged unless SCP unchecked). Root cause of empty Trending was **no cron + zero prior runs**.
+
+Session 22: **`scripts/summarize_github_actions.py`** — prints recent GitHub Actions conclusions and failed steps (uses `gh auth token` or `GITHUB_TOKEN`); documented in **`PIPELINE-OPS.md`**.
+
+Session 21: **Trending empty vs Opportunities** — `/api/trending` reads **`sales`** with **`sale_date` in the last 30 days** and **avg price ≥ $5** (`trending.py`). Scheduled **Opportunity Pipeline** does not insert **`sales`**; only **`run_pipeline_full`** (GitHub **Card Data Pipeline**, manual) does. **`PIPELINE-OPS.md`** documents the split; **Home** empty-state copy updated.
+
+Session 20: **`ragnarok-api-lambda` stack** redeployed with fixed **`AWS::Lambda::Permission` `SourceArn` … `/*/*`** (HTTP API). Redundant manual **`apigw-httpapi-correct-*`** statement removed; resource policy is **single CFN-managed** allow — future stack updates won’t resurrect REST-style `*/*/*/*`.
+
+Session 19: **Production API** `api.ragnarokgamez.com` observed returning **HTTP 500** (API Gateway) on `/health` and app routes — documented under WHAT'S BROKEN; Opportunities page no longer swallows API errors (shows same class of failure as Trending). **`lambda_entry.handler`** now logs a **`lambda_diag":"handler_entry"`** line on every invocation (deploy via `./aws/deploy-api-lambda.sh`) to separate “no invoke” vs “handler ran”; **`aws/README.md`** has the full DNS → API Gateway → Lambda chain and CLI isolation steps.
 
 Session 17: **Production UI live** at https://ragnarokgamez.com (and www) via CloudFormation stack `ragnarok-frontend-spa`: S3 + CloudFront + Route53 alias, ACM cert `8dda492b-...`. Production builds target API at `https://api.ragnarokgamez.com` (`frontend/.env.production`); host the FastAPI app there when ready. QA workflow supports manual **Run workflow** (`workflow_dispatch`). README QA badge links to Actions.
 
@@ -165,8 +173,8 @@ Spencer Strider, Jac Caglianone
 
 ## WHAT'S BROKEN -- HONEST ASSESSMENT
 
-### Production API host (verified 2026-03-27)
-`https://api.ragnarokgamez.com` returns **HTTP 500** with API Gateway body `{"message":"Internal Server Error"}` for `GET /health` and data routes — a **Lambda/integration failure** (crash, init timeout, or stale image), not “empty database.” SPA login can work while all authenticated API calls fail. **Fix:** CloudWatch Logs for function `ragnarok-trading-api`, then redeploy the API container (`aws/deploy-api-lambda.sh` / stack `ragnarok-api-lambda`) and confirm env (`DATABASE_URL`, Cognito vars) and RDS reachability (VPC/security group) match the template in `aws/cloudformation/api-lambda-http.yaml`.
+### Production API host (verified 2026-03-27; root cause fixed in template 2026-03-27)
+`https://api.ragnarokgamez.com` returned **HTTP 500** with `{"message":"Internal Server Error"}` while **direct `lambda invoke` returned 200** and **CloudWatch had no invocation logs** — caused by **`AWS::Lambda::Permission` using REST-style `SourceArn` `*/*/*/*`**; **HTTP API** sends `...:api-id/$default/$default`, so **ArnLike failed** and API Gateway could not invoke Lambda. **Fix in repo:** `api-lambda-http.yaml` now uses `SourceArn` `...:api-id/*/*` instead of REST-style `...:api-id/*/*/*/*`. **Deploy:** update stack or `aws lambda add-permission` with `--source-arn "arn:aws:execute-api:REGION:ACCOUNT:API_ID/*/*"` and remove the old statement. After fix, tail `/aws/lambda/ragnarok-trading-api` while curling `/health`. **Session 20:** production stack updated; manual duplicate permission removed so **only CloudFormation** owns invoke policy.
 
 ### 1. Grade Mismatch
 Pipeline compares ungraded SCP price to graded eBay listings (and vice versa). Example: Juan Soto Gold Stars #224 -- SCP ungraded is $1.50, PSA 10 is $30. Pipeline matched a $9.99 ungraded BIN against the PSA 10 price and showed $17 profit. Completely wrong.
