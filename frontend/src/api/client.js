@@ -56,6 +56,12 @@ export const getOpportunityStats = async () => {
   return response.data;
 };
 
+/** Business pace + market listing pulse for Opportunities page */
+export const getOpportunitiesContextStrip = async () => {
+  const response = await api.get('/api/opportunities/context-strip');
+  return response.data;
+};
+
 export const getPlayerStats = async (playerName) => {
   const response = await api.get(`/api/players/${encodeURIComponent(playerName)}/stats`);
   return response.data;
@@ -135,6 +141,16 @@ export const getInventoryStats = async () => {
 
 export const addToInventory = async (data) => {
   const response = await api.post('/api/inventory', data);
+  return response.data;
+};
+
+/** UTF-8 CSV: purchase_date, purchase_price, card_id | player_name+card_year[+set+#] */
+export const bulkImportInventory = async (file) => {
+  const form = new FormData();
+  form.append('file', file);
+  const response = await api.post('/api/inventory/bulk-import', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
   return response.data;
 };
 

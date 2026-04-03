@@ -72,6 +72,7 @@ jobs:
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           EBAY_APP_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CERT_ID: ${{ secrets.EBAY_CLIENT_SECRET }}
+          SCP_PAGE_LOAD_TIMEOUT: "90"
         # inputs.* is empty on schedule(); use || defaults here — not bash ${VAR:-x} (fragile in GHA).
         run: |
           python3 find_auction_opportunities.py \

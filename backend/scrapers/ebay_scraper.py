@@ -17,6 +17,7 @@ import time
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from backend.config.settings import config
+from backend.utils.listing_card_identity import card_number_tokens_from_free_text
 
 class EbayScraper:
     """
@@ -255,6 +256,51 @@ class EbayScraper:
             'parallel': parallel,
             'card_number': card_number
         }
+
+    @staticmethod
+    def _coerce_browse_text(val) -> str:
+        """Normalize Browse API text fields (string or {value: ...})."""
+        if val is None:
+            return ''
+        if isinstance(val, dict):
+            return str(val.get('value') or val.get('text') or '').strip()
+        return str(val).strip()
+
+    @staticmethod
+    def _html_to_plain(text: str) -> str:
+        if not text:
+            return ''
+        plain = re.sub(r'<[^>]+>', ' ', text)
+        plain = re.sub(r'&nbsp;|&amp;|&lt;|&gt;|&#\d+;', ' ', plain, flags=re.I)
+        plain = re.sub(r'\s+', ' ', plain).strip()
+        return plain
+
+    @staticmethod
+    def _item_description_plain_text(item_data: dict) -> str:
+        parts = []
+        for key in ('shortDescription', 'description', 'additionalProductDetails'):
+            raw = item_data.get(key)
+            parts.append(EbayScraper._coerce_browse_text(raw))
+        return EbayScraper._html_to_plain(' '.join(p for p in parts if p))
+
+    @staticmethod
+    def _first_hashtag_card_number(text: str) -> Optional[str]:
+        if not text:
+            return None
+        m = re.search(r'#\s*([A-Za-z0-9][A-Za-z0-9-]*)', text)
+        return m.group(1) if m else None
+
+    @staticmethod
+    def _first_reasonable_year_in_text(text: str) -> Optional[int]:
+        """First 4-digit year in 1980..(UTC year+1) — release year in description."""
+        if not text:
+            return None
+        now_y = datetime.utcnow().year + 1
+        for m in re.finditer(r'\b(19[89]\d|20\d{2})\b', text):
+            y = int(m.group(1))
+            if 1980 <= y <= now_y:
+                return y
+        return None
     
     def get_full_item_details(self, item_id: str) -> Optional[Dict]:
         """
@@ -296,7 +342,19 @@ class EbayScraper:
             item_data = response.json()
             aspects = item_data.get('localizedAspects', [])
             
-            return self._extract_from_aspects(aspects)
+            data = self._extract_from_aspects(aspects)
+            need_blob = (not data.get('card_number')) or (not data.get('card_year'))
+            blob = self._item_description_plain_text(item_data) if need_blob else ''
+            if blob:
+                if not data.get('card_number'):
+                    toks = card_number_tokens_from_free_text(blob)
+                    if toks:
+                        data['card_number'] = toks[0]
+                if not data.get('card_year'):
+                    y = self._first_reasonable_year_in_text(blob)
+                    if y is not None:
+                        data['card_year'] = y
+            return data
             
         except Exception as e:
             print(f"Error fetching full item details for {item_id}: {e}")
@@ -868,6 +926,10 @@ class EbayScraper:
                         val = val[0] if val else ''
                     aspects[name] = val
 
+                short_plain = self._html_to_plain(
+                    self._coerce_browse_text(item.get('shortDescription'))
+                )
+
                 # Check actual buyingOptions -- eBay returns hybrid listings
                 buying_options = item.get('buyingOptions', [])
                 if 'FIXED_PRICE' in buying_options and 'AUCTION' not in buying_options:
@@ -897,6 +959,7 @@ class EbayScraper:
                     'aspects': aspects,
                     'image_url': image_url,
                     'condition': item.get('condition'),
+                    'short_description': short_plain or None,
                 })
 
             return items

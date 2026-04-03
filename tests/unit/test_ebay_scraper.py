@@ -117,6 +117,34 @@ class TestTitleParsing:
             assert result['card_set'] == expected_set
 
 
+class TestCardNumberFromListingText:
+    """Browse API item descriptions often carry # when title/aspects do not."""
+
+    @pytest.mark.unit
+    def test_first_hashtag_card_number_plain(self, scraper):
+        assert EbayScraper._first_hashtag_card_number('foo #USC35 bar') == 'USC35'
+        assert EbayScraper._first_hashtag_card_number('no hash') is None
+
+    @pytest.mark.unit
+    def test_html_to_plain_strips_tags(self, scraper):
+        raw = '<p>Card # <b>M1B-8</b> serial</p>'
+        assert 'M1B-8' in EbayScraper._html_to_plain(raw)
+
+    @pytest.mark.unit
+    def test_item_description_plain_merges_fields(self, scraper):
+        blob = EbayScraper._item_description_plain_text({
+            'shortDescription': {'value': 'See scan #29 mint'},
+            'description': '',
+        })
+        assert '#29' in blob or '29' in blob
+        assert EbayScraper._first_hashtag_card_number(blob) == '29'
+
+    @pytest.mark.unit
+    def test_first_reasonable_year_in_text(self, scraper):
+        assert EbayScraper._first_reasonable_year_in_text('2021 Bowman Chrome') == 2021
+        assert EbayScraper._first_reasonable_year_in_text('no digits') is None
+
+
 class TestAPIResponseParsing:
     """Test parsing of eBay API responses"""
     

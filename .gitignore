@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 .cursor/
 venv/
+.venv/
 .env
 node_modules/
 frontend/dist/

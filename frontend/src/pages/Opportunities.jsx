@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { getOpportunities, getAuctions, getScheduledBids, cancelScheduledBid } from '../api/client';
+import { Link } from 'react-router-dom';
+import { getOpportunities, getAuctions, getScheduledBids, cancelScheduledBid, getOpportunitiesContextStrip } from '../api/client';
 import CardDetailModal from '../components/CardDetailModal';
 
 const Opportunities = () => {
@@ -14,8 +15,16 @@ const Opportunities = () => {
   const [selectedCard, setSelectedCard] = useState(null);
   const [filters, setFilters] = useState({ maxBid: '', minProfit: '', minRoi: '' });
   const [myBids, setMyBids] = useState([]);
+  const [contextStrip, setContextStrip] = useState(null);
+  const [showListingsPulse, setShowListingsPulse] = useState(false);
 
   useEffect(() => { fetchAll(); }, []);
+
+  useEffect(() => {
+    getOpportunitiesContextStrip()
+      .then(setContextStrip)
+      .catch(() => setContextStrip(null));
+  }, []);
 
   const fetchAll = async () => {
     setLoading(true);
@@ -106,7 +115,7 @@ const Opportunities = () => {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8 min-w-0">
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-display font-semibold text-frost-light tracking-wide mb-1">Opportunities</h1>
@@ -114,6 +123,126 @@ const Opportunities = () => {
           BIN deals below SCP market rates{scannedAt && ` -- scanned ${new Date(scannedAt).toLocaleString()}`}
         </p>
       </div>
+
+      {contextStrip && (
+        <div className="card-surface mb-6 p-4 space-y-3">
+          {contextStrip.business?.has_goal ? (
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+              <span className="text-frost-dim">YTD</span>
+              <span className="font-mono text-frost-light">
+                ${Number(contextStrip.business.year?.actual_profit ?? 0).toLocaleString()} / $
+                {Number(contextStrip.business.year?.target_profit ?? 0).toLocaleString()}
+              </span>
+              <span
+                className={`text-xs font-medium px-2 py-0.5 rounded border ${
+                  contextStrip.business.year?.on_track
+                    ? 'border-gain/40 text-gain bg-gain/10'
+                    : 'border-loss/40 text-loss bg-loss/10'
+                }`}
+              >
+                {contextStrip.business.year?.on_track ? 'On track' : 'Behind pace'}
+              </span>
+              <span className="text-frost-dim">Listed</span>
+              <span className="font-mono text-frost-light">
+                {contextStrip.business.inventory?.listed ?? '—'} / {contextStrip.business.inventory?.total_cards ?? '—'} cards
+              </span>
+              <Link to="/business" className="text-xs text-ember hover:underline ml-auto">
+                Business →
+              </Link>
+            </div>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3 text-sm text-frost-dim">
+              <span>{contextStrip.business?.message || 'Set a goal on Business to see pace here.'}</span>
+              <Link to="/business" className="text-ember text-xs hover:underline">
+                Business →
+              </Link>
+            </div>
+          )}
+
+          {contextStrip.market_listings && (
+            <div className="border-t border-surface-border pt-3">
+              <button
+                type="button"
+                onClick={() => setShowListingsPulse((v) => !v)}
+                className="text-xs text-frost-light hover:text-ember transition-colors flex items-center gap-2"
+              >
+                <span className="font-medium">
+                  Market pulse: {contextStrip.market_listings.tracked_distinct_items} distinct asks (last{' '}
+                  {contextStrip.market_listings.window_days}d)
+                </span>
+                <span className="text-frost-dim">{showListingsPulse ? '▼' : '▶'}</span>
+              </button>
+              {showListingsPulse && (
+                <div className="mt-2 space-y-2">
+                  <p className="text-[10px] text-frost-dim leading-relaxed">
+                    {contextStrip.market_listings.note}
+                  </p>
+                  <div className="overflow-x-auto rounded-lg border border-surface-border">
+                    <table className="w-full text-left text-[11px] min-w-[640px]">
+                      <thead className="bg-surface-elevated text-frost-dim">
+                        <tr>
+                          <th className="px-2 py-1.5 font-medium">Card</th>
+                          <th className="px-2 py-1.5 font-medium text-right">Ask</th>
+                          <th className="px-2 py-1.5 font-medium text-right">SCP</th>
+                          <th className="px-2 py-1.5 font-medium text-right">Est net @ SCP</th>
+                          <th className="px-2 py-1.5 font-medium text-right">vs ask</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(contextStrip.market_listings.rows || []).map((r) => (
+                          <tr key={r.ebay_item_id} className="border-t border-surface-border hover:bg-surface-elevated/50">
+                            <td className="px-2 py-1.5">
+                              <div className="text-frost-light truncate max-w-[220px]" title={r.listing_title}>
+                                {r.player_name}
+                              </div>
+                              <div className="text-frost-dim truncate max-w-[220px]">{r.card_label}</div>
+                              {r.listing_url && (
+                                <a
+                                  href={r.listing_url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-ember hover:underline"
+                                >
+                                  eBay
+                                </a>
+                              )}
+                            </td>
+                            <td className="px-2 py-1.5 text-right font-mono text-frost-light">
+                              ${Number(r.listing_price).toFixed(2)}
+                            </td>
+                            <td className="px-2 py-1.5 text-right font-mono text-frost-dim">
+                              {r.scp_ungraded != null ? `$${Number(r.scp_ungraded).toFixed(2)}` : '—'}
+                            </td>
+                            <td className="px-2 py-1.5 text-right font-mono text-frost-dim">
+                              {r.est_net_if_sold_at_scp != null ? `$${Number(r.est_net_if_sold_at_scp).toFixed(2)}` : '—'}
+                            </td>
+                            <td
+                              className={`px-2 py-1.5 text-right font-mono ${
+                                r.est_profit_vs_current_ask == null
+                                  ? 'text-frost-dim'
+                                  : r.est_profit_vs_current_ask >= 0
+                                    ? 'text-gain'
+                                    : 'text-loss'
+                              }`}
+                            >
+                              {r.est_profit_vs_current_ask != null
+                                ? `${r.est_profit_vs_current_ask >= 0 ? '+' : ''}$${Number(r.est_profit_vs_current_ask).toFixed(2)}`
+                                : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {(contextStrip.market_listings.rows || []).length === 0 && (
+                    <p className="text-xs text-frost-dim">No recent catalog-matched listings in the window.</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-2 mb-6">
@@ -130,8 +259,7 @@ const Opportunities = () => {
           className="px-3 py-1.5 rounded-lg text-xs font-medium bg-ember/20 text-ember-light border border-ember/20 hover:bg-ember/30 transition-colors">
           Refresh
         </button>
-        <div className="flex-1" />
-        <span className="text-xs text-frost-dim">
+        <span className="text-xs text-frost-dim basis-full sm:basis-auto sm:ml-auto sm:text-right leading-snug">
           {filteredBin.length} BIN{filteredAuctions.length > 0 ? ` | ${filteredAuctions.length} auction${filteredAuctions.length !== 1 ? 's' : ''}` : ''}{flaggedBin.length > 0 ? ` | ${flaggedBin.length} flagged` : ''}
         </span>
       </div>
@@ -227,10 +355,10 @@ const Opportunities = () => {
 
 
 const SectionHeader = ({ title, subtitle, count }) => (
-  <div className="flex items-center gap-3 mb-3">
+  <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-3">
     <h2 className="text-lg font-display font-semibold text-frost-light">{title}</h2>
     <span className="text-xs text-frost-dim bg-surface-card px-2 py-0.5 rounded-md">{count}</span>
-    <span className="text-xs text-frost-dim">{subtitle}</span>
+    <span className="text-xs text-frost-dim basis-full sm:basis-auto">{subtitle}</span>
   </div>
 );
 
@@ -240,60 +368,81 @@ const EmptyState = ({ message }) => (
   </div>
 );
 
+/** Tight 3-column metrics row below sm — keeps Bid / SCP / Profit aligned across cards */
+const MobileMetricStrip = ({ children }) => (
+  <div className="sm:hidden w-full grid grid-cols-3 gap-x-2 gap-y-0 border-t border-surface-border/50 pt-2 mt-0.5 text-center">
+    {children}
+  </div>
+);
+
+const MetricCell = ({ label, value, sub, valueClass = 'text-frost-light' }) => (
+  <div className="min-w-0 px-0.5">
+    <div className="text-[8px] text-frost-dim uppercase tracking-wide leading-tight">{label}</div>
+    <div className={`text-xs font-mono font-semibold tabular-nums ${valueClass}`}>{value}</div>
+    {sub != null && sub !== '' && (
+      <div className="text-[8px] text-frost-dim leading-tight line-clamp-2">{sub}</div>
+    )}
+  </div>
+);
+
 
 const AuctionCard = ({ auction: a, rank, isExpanded, onToggle, onDrillIn, isFlagged }) => {
   return (
     <div className={`card-surface overflow-hidden ${isFlagged ? 'border-amber-500/30' : ''}`}>
       <div role="button" tabIndex={0} aria-expanded={isExpanded}
-        className="flex items-center gap-4 px-4 py-3 cursor-pointer hover:bg-surface-hover transition-colors"
+        className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2 px-3 sm:px-4 py-3 cursor-pointer hover:bg-surface-hover transition-colors min-w-0"
         onClick={onToggle}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}>
 
-        {/* Time left */}
-        <CountdownTimer endTime={a.end_time} />
-
-        {/* Image */}
-        <div className="w-10 h-14 rounded-md overflow-hidden bg-surface-raised shrink-0 cursor-pointer" onClick={e => { e.stopPropagation(); onDrillIn(); }}>
-          {a.image_url ? (
-            <img src={a.image_url} alt="" loading="lazy" className="w-full h-full object-cover" onError={e => { e.target.style.display = 'none'; }} />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-frost-dim text-xs">--</div>
-          )}
+        <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+          <CountdownTimer endTime={a.end_time} />
+          <div className="w-10 h-14 rounded-md overflow-hidden bg-surface-raised shrink-0 cursor-pointer" onClick={e => { e.stopPropagation(); onDrillIn(); }}>
+            {a.image_url ? (
+              <img src={a.image_url} alt="" loading="lazy" className="w-full h-full object-cover" onError={e => { e.target.style.display = 'none'; }} />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-frost-dim text-xs">--</div>
+            )}
+          </div>
+          <div className={`ml-auto sm:hidden text-frost-dim text-xs transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`}>▼</div>
         </div>
 
         {/* Card info */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-sm font-semibold text-frost-light truncate">{a.player_name}</span>
+        <div className="flex-1 min-w-0 w-full sm:w-auto">
+          <div className="flex flex-wrap items-center gap-2 mb-0.5">
+            <span className="text-sm font-semibold text-frost-light truncate max-w-full">{a.player_name}</span>
             <ConfidenceBadge source={a.price_source} />
-            {a.parallel && a.parallel !== 'Base' && <span className="badge-neutral text-[10px]">{a.parallel}</span>}
-            {a.is_rookie && <span className="badge-ember text-[10px]">RC</span>}
-            {a.grade_company && <span className="badge-neutral text-[10px]">{a.grade_company} {a.grade_value}</span>}
+            {a.parallel && a.parallel !== 'Base' && <span className="badge-neutral text-[10px] shrink-0">{a.parallel}</span>}
+            {a.is_rookie && <span className="badge-ember text-[10px] shrink-0">RC</span>}
+            {a.grade_company && <span className="badge-neutral text-[10px] shrink-0">{a.grade_company} {a.grade_value}</span>}
           </div>
           <div className="text-xs text-frost-dim truncate">
             {a.card_year} {a.card_set}{a.card_number ? ` #${a.card_number}` : ''}
           </div>
         </div>
 
-        {/* Bids */}
-        <div className="text-center shrink-0 w-16">
+        {/* Bids — desktop inline */}
+        <div className="hidden sm:block text-center shrink-0 w-16">
           <div className="text-sm font-mono font-semibold text-amber-400">${a.current_bid?.toFixed(2)}</div>
           <div className="text-[9px] text-frost-dim">{a.bid_count} bid{a.bid_count !== 1 ? 's' : ''}</div>
         </div>
 
-        {/* SCP */}
-        <div className="text-center shrink-0 w-16">
+        <div className="hidden sm:block text-center shrink-0 w-16">
           <div className="text-sm font-mono font-semibold text-frost-light">${a.scp_sell_price?.toFixed(2)}</div>
           <div className="text-[9px] text-frost-dim">SCP {a.scp_price_tier}</div>
         </div>
 
-        {/* Profit */}
-        <div className="text-right shrink-0 w-20">
+        <div className="hidden sm:block text-right shrink-0 w-20">
           <div className="text-sm font-bold font-mono text-gain">+${a.net_profit?.toFixed(2)}</div>
           <div className="text-[10px] font-mono text-gain/70">{a.roi?.toFixed(0)}% ROI</div>
         </div>
 
-        <div className={`text-frost-dim text-xs transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`}>▼</div>
+        <div className={`hidden sm:block text-frost-dim text-xs transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`}>▼</div>
+
+        <MobileMetricStrip>
+          <MetricCell label="Bid" value={`$${a.current_bid?.toFixed(2)}`} sub={`${a.bid_count} bid${a.bid_count !== 1 ? 's' : ''}`} valueClass="text-amber-400" />
+          <MetricCell label="SCP" value={`$${a.scp_sell_price?.toFixed(2)}`} sub={a.scp_price_tier ? `SCP ${a.scp_price_tier}` : 'SCP'} />
+          <MetricCell label="Profit" value={`+$${a.net_profit?.toFixed(2)}`} sub={`${a.roi?.toFixed(0)}% ROI`} valueClass="text-gain" />
+        </MobileMetricStrip>
       </div>
 
       {/* Expanded */}
@@ -328,7 +477,7 @@ const AuctionCard = ({ auction: a, rank, isExpanded, onToggle, onDrillIn, isFlag
               ))}
             </div>
           )}
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <a href={a.ebay_url} target="_blank" rel="noopener noreferrer"
               className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/20 hover:bg-amber-500/30 transition-colors">
               View Auction
@@ -365,54 +514,62 @@ const BinCard = ({ opp, rank, isExpanded, onToggle, onDrillIn }) => {
   return (
     <div className="card-surface overflow-hidden">
       <div role="button" tabIndex={0} aria-expanded={isExpanded}
-        className="flex items-center gap-4 px-4 py-3 cursor-pointer hover:bg-surface-hover transition-colors"
+        className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2 px-3 sm:px-4 py-3 cursor-pointer hover:bg-surface-hover transition-colors min-w-0"
         onClick={onToggle}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}>
 
-        <div className="w-12 text-center shrink-0">
-          <div className="text-xs font-medium text-gain bg-gain/10 rounded-md px-1.5 py-0.5">BIN</div>
+        <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+          <div className="w-12 text-center shrink-0">
+            <div className="text-xs font-medium text-gain bg-gain/10 rounded-md px-1.5 py-0.5">BIN</div>
+          </div>
+          <div className="w-10 h-14 rounded-md overflow-hidden bg-surface-raised shrink-0 cursor-pointer" onClick={e => { e.stopPropagation(); onDrillIn(); }}>
+            {opp.image_url ? (
+              <img src={opp.image_url} alt="" loading="lazy" className="w-full h-full object-cover" onError={e => { e.target.style.display = 'none'; }} />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-frost-dim text-xs">--</div>
+            )}
+          </div>
+          <div className={`ml-auto sm:hidden text-frost-dim text-xs transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`}>▼</div>
         </div>
 
-        <div className="w-10 h-14 rounded-md overflow-hidden bg-surface-raised shrink-0 cursor-pointer" onClick={e => { e.stopPropagation(); onDrillIn(); }}>
-          {opp.image_url ? (
-            <img src={opp.image_url} alt="" loading="lazy" className="w-full h-full object-cover" onError={e => { e.target.style.display = 'none'; }} />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center text-frost-dim text-xs">--</div>
-          )}
-        </div>
-
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-sm font-semibold text-frost-light truncate">{opp.player_name}</span>
+        <div className="flex-1 min-w-0 w-full sm:w-auto">
+          <div className="flex flex-wrap items-center gap-2 mb-0.5">
+            <span className="text-sm font-semibold text-frost-light truncate max-w-full">{opp.player_name}</span>
             <ConfidenceBadge source={opp.price_source} />
-            {opp.parallel && opp.parallel !== 'Base' && <span className="badge-neutral text-[10px]">{opp.parallel}</span>}
-            {opp.is_rookie && <span className="badge-ember text-[10px]">RC</span>}
+            {opp.parallel && opp.parallel !== 'Base' && <span className="badge-neutral text-[10px] shrink-0">{opp.parallel}</span>}
+            {opp.is_rookie && <span className="badge-ember text-[10px] shrink-0">RC</span>}
           </div>
           <div className="text-xs text-frost-dim truncate">
             {opp.card_year} {opp.card_set}{opp.card_number ? ` #${opp.card_number}` : ''}
           </div>
         </div>
 
-        <div className="text-center shrink-0 w-16">
+        <div className="hidden sm:block text-center shrink-0 w-16">
           <div className="text-sm font-mono font-semibold text-frost-light">${arb.buy_price?.toFixed(2)}</div>
           <div className="text-[9px] text-frost-dim">{buyListings.length} listing{buyListings.length !== 1 ? 's' : ''}</div>
         </div>
 
-        <div className="text-center shrink-0 w-16">
+        <div className="hidden sm:block text-center shrink-0 w-16">
           <div className="text-sm font-mono font-semibold text-frost-light">${arb.sell_price?.toFixed(2)}</div>
           <div className="text-[9px] text-frost-dim">SCP</div>
         </div>
 
-        <div className="text-right shrink-0 w-20">
+        <div className="hidden sm:block text-right shrink-0 w-20">
           <div className="text-sm font-bold font-mono text-gain">+${arb.net_profit?.toFixed(2)}</div>
           <div className="text-[10px] font-mono text-gain/70">{arb.roi?.toFixed(0)}% ROI</div>
         </div>
 
-        <div className={`text-frost-dim text-xs transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`}>▼</div>
+        <div className={`hidden sm:block text-frost-dim text-xs transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`}>▼</div>
+
+        <MobileMetricStrip>
+          <MetricCell label="Buy" value={`$${arb.buy_price?.toFixed(2)}`} sub={`${buyListings.length} listing${buyListings.length !== 1 ? 's' : ''}`} />
+          <MetricCell label="SCP" value={`$${arb.sell_price?.toFixed(2)}`} sub="SCP" />
+          <MetricCell label="Profit" value={`+$${arb.net_profit?.toFixed(2)}`} sub={`${arb.roi?.toFixed(0)}% ROI`} valueClass="text-gain" />
+        </MobileMetricStrip>
       </div>
 
       {isExpanded && (
-        <div className="border-t border-surface-border px-4 py-4">
+        <div className="border-t border-surface-border px-3 sm:px-4 py-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3 text-xs">
             <Stat label="Buy Price" value={`$${arb.buy_price?.toFixed(2)}`} />
             <Stat label="SCP Rate" value={`$${arb.sell_price?.toFixed(2)}`} />
@@ -426,22 +583,24 @@ const BinCard = ({ opp, rank, isExpanded, onToggle, onDrillIn }) => {
           {buyListings.length > 0 && (
             <div className="space-y-1.5">
               {buyListings.slice(0, 5).map((l, i) => (
-                <div key={i} className="flex items-center gap-3 text-xs bg-surface-raised rounded-lg px-3 py-2">
+                <div key={i} className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs bg-surface-raised rounded-lg px-3 py-2 min-w-0">
                   <a href={l.url} target="_blank" rel="noopener noreferrer"
-                    className="flex-1 min-w-0 text-frost-light hover:text-ember-light transition-colors truncate">
+                    className="flex-1 min-w-[12rem] text-frost-light hover:text-ember-light transition-colors line-clamp-2 sm:truncate">
                     {l.title || `Listing ${i + 1}`}
                   </a>
-                  <span className="font-mono font-semibold text-frost-light shrink-0">${l.price.toFixed(2)}</span>
-                  <span className="font-mono font-semibold text-gain shrink-0">+${l.net_profit.toFixed(2)}</span>
-                  <a href={l.url} target="_blank" rel="noopener noreferrer"
-                    className="px-3 py-1 rounded-md text-[10px] font-semibold bg-gain/20 text-gain border border-gain/20 hover:bg-gain/30 transition-colors shrink-0">
-                    Buy
-                  </a>
+                  <div className="flex items-center gap-2 sm:gap-3 shrink-0 ml-auto sm:ml-0">
+                    <span className="font-mono font-semibold text-frost-light">${l.price.toFixed(2)}</span>
+                    <span className="font-mono font-semibold text-gain">+${l.net_profit.toFixed(2)}</span>
+                    <a href={l.url} target="_blank" rel="noopener noreferrer"
+                      className="px-3 py-1 rounded-md text-[10px] font-semibold bg-gain/20 text-gain border border-gain/20 hover:bg-gain/30 transition-colors">
+                      Buy
+                    </a>
+                  </div>
                 </div>
               ))}
             </div>
           )}
-          <div className="flex gap-2 mt-3">
+          <div className="flex flex-wrap gap-2 mt-3">
             {opp.scp_url && (
               <a href={opp.scp_url} target="_blank" rel="noopener noreferrer"
                 className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-raised text-frost-dim border border-surface-border hover:text-frost-light transition-colors">
@@ -491,7 +650,7 @@ const CountdownTimer = ({ endTime }) => {
 
   if (!endTime || remaining <= 0) {
     return (
-      <div className="w-32 text-center shrink-0">
+      <div className="w-[5.5rem] sm:w-32 text-center shrink-0">
         <div className="text-[10px] font-bold uppercase tracking-wider bg-surface-raised rounded px-1.5 py-1 text-frost-dim">Ended</div>
       </div>
     );
@@ -517,8 +676,8 @@ const CountdownTimer = ({ endTime }) => {
   }
 
   return (
-    <div className={`w-32 text-center shrink-0 ${urgency}`}>
-      <div className="text-xs font-bold font-mono">{display}</div>
+    <div className={`w-[5.5rem] sm:w-32 min-w-0 text-center shrink-0 ${urgency}`}>
+      <div className="text-[10px] sm:text-xs font-bold font-mono leading-tight break-words">{display}</div>
       <div className="text-[9px] uppercase tracking-wider">{sub}</div>
     </div>
   );

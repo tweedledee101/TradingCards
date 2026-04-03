@@ -16,6 +16,7 @@ instead of guessing from code alone.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import sys
@@ -29,7 +30,70 @@ from sqlalchemy import text
 from backend.utils.database import SessionLocal
 
 
+def _parse_summary(raw):
+    if not raw:
+        return None
+    try:
+        return json.loads(raw) if isinstance(raw, str) else dict(raw)
+    except json.JSONDecodeError:
+        return None
+
+
+NUMERIC_FUNNEL_KEYS = (
+    "auctions_searched",
+    "qualified",
+    "opportunities_found",
+    "detail_lookups",
+    "db_hits",
+    "cache_hits",
+    "selenium_hits",
+    "sold_comp_hits",
+    "ebay_comp_hits",
+    "no_scp_or_rejected",
+    "step3_no_pricing",
+    "step3_no_pricing_after_primary",
+    "step3_no_pricing_after_sold_comps",
+    "step3_bin_sanity",
+    "step3_low_volume",
+    "step3_below_min_profit",
+)
+
+
+def _print_funnel_compare(new_id, s_new, old_id, s_old):
+    print(f"\n=== Funnel delta: run {new_id} (newer) − run {old_id} (older) ===\n")
+    if not s_new or not s_old:
+        print("  (need parsed results_summary on both runs)")
+        return
+
+    def nval(x):
+        return int(x) if x is not None else 0
+
+    for k in NUMERIC_FUNNEL_KEYS:
+        vn, vo = s_new.get(k), s_old.get(k)
+        if vn is None and vo is None:
+            continue
+        d = nval(vn) - nval(vo)
+        print(f"  {k}: {vn} vs {vo}  ({d:+d})")
+
+    sn = s_new.get("step2_skip_reasons") or {}
+    so = s_old.get("step2_skip_reasons") or {}
+    if sn or so:
+        print("  step2_skip_reasons (newer vs older, delta):")
+        for sk in sorted(set(sn) | set(so)):
+            a, b = nval(sn.get(sk)), nval(so.get(sk))
+            delta = a - b
+            print(f"    {sk}: {sn.get(sk, 0)} vs {so.get(sk, 0)}  ({delta:+d})")
+
+
 def main():
+    parser = argparse.ArgumentParser(description="Audit auction opportunities and job_runs funnel")
+    parser.add_argument(
+        "--compare",
+        action="store_true",
+        help="After listing runs, print numeric delta between the two most recent completed summaries",
+    )
+    args = parser.parse_args()
+
     db = SessionLocal()
     try:
         now = datetime.now()
@@ -71,6 +135,7 @@ def main():
 
         if not runs:
             print("  (no job_runs for auction_finder — pipeline may never have completed against this DB)")
+        parsed_pair = []
         for r in runs:
             print(f"--- run id={r['id']} status={r['status']} started={r['started_at']} ---")
             if r["error_message"]:
@@ -86,30 +151,15 @@ def main():
                 print("  results_summary: (null)")
                 print()
                 continue
-            try:
-                s = json.loads(raw) if isinstance(raw, str) else raw
-            except json.JSONDecodeError:
+            s = _parse_summary(raw)
+            if s is None:
                 print(f"  results_summary (raw): {raw[:400]}")
                 print()
                 continue
+            if args.compare and len(parsed_pair) < 2:
+                parsed_pair.append((r["id"], s))
             print("  results_summary (parsed):")
-            for k in (
-                "auctions_searched",
-                "qualified",
-                "opportunities_found",
-                "detail_lookups",
-                "db_hits",
-                "cache_hits",
-                "selenium_hits",
-                "sold_comp_hits",
-                "ebay_comp_hits",
-                "no_scp_or_rejected",
-                "no_scp_match",
-                "step3_no_pricing",
-                "step3_bin_sanity",
-                "step3_low_volume",
-                "step3_below_min_profit",
-            ):
+            for k in NUMERIC_FUNNEL_KEYS + ("no_scp_match",):
                 if k in s:
                     print(f"    {k}: {s[k]}")
             if "step2_skip_reasons" in s:
@@ -119,6 +169,13 @@ def main():
             if "parameters" in s:
                 print(f"    run_parameters: {s['parameters']}")
             print()
+
+        if args.compare and len(parsed_pair) >= 2:
+            new_id, s_new = parsed_pair[0]
+            old_id, s_old = parsed_pair[1]
+            _print_funnel_compare(new_id, s_new, old_id, s_old)
+        elif args.compare:
+            print("\n=== --compare: need at least two runs with valid JSON results_summary ===\n")
 
         print("=== error_log: auction_finder, last 7 days (WARN+) ===\n")
         errs = db.execute(

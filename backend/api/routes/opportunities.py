@@ -5,11 +5,12 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func as sqlfunc, or_
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import unicodedata
 from backend.utils.database import get_db
 from backend.utils.auth import require_auth
-from backend.models import Opportunity, JobRun, Card, Sale, ActiveListing, MarketRate
+from backend.models import Opportunity, JobRun, Card, Sale, ActiveListing, MarketRate, User
+from backend.services.business_planner import BusinessPlanner
 
 router = APIRouter(dependencies=[Depends(require_auth)])
 
@@ -83,6 +84,97 @@ def get_opportunity_stats(db: Session = Depends(get_db)):
         "avg_roi": round(avg_roi, 1),
         "avg_profit": round(avg_profit, 2),
         "flagged_count": flagged
+    }
+
+
+@router.get("/opportunities/context-strip")
+def get_opportunities_context_strip(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_auth),
+):
+    """Lightweight payload for Opportunities page: business goal pace + market listing pulse vs SCP."""
+    planner = BusinessPlanner()
+    dash = planner.get_dashboard(db, account_id=user.account_id)
+
+    recent_cutoff = date.today() - timedelta(days=5)
+    latest_al = (
+        db.query(
+            ActiveListing.ebay_item_id,
+            sqlfunc.max(ActiveListing.snapshot_date).label("mx"),
+        )
+        .filter(ActiveListing.snapshot_date >= recent_cutoff)
+        .group_by(ActiveListing.ebay_item_id)
+        .subquery()
+    )
+    tracked = db.query(sqlfunc.count()).select_from(latest_al).scalar() or 0
+
+    mr_sub = (
+        db.query(
+            MarketRate.card_id,
+            sqlfunc.max(MarketRate.date_recorded).label("mxd"),
+        )
+        .group_by(MarketRate.card_id)
+        .subquery()
+    )
+    rate_rows = (
+        db.query(MarketRate)
+        .join(
+            mr_sub,
+            (MarketRate.card_id == mr_sub.c.card_id)
+            & (MarketRate.date_recorded == mr_sub.c.mxd),
+        )
+        .all()
+    )
+    rate_by_card = {
+        r.card_id: float(r.ungraded_price)
+        for r in rate_rows
+        if r.ungraded_price and float(r.ungraded_price) > 0
+    }
+
+    rows = (
+        db.query(ActiveListing, Card)
+        .join(
+            latest_al,
+            (ActiveListing.ebay_item_id == latest_al.c.ebay_item_id)
+            & (ActiveListing.snapshot_date == latest_al.c.mx),
+        )
+        .join(Card, ActiveListing.card_id == Card.id)
+        .order_by(ActiveListing.listing_price.desc())
+        .limit(40)
+        .all()
+    )
+
+    fee = 0.13
+    listing_pulse = []
+    for al, card in rows:
+        scp = rate_by_card.get(card.id)
+        lp = float(al.listing_price)
+        net_at_scp = round(scp * (1 - fee), 2) if scp else None
+        est_vs_ask = round(net_at_scp - lp, 2) if net_at_scp is not None else None
+        cn = card.card_number or ""
+        listing_pulse.append({
+            "ebay_item_id": al.ebay_item_id,
+            "listing_title": (al.listing_title or "")[:140],
+            "listing_url": al.listing_url,
+            "listing_price": lp,
+            "scp_ungraded": round(scp, 2) if scp else None,
+            "est_net_if_sold_at_scp": net_at_scp,
+            "est_profit_vs_current_ask": est_vs_ask,
+            "player_name": card.player_name,
+            "card_label": f"{card.card_year} {card.card_set} #{cn}".strip(),
+        })
+
+    return {
+        "business": dash,
+        "market_listings": {
+            "tracked_distinct_items": int(tracked),
+            "window_days": 5,
+            "rows": listing_pulse,
+            "note": (
+                "Catalog-matched eBay asks from the latest DB snapshot (pipeline / worm), "
+                "not your seller account until seller OAuth sync exists."
+            ),
+        },
     }
 
 

@@ -61,6 +61,11 @@ class Config:
     # Scraping settings
     USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     REQUEST_DELAY = 2  # seconds between requests
+    _scp_tmo = os.getenv('SCP_PAGE_LOAD_TIMEOUT', '60')
+    try:
+        SCP_PAGE_LOAD_TIMEOUT = max(15, min(180, int(_scp_tmo)))
+    except ValueError:
+        SCP_PAGE_LOAD_TIMEOUT = 60
     
     @property
     def get_database_url(self):

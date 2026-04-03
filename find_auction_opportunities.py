@@ -16,6 +16,8 @@ Usage:
 import argparse
 import re
 import time
+from contextlib import closing
+from datetime import datetime
 import shutil
 from datetime import datetime, timedelta
 from selenium import webdriver
@@ -25,7 +27,9 @@ from backend.scrapers.ebay_scraper import EbayScraper
 from backend.scrapers.sportscardspro_scraper import SportsCardsProScraper
 from backend.utils.job_tracker import JobTracker
 from backend.utils.logger import get_logger
+from sqlalchemy import func, or_
 from backend.utils.database import SessionLocal
+from backend.utils.listing_card_identity import card_number_tokens_from_free_text
 from backend.models import Opportunity, Card, MarketRate
 
 log = get_logger('auction_finder')
@@ -66,20 +70,67 @@ MIN_COMPS = 3
 MIN_SOLD_COMPS = 3
 
 
-def extract_card_number(title: str, aspects: dict) -> str:
-    """Extract card number from title, then aspects. Returns None if not found."""
-    # Title: #USC35, #29, #M1B-8, # 1, #'d patterns
-    # Standard: #ABC-123
-    m = re.search(r'#\s*([A-Za-z0-9][A-Za-z0-9-]*)', title)
-    if m:
-        return m.group(1)
+def gather_card_number_candidates(title: str, aspects: dict, extra_text: str = None) -> list:
+    """Ordered unique candidates: eBay Card Number aspects, then title/description tokens (#, Card No., CN:, …)."""
+    seen = set()
+    out = []
 
-    # Aspects: Card Number, Card No, Card No.
-    for key in ['Card Number', 'Card No', 'Card No.']:
+    def add(x):
+        if not x:
+            return
+        s = str(x).strip()
+        if not s:
+            return
+        k = s.lower()
+        if k not in seen:
+            seen.add(k)
+            out.append(s)
+
+    for key in ('Card Number', 'Card No', 'Card No.'):
         if key in aspects and aspects[key]:
-            return str(aspects[key])
+            add(aspects[key])
+    for t in card_number_tokens_from_free_text(title or ''):
+        add(t)
+    for t in card_number_tokens_from_free_text(extra_text or ''):
+        add(t)
+    return out
 
-    return None
+
+def pick_card_number_with_catalog(
+    candidates: list,
+    db,
+    player_name: str,
+    year: int,
+    sport: str,
+    cache: dict,
+):
+    """If several # tokens exist, prefer one that exists in cards for player+year+sport."""
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    if not player_name or not year or db is None:
+        return candidates[0]
+    key = (player_name.lower().strip(), int(year), (sport or '').lower())
+    if key not in cache:
+        rows = db.query(Card.card_number).filter(
+            func.lower(Card.player_name) == player_name.lower().strip(),
+            Card.card_year == year,
+            Card.card_number.isnot(None),
+            or_(
+                Card.sport.is_(None),
+                func.lower(Card.sport) == (sport or '').lower(),
+            ),
+        ).distinct().all()
+        cache[key] = {str(r[0]).strip().lower(): str(r[0]).strip() for r in rows if r[0]}
+    cmap = cache[key]
+    if not cmap:
+        return candidates[0]
+    for c in candidates:
+        cl = c.lower()
+        if cl in cmap:
+            return cmap[cl]
+    return candidates[0]
 
 
 def load_known_players(years: list = None, sport: str = 'baseball'):
@@ -152,18 +203,117 @@ def extract_player_name(title: str, aspects: dict, known_players: list) -> str:
     return None
 
 
-def extract_year(title: str, aspects: dict) -> int:
-    """Extract year from aspects or title."""
+# Release / copyright years on card listings (not jersey numbers).
+_YEAR_IN_TEXT_RE = re.compile(r'\b(19[89]\d|20\d{2})\b')
+
+
+def _clamp_card_listing_year(y):
+    if y is None:
+        return None
+    try:
+        y = int(y)
+    except (TypeError, ValueError):
+        return None
+    now = datetime.utcnow().year
+    if 1980 <= y <= now + 1:
+        return y
+    return None
+
+
+def _first_year_in_text(text: str) -> int:
+    """First plausible 4-digit card year in text (title or description)."""
+    if not text:
+        return None
+    m = _YEAR_IN_TEXT_RE.search(text)
+    while m:
+        y = _clamp_card_listing_year(int(m.group(1)))
+        if y is not None:
+            return y
+        m = _YEAR_IN_TEXT_RE.search(text, m.end())
+    return None
+
+
+def extract_year(title: str, aspects: dict, extra_text: str = None) -> int:
+    """Extract year from eBay Year aspect, then title, then optional description blob."""
     if 'Year' in aspects:
         try:
-            return int(aspects['Year'])
+            y = int(str(aspects['Year']).strip())
+            y = _clamp_card_listing_year(y)
+            if y is not None:
+                return y
         except (ValueError, TypeError):
             pass
 
-    m = re.search(r'\b(202[3-9]|20[3-9]\d)\b', title)
-    if m:
-        return int(m.group(1))
+    y = _first_year_in_text(title or '')
+    if y is not None:
+        return y
+    if extra_text:
+        return _first_year_in_text(extra_text)
+    return None
 
+
+def infer_year_if_unique_in_catalog(db, player_name: str, card_number: str, sport: str):
+    """If exactly one card_year exists for player+# (+sport), use it (year is not in title)."""
+    if not db or not player_name or not card_number:
+        return None
+    rows = db.query(Card.card_year).filter(
+        func.lower(Card.player_name) == player_name.lower().strip(),
+        func.lower(Card.card_number) == str(card_number).lower().strip(),
+        or_(Card.sport.is_(None), func.lower(Card.sport) == (sport or '').lower()),
+    ).distinct().all()
+    years = sorted({r[0] for r in rows if r[0] is not None})
+    if len(years) == 1:
+        return years[0]
+    return None
+
+
+def _set_match_tokens(s: str) -> set:
+    if not s:
+        return set()
+    raw = re.sub(r'[^a-z0-9\s]+', ' ', (s or '').lower())
+    return {w for w in raw.split() if len(w) > 2}
+
+
+def resolve_year_from_set_hint(
+    db, player_name: str, card_number: str, sport: str, set_hint: str,
+):
+    """When player+# exists in multiple years, pick year whose card_set best overlaps eBay Set/title set."""
+    if not db or not player_name or not card_number or not set_hint:
+        return None
+    sh = (set_hint or '').strip()
+    if sh.lower() in ('unknown', 'base', ''):
+        return None
+    rows = db.query(Card.card_year, Card.card_set).filter(
+        func.lower(Card.player_name) == player_name.lower().strip(),
+        func.lower(Card.card_number) == str(card_number).lower().strip(),
+        Card.card_year.isnot(None),
+        Card.card_set.isnot(None),
+        or_(
+            Card.sport.is_(None),
+            func.lower(Card.sport) == (sport or '').lower(),
+        ),
+    ).distinct().all()
+    hint_tok = _set_match_tokens(sh)
+    if not hint_tok:
+        return None
+    scores = {}
+    for cy, cs in rows:
+        if not cy or not cs:
+            continue
+        overlap = hint_tok & _set_match_tokens(cs)
+        if not overlap:
+            continue
+        score = len(overlap) / max(len(hint_tok), 1)
+        if score > scores.get(cy, 0):
+            scores[cy] = score
+    if not scores:
+        return None
+    best = max(scores.values())
+    if best < 0.35:
+        return None
+    winners = [y for y, sc in scores.items() if sc == best]
+    if len(winners) == 1:
+        return winners[0]
     return None
 
 
@@ -780,12 +930,17 @@ if __name__ == '__main__':
     PLAYER_QUERIES = []
     db_temp = SessionLocal()
     try:
-        from sqlalchemy import func
+        from backend.config.sets import HIGH_VALUE_SETS, get_set_queries
+
         top_players = db_temp.query(Card.player_name, func.count(Card.id).label('cnt')
             ).group_by(Card.player_name).order_by(func.count(Card.id).desc()).limit(40).all()
-        for p in top_players:
+        sport_key = (args.sport or 'baseball').strip().title()
+        for idx, p in enumerate(top_players):
             PLAYER_QUERIES.append(f"{p[0]} auto numbered")
             PLAYER_QUERIES.append(f"{p[0]} refractor")
+            # Narrow set-specific queries (BIN pipeline pattern) — top 15 names only to cap API volume
+            if sport_key in HIGH_VALUE_SETS and idx < 15:
+                PLAYER_QUERIES.extend(get_set_queries(p[0], sport_key))
     finally:
         db_temp.close()
 
@@ -860,50 +1015,59 @@ if __name__ == '__main__':
                         'no_year': 0, 'no_player': 0, 'over_budget': 0,
                         'not_auction': 0}
         detail_lookups = 0
+        cn_cache = {}
 
-        for auction_idx, auction in enumerate(all_auctions, 1):
-            if auction_idx % 50 == 0 or auction_idx == 1:
-                print(f"  [{auction_idx}/{len(all_auctions)}] filtering... ({len(qualified)} qualified so far)", flush=True)
+        with closing(SessionLocal()) as db_step2:
+            for auction_idx, auction in enumerate(all_auctions, 1):
+                if auction_idx % 50 == 0 or auction_idx == 1:
+                    print(f"  [{auction_idx}/{len(all_auctions)}] filtering... ({len(qualified)} qualified so far)", flush=True)
 
-            title = auction['title']
-            title_lower = title.lower()
-            aspects = auction.get('aspects', {})
-            price = auction['price']
-            shipping = auction.get('shipping', DEFAULT_SHIPPING)
+                title = auction['title']
+                aspects = auction.get('aspects', {})
+                price = auction['price']
+                shipping = auction.get('shipping', DEFAULT_SHIPPING)
 
-            # Skip pure BIN listings that snuck through
-            if auction.get('listing_type') not in ('auction', 'auction_bin'):
-                skip_reasons['not_auction'] += 1
-                continue
+                # Skip pure BIN listings that snuck through
+                if auction.get('listing_type') not in ('auction', 'auction_bin'):
+                    skip_reasons['not_auction'] += 1
+                    continue
 
-            if is_junk(title):
-                skip_reasons['junk'] += 1
-                continue
+                if is_junk(title):
+                    skip_reasons['junk'] += 1
+                    continue
 
-            total_cost = price + shipping
-            if total_cost > args.max_budget:
-                skip_reasons['over_budget'] += 1
-                continue
+                total_cost = price + shipping
+                if total_cost > args.max_budget:
+                    skip_reasons['over_budget'] += 1
+                    continue
 
-            year = extract_year(title, aspects)
-            if not year:
-                skip_reasons['no_year'] += 1
-                continue
+                short_desc = auction.get('short_description') or ''
+                year = extract_year(title, aspects, short_desc)
+                merged_aspects = dict(aspects)
+                candidates = gather_card_number_candidates(title, merged_aspects, short_desc)
+                player_name = extract_player_name(title, aspects, known_players)
+                card_number = pick_card_number_with_catalog(
+                    candidates, db_step2, player_name, year, args.sport.lower(), cn_cache
+                )
 
-            card_number = extract_card_number(title, aspects)
-            player_name = extract_player_name(title, aspects, known_players)
-
-            # If missing card number or player, try full item details (1 API call)
-            if not card_number or not player_name:
+                # Missing card #, player, or year → full item details (same Browse GET)
                 item_id = auction.get('ebay_item_id')
-                if item_id:
+                if item_id and (not card_number or not player_name or not year):
                     details = scraper.get_full_item_details(item_id)
                     if details:
                         detail_lookups += 1
                         if detail_lookups % 25 == 0:
                             print(f"    ({detail_lookups} detail lookups so far...)", flush=True)
-                        if not card_number:
-                            card_number = details.get('card_number')
+                        merged_aspects = dict(aspects)
+                        if details.get('card_number'):
+                            merged_aspects['Card Number'] = (
+                                merged_aspects.get('Card Number') or details['card_number']
+                            )
+                        if details.get('card_year'):
+                            merged_aspects['Year'] = str(details['card_year'])
+                            year = year or details['card_year']
+                        if not year:
+                            year = extract_year(title, merged_aspects, short_desc)
                         if not player_name:
                             # Accept eBay's Player aspect directly -- covers retired players,
                             # minor leaguers, anyone not in MLB API
@@ -911,52 +1075,83 @@ if __name__ == '__main__':
                             if detail_player:
                                 player_name = detail_player
                             else:
-                                # Last resort: try matching detail aspects against known players
+                                # Last resort: try matching detail dict against known players
                                 detail_aspects = details or {}
                                 for key in ['Player', 'Player/Athlete', 'Athlete']:
                                     val = detail_aspects.get(key)
                                     if val:
                                         player_name = val
                                         break
+                        candidates = gather_card_number_candidates(
+                            title, merged_aspects, short_desc
+                        )
+                        card_number = pick_card_number_with_catalog(
+                            candidates, db_step2, player_name, year, args.sport.lower(), cn_cache
+                        ) or card_number
                         # Also grab card set and parallel from aspects if missing
                         if not aspects.get('Set') and details.get('card_set'):
                             aspects['Set'] = details['card_set']
                         if details.get('parallel') and details['parallel'] != 'Base':
                             aspects['_detail_parallel'] = details['parallel']
 
-            if not card_number:
-                skip_reasons['no_card_number'] += 1
-                if skip_reasons['no_card_number'] <= 10:
-                    log.info(f"no_card_number: {title[:80]}", category='skip_debug')
-                continue
+                if not year and player_name and card_number:
+                    year = infer_year_if_unique_in_catalog(
+                        db_step2, player_name, card_number, args.sport.lower()
+                    )
+                    if not year:
+                        set_hint = (
+                            aspects.get('Set')
+                            or auction.get('card_info', {}).get('card_set')
+                            or ''
+                        )
+                        year = resolve_year_from_set_hint(
+                            db_step2,
+                            player_name,
+                            card_number,
+                            args.sport.lower(),
+                            set_hint,
+                        )
 
-            if not player_name:
-                skip_reasons['no_player'] += 1
-                if skip_reasons['no_player'] <= 10:
-                    log.info(f"no_player: {title[:80]}", category='skip_debug')
-                continue
+                if not year:
+                    skip_reasons['no_year'] += 1
+                    if skip_reasons['no_year'] <= 10:
+                        log.info(f"no_year: {title[:80]}", category='skip_debug')
+                    continue
 
-            # Extract card details for SCP lookup
-            card_info = auction.get('card_info', {})
-            parallel = aspects.get('_detail_parallel') or card_info.get('parallel', 'Base')
-            # Strip brackets if eBay aspects returned "[Base]" literally
-            if parallel.startswith('[') and parallel.endswith(']'):
-                parallel = parallel[1:-1]
-            card_set = card_info.get('card_set', aspects.get('Set', ''))
+                if not card_number:
+                    skip_reasons['no_card_number'] += 1
+                    if skip_reasons['no_card_number'] <= 10:
+                        log.info(f"no_card_number: {title[:80]}", category='skip_debug')
+                    continue
 
-            auction['_player'] = player_name
-            auction['_year'] = year
-            auction['_card_number'] = card_number
-            auction['_parallel'] = parallel
-            auction['_card_set'] = card_set
-            qualified.append(auction)
+                if not player_name:
+                    skip_reasons['no_player'] += 1
+                    if skip_reasons['no_player'] <= 10:
+                        log.info(f"no_player: {title[:80]}", category='skip_debug')
+                    continue
 
-            if auction_idx % 100 == 0:
-                tracker.update(processed=len(queries) + auction_idx)
+                # Extract card details for SCP lookup
+                card_info = auction.get('card_info', {})
+                parallel = aspects.get('_detail_parallel') or card_info.get('parallel', 'Base')
+                # Strip brackets if eBay aspects returned "[Base]" literally
+                if parallel.startswith('[') and parallel.endswith(']'):
+                    parallel = parallel[1:-1]
+                card_set = card_info.get('card_set', aspects.get('Set', ''))
+
+                auction['_player'] = player_name
+                auction['_year'] = year
+                auction['_card_number'] = card_number
+                auction['_parallel'] = parallel
+                auction['_card_set'] = card_set
+                qualified.append(auction)
+
+                if auction_idx % 100 == 0:
+                    tracker.update(processed=len(queries) + auction_idx)
+
 
         print(f"Qualified: {len(qualified)}")
         if detail_lookups:
-            print(f"  eBay detail lookups: {detail_lookups} (for missing card#/player)")
+            print(f"  eBay detail lookups: {detail_lookups} (for missing card#/player/year)")
         for reason, count in skip_reasons.items():
             if count:
                 print(f"  Skipped ({reason}): {count}")
@@ -969,6 +1164,9 @@ if __name__ == '__main__':
                 'opportunities_found': 0,
                 'step2_skip_reasons': skip_reasons,
                 'detail_lookups': detail_lookups,
+                'step3_no_pricing': 0,
+                'step3_no_pricing_after_primary': 0,
+                'step3_no_pricing_after_sold_comps': 0,
             })
             exit()
 
@@ -989,11 +1187,14 @@ if __name__ == '__main__':
         sold_comp_hits = 0
         no_scp = 0  # legacy aggregate for console line
         step3_no_pricing = 0
+        step3_no_pricing_after_primary = 0
+        step3_no_pricing_after_sold_comps = 0
         step3_bin_sanity = 0
         step3_low_volume = 0
         step3_below_min_profit = 0
 
         for i, auction in enumerate(qualified, 1):
+            diag = {}
             player = auction['_player']
             year = auction['_year']
             card_number = auction['_card_number']
@@ -1041,30 +1242,35 @@ if __name__ == '__main__':
                     time.sleep(3)  # Only sleep after Selenium calls, not cache hits
 
             if not scp or not scp.get('scp_price'):
+                step3_no_pricing_after_primary += 1
                 # Fallback 1: 130point sold comps (DB cache, instant)
                 scp = find_sold_comps_fallback(db, player, year, card_number, parallel)
-                if scp:
+                if scp and scp.get('scp_price'):
                     sold_comp_hits += 1
                     if i <= 30 or i % 50 == 0:
                         print(f"  [{i}/{len(qualified)}] {label} -- 130point: ${scp['scp_price']:.2f} ({scp.get('volume', '?')})")
 
                 # Fallback 2: eBay active BIN comps (1 API call)
                 if not scp or not scp.get('scp_price'):
+                    step3_no_pricing_after_sold_comps += 1
                     scp = find_ebay_comps_fallback(
                         scraper, player, year, card_set, card_number, parallel,
                         ebay_title=title)
-                if scp and scp.get('source') == 'ebay_comps':
-                    ebay_comp_hits += 1
-                    if i <= 30 or i % 50 == 0:
-                        prices = scp.get('comp_prices', [])
-                        print(f"  [{i}/{len(qualified)}] {label} -- eBay comps: ${scp['scp_price']:.2f} (median of {len(prices)} BINs)")
-                else:
+                    if scp and scp.get('source') == 'ebay_comps':
+                        ebay_comp_hits += 1
+                        if i <= 30 or i % 50 == 0:
+                            prices = scp.get('comp_prices', [])
+                            print(
+                                f"  [{i}/{len(qualified)}] {label} -- eBay comps: "
+                                f"${scp['scp_price']:.2f} (median of {len(prices)} BINs)"
+                            )
+
+                if not scp or not scp.get('scp_price'):
                     no_scp += 1
                     step3_no_pricing += 1
                     if i <= 20 or i % 50 == 0:
-                        print(f"  [{i}/{len(qualified)}] {label} -- no SCP match, no eBay comps")
-                    # Diagnostic: show WHY matching failed
-                    if 'diag' in dir() and diag and no_scp <= 30:
+                        print(f"  [{i}/{len(qualified)}] {label} -- no pricing (SCP + 130point + eBay comps exhausted)")
+                    if diag and no_scp <= 30:
                         reason = diag.get('fail_reason', 'unknown')
                         variants = diag.get('variants_found', 0)
                         if variants > 0:
@@ -1074,7 +1280,10 @@ if __name__ == '__main__':
                             print(f"    Pass1 tried: '{p1}' | Pass2 searched: {(diag.get('pass2_searched') or '')[:80]}")
                             sigs = diag.get('pass3_signals', {})
                             if sigs:
-                                print(f"    Pass3 signals: RC={sigs.get('is_rc')} Auto={sigs.get('is_auto')} Relic={sigs.get('is_relic')} PR={sigs.get('print_run')}")
+                                print(
+                                    f"    Pass3 signals: RC={sigs.get('is_rc')} Auto={sigs.get('is_auto')} "
+                                    f"Relic={sigs.get('is_relic')} PR={sigs.get('print_run')}"
+                                )
                             print(f"    eBay title: {title[:100]}")
                         else:
                             print(f"    LOST: {reason}")
@@ -1188,8 +1397,11 @@ if __name__ == '__main__':
 
         print(f"\nSCP lookups: {db_hits} DB, {cache_hits} cache, {selenium_hits} Selenium, {sold_comp_hits} 130point, {ebay_comp_hits} eBay comps, {no_scp} no match")
         print(
-            f"Step 3 drops: no_pricing={step3_no_pricing}, bin_sanity={step3_bin_sanity}, "
-            f"low_volume={step3_low_volume}, below_min_profit=${args.min_profit}: {step3_below_min_profit}"
+            f"Step 3 drops: no_pricing(final)={step3_no_pricing} "
+            f"(no_price_after_primary={step3_no_pricing_after_primary}, "
+            f"after_sold_comps={step3_no_pricing_after_sold_comps}), "
+            f"bin_sanity={step3_bin_sanity}, low_volume={step3_low_volume}, "
+            f"below_min_profit=${args.min_profit}: {step3_below_min_profit}"
         )
 
         # Summary
@@ -1274,6 +1486,8 @@ if __name__ == '__main__':
             'sold_comp_hits': sold_comp_hits,
             'no_scp_or_rejected': no_scp,
             'step3_no_pricing': step3_no_pricing,
+            'step3_no_pricing_after_primary': step3_no_pricing_after_primary,
+            'step3_no_pricing_after_sold_comps': step3_no_pricing_after_sold_comps,
             'step3_bin_sanity': step3_bin_sanity,
             'step3_low_volume': step3_low_volume,
             'step3_below_min_profit': step3_below_min_profit,

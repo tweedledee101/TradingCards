@@ -13,6 +13,7 @@ Usage:
         print(f"{card['title']} - Ungraded: ${card['ungraded']} PSA 10: ${card['psa_10']}")
 """
 
+from backend.config.settings import config
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -57,7 +58,7 @@ class SportsCardsProScraper:
 
         service = Service(executable_path=shutil.which('geckodriver') or '/usr/local/bin/geckodriver')
         self.driver = webdriver.Firefox(options=options, service=service)
-        self.driver.set_page_load_timeout(30)
+        self.driver.set_page_load_timeout(config.SCP_PAGE_LOAD_TIMEOUT)
 
     def close(self):
         """Close the browser"""

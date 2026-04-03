@@ -56,7 +56,7 @@ const BusinessDashboard = () => {
 
   if (!dashboard?.has_goal) {
     return (
-      <div className="max-w-3xl mx-auto px-6 py-8">
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 sm:py-8 min-w-0">
         <h1 className="text-2xl font-display font-semibold text-frost-light tracking-wide mb-4">Business Planner</h1>
         <p className="text-sm text-frost-dim mb-6">Set your business goal to get started.</p>
         <GoalForm onSave={() => { setShowGoalForm(false); fetchAll(); }} />
@@ -67,16 +67,16 @@ const BusinessDashboard = () => {
   const d = dashboard;
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8 min-w-0">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-6">
+        <div className="min-w-0">
           <h1 className="text-2xl font-display font-semibold text-frost-light tracking-wide mb-1">Business Planner</h1>
-          <p className="text-sm text-frost-dim">
+          <p className="text-sm text-frost-dim break-words">
             Year 1 target: ${d.year.target_profit?.toLocaleString()} | Day {d.year.pct_complete > 0 ? Math.round(365 * d.year.pct_complete / 100) : 0} of 365
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2 shrink-0">
           <button onClick={() => setShowCapitalForm(!showCapitalForm)}
             className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-card text-frost-dim border border-surface-border hover:text-frost-light transition-colors">
             Record Transaction

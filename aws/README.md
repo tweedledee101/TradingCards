@@ -10,6 +10,7 @@ aws/
 │   ├── cognito-auth.yaml              # Cognito User Pool + app client (optional)
 │   ├── ebay-compliance-lambda.yaml    # eBay compliance webhook (API Gateway + Lambda)
 │   ├── frontend-spa.yaml              # S3 + CloudFront for React/Vite static UI
+│   ├── api-lambda-http.yaml             # HTTP API (v2) + Lambda container + api.<domain> + Route53
 │   └── rds.yaml                       # RDS PostgreSQL with self-contained VPC
 ├── apply-rds-migrations.sh            # Apply schema + migrations to RDS
 ├── migrate-to-rds.sh                  # Migrate local data to RDS
@@ -59,6 +60,45 @@ aws cloudfront create-invalidation --distribution-id E1I0LKGWO56GR5 --paths "/*"
 ```
 
 To confirm the distribution ID if yours differs: `aws cloudfront list-distributions --profile ragnarok` and find the entry whose **Aliases** include `ragnarokgamez.com` (or whose origin is the SPA bucket).
+
+### Traffic: volume vs “where from”
+
+**Without extra setup:** AWS Console → **CloudFront** → distribution `E1I0LKGWO56GR5` → **Monitoring**, or **CloudWatch** → **Metrics** → `AWS/CloudFront` (dimension **Region** = `Global`, **DistributionId** = `E1I0LKGWO56GR5`). You get **request counts**, cache hit ratio, and error rates — **not** a built-in “referrer” or marketing breakdown.
+
+**Standard access logs (AWS-native referrers / URLs):** The `frontend-spa.yaml` stack leaves **Standard logging** off. To log every request to S3 (fields include client IP, URI, user-agent, and `cs(Referer)` when the browser sends it): edit the distribution → **Standard logging** → choose a log bucket + prefix (bucket must allow CloudFront service principal to write). Query logs with Athena or download and grep; direct visits often show `-` for referrer.
+
+**Richer analytics (geo, acquisition, campaigns):** Use **Google Analytics 4**, **Plausible**, **Cloudflare Web Analytics** (if DNS/CDN goes through Cloudflare), etc. — not wired into this repo’s `index.html` by default; add a snippet when you pick a tool.
+
+### Daily usage signals (AWS only — no DB analytics)
+
+This does **not** prove “users found opportunity X useful,” but it **does** show **load**, **API shape**, and **errors**.
+
+**1) SPA traffic (aggregate)** — CloudFront request volume (last 24h example):
+
+```bash
+aws cloudwatch get-metric-statistics --namespace AWS/CloudFront \
+  --metric-name Requests \
+  --dimensions Name=DistributionId,Value=E1I0LKGWO56GR5 Name=Region,Value=Global \
+  --start-time $(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ) \
+  --end-time $(date -u +%Y-%m-%dT%H:%M:%SZ) --period 3600 --statistics Sum \
+  --profile ragnarok --region us-east-1
+```
+
+**2) API traffic by route (Lambda)** — Every invoke logs a JSON line from `lambda_entry.handler` with `rawPath` (see `lambda_entry.py`). In **CloudWatch → Log groups → `/aws/lambda/ragnarok-trading-api` → Logs Insights**, run (adjust time range in console):
+
+```sql
+fields @timestamp, @message
+| filter @message like /lambda_diag/ and @message like /handler_entry/
+| parse @message /"rawPath":"(?<path>[^"]*)"/
+| stats count() as hits by path
+| sort hits desc
+```
+
+Interpretation: high **`/api/opportunities`** or **`/api/auctions`** counts mean the app is **pulling** those endpoints; you still **cannot** see which rows they expanded or which eBay links they opened unless you add app-level events or **HTTP API access logs** (not enabled in `api-lambda-http.yaml` today — can be turned on for the `$default` stage to a CloudWatch log group for one JSON line per request).
+
+**3) API errors / health** — Lambda **Errors** metric and **filter `@message` like /ERROR/ or /Traceback/** in the same log group.
+
+**4) Optional: enable more AWS logging (still “no new product”)** — **CloudFront standard logs** → S3 → **Athena** for URI + status + referrer; **API Gateway HTTP API access logging** on the stage → dedicated log group for method/path/status without parsing Lambda stdout.
 
 Production builds use `frontend/.env.production`: API base **`https://api.ragnarokgamez.com`**. Point that name at your FastAPI origin (ALB, API Gateway + Lambda, App Runner, etc.) when you host the API in AWS. Until then, the UI loads but data calls will fail until that hostname serves your API with HTTPS and CORS.
 
@@ -200,3 +240,70 @@ AWS_PROFILE=your-actual-profile-name ./aws/deploy-api-lambda.sh
 ```
 
 If your keys live only under `[default]` in `~/.aws/credentials` and you want a separate name, duplicate that block and rename the header to `[ragnarok]` (same keys, different label).
+
+## Trading API: full chain (`api.ragnarokgamez.com`) and “500 + no logs”
+
+**Intended path** (see `cloudformation/api-lambda-http.yaml`):
+
+1. **DNS** — Route53 `A` alias for `api.ragnarokgamez.com` → **API Gateway custom domain** regional hostname (`ApiDnsRecord` → `ApiCustomDomain`).
+2. **TLS** — ACM cert on the **API Gateway v2 domain** (regional, `us-east-1`).
+3. **Routing** — `ApiMapping` sends that hostname’s traffic to the **HTTP API** (`HttpApi`) stage `$default`.
+4. **Integration** — Route `$default` → **AWS_PROXY** to Lambda **`ragnarok-trading-api`** (container image, handler `lambda_entry.handler`).
+5. **Downstream** — Inside Lambda, `GET /health` is handled in `lambda_entry.py` **without** loading FastAPI; other paths use Mangum → FastAPI → **RDS** via `DATABASE_URL`.
+
+**There is no CloudFront** on this hostname in the template; **`apigw-requestid`** on the HTTP response means **API Gateway** answered (the request reached AWS).
+
+### Why the body is `{"message":"Internal Server Error"}`
+
+That JSON is the **HTTP API** integration failure response when Lambda does **not** return a valid Lambda proxy payload in time (crash, init failure, timeout, etc.). Your browser/curl **did** hit API Gateway; the failure is **at or below** the Lambda integration.
+
+### “Nothing in CloudWatch” — interpret carefully
+
+- **Log group:** `/aws/lambda/ragnarok-trading-api` (standard name for that function). It may **not exist** until the first time Lambda tries to write logs.
+- **Wrong account or region:** CLI profile must be the **same account** that owns the function; region is **`us-east-1`** for this stack.
+- **No `handler_entry` line after deploy:** If `curl` still returns 500 and logs never show a line containing **`lambda_diag":"handler_entry"`**, the runtime is failing **before** your handler runs (image pull, entrypoint, or invoke never reaches this function — e.g. wrong function, wrong stage, or permission).
+- **After redeploying** `lambda_entry.py` with the diagnostic `print`, **every successful handler invocation** should emit one JSON line to CloudWatch first.
+
+### Commands to find the break (copy in order)
+
+```bash
+export AWS_PROFILE=ragnarok
+export AWS_REGION=us-east-1
+
+# 1) Confirm CLI account (must match the account that hosts the API)
+aws sts get-caller-identity
+
+# 2) Does the function exist here?
+aws lambda get-function --function-name ragnarok-trading-api \
+  --query '{State:Configuration.State,LastModified:Configuration.LastModified,ImageUri:Code.ImageUri}' --output json
+
+# 3) Log group present?
+aws logs describe-log-groups --log-group-name-prefix /aws/lambda/ragnarok-trading --output table
+
+# 4) Tail logs (invoke /health from another terminal while this runs)
+aws logs tail /aws/lambda/ragnarok-trading-api --since 10m --follow
+```
+
+**Bypass API Gateway** (proves code vs gateway mapping). Save payload:
+
+```bash
+cat > /tmp/apigw-v2-health.json <<'EOF'
+{"version":"2.0","rawPath":"/health","routeKey":"$default","requestContext":{"http":{"method":"GET","path":"/health"},"requestId":"cli-direct-invoke","stage":"$default","timeEpoch":1700000000000},"isBase64Encoded":false}
+EOF
+aws lambda invoke --function-name ragnarok-trading-api --cli-binary-format raw-in-base64-out --payload file:///tmp/apigw-v2-health.json /tmp/lambda-out.json
+cat /tmp/lambda-out.json
+```
+
+- **Direct invoke returns 200** with a `statusCode` / body and **logs appear** → Lambda is fine; fix **API custom domain / mapping / Route53** (wrong API, wrong account, stale DNS).
+
+**Direct invoke 200 but `curl` to `execute-api` / custom domain is 500 and Lambda logs stay empty:** almost always **`AWS::Lambda::Permission` `SourceArn` mismatch**. HTTP APIs require `arn:aws:execute-api:region:account:api-id/*/*` (or `.../api-id/$default/$default`), **not** REST-style `*/*/*/*`. Fix: update `api-lambda-http.yaml` and redeploy the stack, or `aws lambda add-permission` with the correct `--source-arn`, then remove the bad statement. See [AWS: Troubleshooting HTTP API Lambda integrations](https://docs.aws.amazon.com/apigateway/latest/developerguide/http-api-troubleshooting-lambda.html).
+- **Direct invoke errors** (FunctionError, or payload shows error) → fix **image, env, IAM, RDS URL**, or run **`./aws/deploy-api-lambda.sh`** after correcting `backend/.env`.
+
+**Custom domain sanity:**
+
+```bash
+aws apigatewayv2 get-domain-names --query "Items[?DomainName=='api.ragnarokgamez.com'].[DomainName,DomainNameConfigurations[0].TargetDomainName]" --output table
+aws apigatewayv2 get-api-mappings --domain-name api.ragnarokgamez.com --output table
+```
+
+Compare the **ApiId** in the mapping to the API behind your stack (`aws apigatewayv2 get-apis --query "Items[?Name=='ragnarok-trading-http-api']"`).

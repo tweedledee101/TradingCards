@@ -6,7 +6,7 @@ export default function PrivateLayout() {
   const { ready, authenticated, logout } = useAuth();
 
   const navLinkClass = ({ isActive }) =>
-    `px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+    `px-2 py-1.5 sm:px-3 rounded-lg text-xs sm:text-sm font-medium transition-colors ${
       isActive
         ? 'bg-ember-glow text-ember-light'
         : 'text-frost-dim hover:text-frost-light hover:bg-surface-raised'
@@ -31,10 +31,10 @@ export default function PrivateLayout() {
         role="navigation"
         aria-label="Main navigation"
       >
-        <div className="max-w-7xl mx-auto px-6 py-3 flex items-center justify-between">
-          <NavLink to="/" className="flex items-center gap-2.5">
+        <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 sm:py-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between min-w-0">
+          <NavLink to="/" className="flex items-center gap-2 sm:gap-2.5 min-w-0 shrink-0">
             <div
-              className="w-24 h-24 shrink-0"
+              className="w-14 h-14 sm:w-20 sm:h-20 md:w-24 md:h-24 shrink-0"
               style={{
                 maskImage: 'radial-gradient(circle, black 40%, transparent 70%)',
                 WebkitMaskImage: 'radial-gradient(circle, black 40%, transparent 70%)',
@@ -42,11 +42,11 @@ export default function PrivateLayout() {
             >
               <img src="/logo.png" alt="Ragnarok Games" className="w-full h-full object-contain" />
             </div>
-            <span className="text-lg font-display font-semibold text-frost-light tracking-wide uppercase">
+            <span className="text-base sm:text-lg font-display font-semibold text-frost-light tracking-wide uppercase truncate">
               Ragnarok <span className="text-ember">Gaming</span>
             </span>
           </NavLink>
-          <div className="flex items-center gap-1">
+          <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-1 md:justify-end w-full md:w-auto min-w-0">
             <NavLink to="/" className={navLinkClass} end>
               Trending
             </NavLink>
@@ -65,7 +65,7 @@ export default function PrivateLayout() {
             <button
               type="button"
               onClick={() => logout()}
-              className="ml-2 px-3 py-1.5 rounded-lg text-sm text-frost-dim hover:text-frost-light hover:bg-surface-raised"
+              className="px-2 py-1.5 sm:px-3 sm:ml-1 rounded-lg text-xs sm:text-sm text-frost-dim hover:text-frost-light hover:bg-surface-raised"
             >
               Sign out
             </button>

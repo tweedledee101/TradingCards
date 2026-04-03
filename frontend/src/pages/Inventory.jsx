@@ -1,12 +1,15 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getInventory, getInventoryStats } from '../api/client';
+import { getInventory, getInventoryStats, bulkImportInventory } from '../api/client';
 
 export default function Inventory() {
   const [inventory, setInventory] = useState([]);
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('owned');
+  const [importFile, setImportFile] = useState(null);
+  const [importing, setImporting] = useState(false);
+  const [importStatus, setImportStatus] = useState(null);
 
   useEffect(() => { loadData(); }, [filter]);
 
@@ -23,6 +26,31 @@ export default function Inventory() {
       console.error('Failed to load inventory:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleBulkImport = async () => {
+    if (!importFile) return;
+    setImporting(true);
+    setImportStatus(null);
+    try {
+      const res = await bulkImportInventory(importFile);
+      setImportStatus({
+        ok: true,
+        created: res.created,
+        errorCount: res.error_count,
+        errors: res.errors,
+      });
+      setImportFile(null);
+      await loadData();
+    } catch (err) {
+      const d = err?.response?.data?.detail;
+      setImportStatus({
+        ok: false,
+        message: typeof d === 'string' ? d : Array.isArray(d) ? JSON.stringify(d) : err?.message || 'Import failed',
+      });
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -46,6 +74,51 @@ export default function Inventory() {
       <div className="mb-6">
         <h1 className="text-2xl font-display font-semibold text-frost-light tracking-wide mb-1">Inventory</h1>
         <p className="text-sm text-frost-dim">Portfolio tracking and P&L</p>
+      </div>
+
+      <div className="card-surface p-4 mb-6 flex flex-wrap items-end gap-4">
+        <div>
+          <div className="text-label mb-1">Bulk import (CSV)</div>
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            className="text-xs text-frost-dim file:mr-2 file:py-1 file:px-2 file:rounded file:border file:border-surface-border file:bg-surface-elevated file:text-frost-light"
+            onChange={(e) => {
+              setImportFile(e.target.files?.[0] || null);
+              setImportStatus(null);
+            }}
+          />
+          <p className="text-[10px] text-frost-dim mt-1 max-w-xl">
+            UTF-8. Required: purchase_date, purchase_price. Card: card_id or player_name + card_year (optional
+            card_set, card_number). Optional: quantity, condition, notes, status, purchase_source.
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={!importFile || importing}
+          onClick={handleBulkImport}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+            !importFile || importing
+              ? 'opacity-50 cursor-not-allowed border-surface-border text-frost-dim'
+              : 'border-ember/30 text-ember bg-ember/10 hover:bg-ember/20'
+          }`}
+        >
+          {importing ? 'Uploading…' : 'Upload'}
+        </button>
+        {importStatus?.ok && (
+          <div className="text-xs text-frost-light">
+            Created {importStatus.created} row{importStatus.created !== 1 ? 's' : ''}.
+            {importStatus.errorCount > 0 && (
+              <span className="text-loss ml-1">
+                {importStatus.errorCount} row{importStatus.errorCount !== 1 ? 's' : ''} skipped — check API errors
+                list.
+              </span>
+            )}
+          </div>
+        )}
+        {importStatus && !importStatus.ok && (
+          <div className="text-xs text-loss max-w-md">{importStatus.message}</div>
+        )}
       </div>
 
       {/* Stats */}

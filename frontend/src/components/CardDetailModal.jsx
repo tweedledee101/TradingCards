@@ -110,7 +110,7 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
 
-      <div className="relative bg-surface-card border border-surface-border rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col"
+      <div className="relative bg-surface-card border border-surface-border rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col min-h-0"
         onClick={e => e.stopPropagation()}>
 
         {/* Close */}
@@ -148,18 +148,18 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
             </div>
 
             {/* Key numbers row */}
-            <div className="flex flex-wrap items-end gap-4 mb-3">
+            <div className="flex flex-wrap items-end gap-3 sm:gap-4 mb-3">
               <div>
                 <div className="text-[9px] uppercase text-frost-dim">{isAuction ? 'Current Bid' : 'Buy Price'}</div>
-                <div className="text-xl font-mono font-bold text-frost-light">${buyPrice?.toFixed(2)}</div>
+                <div className="text-lg sm:text-xl font-mono font-bold text-frost-light">${buyPrice?.toFixed(2)}</div>
               </div>
-              <div className="text-frost-dim text-lg font-light">/</div>
+              <div className="text-frost-dim text-lg font-light hidden sm:block">/</div>
               <div>
                 <div className="text-[9px] uppercase text-frost-dim">SCP Market</div>
-                <div className="text-xl font-mono font-bold text-frost-light">${scpPrice?.toFixed(2)}</div>
+                <div className="text-lg sm:text-xl font-mono font-bold text-frost-light">${scpPrice?.toFixed(2)}</div>
               </div>
-              <div className="ml-auto text-right">
-                <div className="text-xl font-mono font-bold text-gain">+${netProfit?.toFixed(2)}</div>
+              <div className="w-full sm:w-auto sm:ml-auto text-left sm:text-right">
+                <div className="text-lg sm:text-xl font-mono font-bold text-gain">+${netProfit?.toFixed(2)}</div>
                 <div className="text-xs font-mono text-gain/70">{roi?.toFixed(0)}% ROI</div>
               </div>
             </div>
@@ -272,10 +272,10 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
         </div>
 
         {/* ===== TABS ===== */}
-        <div className="flex border-b border-surface-border shrink-0">
+        <div className="flex flex-wrap border-b border-surface-border shrink-0">
           {TABS.map(t => (
             <button key={t} onClick={() => setTab(t)}
-              className={`px-4 py-2.5 text-xs font-medium transition-colors ${
+              className={`px-3 sm:px-4 py-2 sm:py-2.5 text-[11px] sm:text-xs font-medium transition-colors ${
                 tab === t
                   ? 'text-ember-light border-b-2 border-ember'
                   : 'text-frost-dim hover:text-frost-light'
@@ -286,7 +286,7 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
         </div>
 
         {/* ===== TAB CONTENT ===== */}
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 overscroll-contain">
 
           {/* OVERVIEW TAB */}
           {tab === 'Overview' && (

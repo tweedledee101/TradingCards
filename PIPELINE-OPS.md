@@ -79,16 +79,27 @@ python3 find_auction_opportunities.py --dry-run
 
 After any `auction_finder` run, `job_runs.results_summary` stores JSON including **`auctions_searched`**, **`qualified`**, **`step2_skip_reasons`** (why listings dropped before SCP), **`step3_*`** counters (no pricing, bin sanity, low volume, below min profit), and **`opportunities_found`**.
 
+**Step 3 pricing funnel:** **`step3_no_pricing`** counts listings with **no price after all sources**. **`step3_no_pricing_after_primary`** = entered fallback (no DB/SCP price). **`step3_no_pricing_after_sold_comps`** = still no price after 130point (so eBay BIN comps were tried or skipped). Compare the three to see whether the gap is **SCP**, **sold comps**, or **eBay comps**.
+
 ```bash
 export DATABASE_URL='postgresql://...'   # RDS or local
 python3 scripts/audit_auction_pipeline.py
+# Re-measure vs previous run (newest vs second-newest job with JSON summary):
+python3 scripts/audit_auction_pipeline.py --compare
+```
+
+**Stale ended auction rows** (audit prints `ended_still_stored`):
+
+```bash
+python3 scripts/cleanup_stale_auction_opportunities.py --dry-run
+python3 scripts/cleanup_stale_auction_opportunities.py
 ```
 
 Interpretation:
 
 - **`qualified` ≪ `auctions_searched`** → Step 2 (card #, player, year, junk, budget) is the bottleneck; fix identity extraction / queries before SCP.
 - **`step3_below_min_profit` dominates** → economic threshold or bid+ship too high vs comps; experiment `--min-profit` / `--max-budget` in **dry-run** and compare counts.
-- **`step3_no_pricing` dominates** → SCP + 130point + eBay comps still miss; improve matching, cache, or worm coverage — not “low eBay supply.”
+- **`step3_no_pricing` dominates** → use **`after_primary`** vs **`after_sold_comps`** vs final: primary SCP miss vs thin 130point vs weak eBay BIN comp set.
 
 ### Auction improvement hypotheses (test in order)
 
@@ -98,7 +109,9 @@ Interpretation:
 | H2: Many qualify but fail `step3_no_pricing` | `step3_no_pricing` large vs `qualified` | SCP cache fill rate, Selenium health, `sold_comps` worm volume, parallel matching fixes |
 | H3: Pricing works but `step3_below_min_profit` dominates | Counters in `results_summary` | Soften `--min-profit` for a “scout” tier in UI; or raise `--max-budget` for high-end flips |
 | H4: UI shows 3 because most rows **ended** | `ended_still_stored` vs `active_ui` in audit | Shorter `--hours` refresh cadence or filter/cleanup ended rows; run pipeline more often |
-| H5: Query set misses liquid segments | Dry-run with extra `VALUE_QUERIES` (e.g. set-specific like main pipeline) | Add queries mirroring `backend/config/sets.py` patterns for auctions |
+| H5: Query set misses liquid segments | `auctions_searched` high, `qualified` flat | Pipeline adds **`get_set_queries`** for top 15 DB players (see `HIGH_VALUE_SETS`); tune player cap or sets in `backend/config/sets.py` |
+
+**SCP Selenium slow loads:** Firefox may log `Navigation timed out after … ms`; the scraper catches that and still parses partial HTML when possible. Raise **`SCP_PAGE_LOAD_TIMEOUT`** in `backend/.env` (default **60**s, max **180**) if timeouts are frequent.
 
 **Services in play today (auctions):** eBay **Browse API** (`item_summary/search` ending soon, `item/{id}` details, BIN comp search), **MLB Stats API** (player names), **SportsCardsPro** (Selenium when DB/cache miss), **`sold_comps` / 130point worm**, **PostgreSQL** (`opportunities`, `job_runs`, `error_log`, `scp_cache`, `market_rates`).
 
@@ -106,7 +119,7 @@ Interpretation:
 
 ### What The Auction Finder Does
 
-1. Searches eBay using **~32 value-focused + ~80 player-specific queries** (numbered/autos/refractors/product names + top 40 DB players × 2 queries each)
+1. Searches eBay using **value queries + per-player queries** (top 40 DB players: auto/refractor + **set-specific** queries for the top 15 via `backend/config/sets.py`)
 2. Paginates up to 1000 results per query (5 pages x 200)
 3. Filters to eBay category 261328 (Trading Card Singles)
 4. Deduplicates across all queries by eBay item ID

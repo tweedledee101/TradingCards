@@ -1,5 +1,13 @@
 # Trading Card Platform - Current Status
-**Last Updated:** 2026-03-30 (Session 26)
+**Last Updated:** 2026-03-27 (Session 30)
+
+Session 30: **Opportunities context + inventory CSV** — **`GET /api/opportunities/context-strip`**: business dashboard slice (YTD, on-track, listed/total from planner) + catalog-matched **ActiveListing** pulse vs latest **MarketRate** (13% SCP fee). **`POST /api/inventory/bulk-import`**: UTF-8 CSV (purchase_date, purchase_price, card identity). Frontend: Opportunities strip + expandable table; Inventory file upload. Auction Actions **`SCP_PAGE_LOAD_TIMEOUT=90`**.
+
+Session 29: **SCP Selenium** — **`SCP_PAGE_LOAD_TIMEOUT`** in `backend/.env` / `config.settings` (default **60**s, clamped 15–180); **`SportsCardsProScraper`** uses it for `set_page_load_timeout`. Documents noisy Firefox “Navigation timed out” during long auction Step 3 runs.
+
+Session 28: **Auction pipeline pack** — **`backend/utils/listing_card_identity.py`**: card # from **Card No. / CN: / catalog / insert / ref** plus **`#`**. **`resolve_year_from_set_hint`** when player+# spans multiple years. **Step 3**: fixed fallback so **130point** recovery is not dropped; funnel adds **`step3_no_pricing_after_primary`** and **`step3_no_pricing_after_sold_comps`**. **Queries**: top **15** players get **`get_set_queries`** (`sets.py`). **`scripts/audit_auction_pipeline.py --compare`**; **`scripts/cleanup_stale_auction_opportunities.py`**.
+
+Session 27: **Auction card identity** — `search_auctions_ending_soon` passes **`short_description`**. `get_full_item_details` fills **`card_number`** and **`card_year`** from item text when aspects omit them. **`find_auction_opportunities.py`**: **`extract_year`** reads Year aspect, then title, then short description (1980–next year); detail fetch runs when **year** is missing too; **`infer_year_if_unique_in_catalog`** sets year when player+# maps to exactly one **`cards.card_year`**. Card **`#`** disambiguation via **`pick_card_number_with_catalog`** (player+year+sport).
 
 Session 26: **Auction funnel observability** — `find_auction_opportunities.py` writes **`step2_skip_reasons`**, **`step3_no_pricing`**, **`step3_bin_sanity`**, **`step3_low_volume`**, **`step3_below_min_profit`**, **`detail_lookups`**, and run **`parameters`** into `job_runs.results_summary`. New **`scripts/audit_auction_pipeline.py`** prints live auction row counts vs ended-stale, parses last auction_finder runs, and summarizes `error_log`. **`PIPELINE-OPS.md`**: audit commands + **hypothesis / experiment table** for improving auction volume without abandoning ROI/liquidity goals.
 

@@ -21,7 +21,7 @@ Deep dives: [docs/architecture/system-architecture.md](./docs/architecture/syste
 
 | Area | Path |
 |------|------|
-| API app + route registration | `backend/api/main.py`, `backend/api/routes/` |
+| API app + route registration | `backend/api/main.py`, `backend/api/routes/` (e.g. `GET /api/opportunities/context-strip`, `POST /api/inventory/bulk-import`) |
 | Business planner (goals, plans, capital) | `backend/services/business_planner.py`, `backend/api/routes/business.py` |
 | Auth (in progress; check git) | `backend/api/routes/auth.py`, `backend/utils/auth.py`, `backend/models/migration_018_auth_multi_tenant.sql`, `aws/cloudformation/cognito-auth.yaml` |
 | Scrapers / eBay / SCP | `backend/scrapers/`, `backend/utils/token_manager.py` |
@@ -30,7 +30,7 @@ Deep dives: [docs/architecture/system-architecture.md](./docs/architecture/syste
 | Frontend | `frontend/src/` — API client `frontend/src/api/client.js`; pages in `frontend/src/pages/` |
 | Pipelines (repo root) | `find_opportunities.py`, `find_auction_opportunities.py`, `worm_130point.py`, `daily_report.py`, `migrate.py` |
 | GitHub Actions summary (CLI) | `scripts/summarize_github_actions.py` — recent run conclusions + failed steps (`gh auth login` or `GITHUB_TOKEN`); see `PIPELINE-OPS.md` |
-| Auction funnel audit (RDS) | `scripts/audit_auction_pipeline.py` — `opportunities` auction counts + `job_runs` funnel JSON + `error_log`; see `PIPELINE-OPS.md` |
+| Auction funnel audit (RDS) | `scripts/audit_auction_pipeline.py` (`--compare` = delta vs prior run); `scripts/cleanup_stale_auction_opportunities.py` — see `PIPELINE-OPS.md` |
 | Full data pipeline | `backend/run_pipeline_full.py` |
 | Tests | `tests/unit`, `tests/integration`, `tests/qa` |
 | CI | `.github/workflows/` (BIN, auction, daily report, QA) |

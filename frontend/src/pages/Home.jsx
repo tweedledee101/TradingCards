@@ -58,7 +58,7 @@ const Home = () => {
   }
 
   return (
-    <div className="max-w-5xl mx-auto px-6 py-8">
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 py-6 sm:py-8 min-w-0">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-2xl font-display font-semibold text-frost-light tracking-wide mb-1">Market Movers</h1>
@@ -67,22 +67,21 @@ const Home = () => {
         </p>
         {cards.length === 0 && (
           <p className="mt-3 text-xs text-frost-dim max-w-xl leading-relaxed border border-surface-border rounded-lg px-3 py-2 bg-surface-card/50">
-            This list only includes cards with <span className="text-frost-light">sold eBay listings in the last 30 days</span>.
-            If your database has catalog rows but no recent sales, you will see nothing here — run the sales/card import pipeline (e.g.{' '}
-            <code className="text-[10px] font-mono text-frost-light">python -m backend.run_pipeline_full</code>
-            ) or check the <Link to="/opportunities" className="text-ember-light hover:underline">Opportunities</Link> tab (separate data).
+            This list only includes cards with <span className="text-frost-light">rows in the sales table from the last 30 days</span> (avg sale price ≥ $5). The scheduled BIN pipeline does not refresh that table — run the <span className="text-frost-light">Card Data Pipeline</span> in GitHub Actions or{' '}
+            <code className="text-[10px] font-mono text-frost-light">python3 -m backend.run_pipeline_full</code>
+            {' '}against RDS. <Link to="/opportunities" className="text-ember-light hover:underline">Opportunities</Link> uses separate data.
           </p>
         )}
       </div>
 
       {/* Sort controls */}
-      <div className="flex items-center gap-2 mb-6">
-        <span className="text-label">Sort by</span>
+      <div className="flex flex-wrap items-center gap-2 mb-6">
+        <span className="text-label w-full sm:w-auto">Sort by</span>
         {['hotness', 'volume', 'velocity', 'price'].map((key) => (
           <button
             key={key}
             onClick={() => { setSortBy(key); setPage(1); }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            className={`px-2.5 sm:px-3 py-1.5 rounded-lg text-[11px] sm:text-xs font-medium transition-colors ${
               sortBy === key
                 ? 'bg-ember-glow text-ember-light border border-ember/20'
                 : 'bg-surface-card text-frost-dim border border-surface-border hover:text-frost-light'
@@ -91,10 +90,10 @@ const Home = () => {
             {key === 'hotness' ? 'Hotness' : key === 'volume' ? 'Volume' : key === 'velocity' ? 'Velocity' : 'Price'}
           </button>
         ))}
-        <div className="flex-1" />
+        <div className="hidden sm:block sm:flex-1" />
         <button
           onClick={fetchCards}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-card text-frost-dim border border-surface-border hover:text-frost-light transition-colors"
+          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-surface-card text-frost-dim border border-surface-border hover:text-frost-light transition-colors ml-auto sm:ml-0"
         >
           Refresh
         </button>
@@ -164,84 +163,84 @@ const TrendingCard = ({ card, rank }) => {
   return (
     <Link
       to={`/card/${card.card_id}`}
-      className="card-surface-hover flex items-center gap-4 px-4 py-3 group"
+      className="card-surface-hover flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4 px-3 sm:px-4 py-3 group min-w-0"
     >
-      {/* Rank */}
-      <div className={`w-8 text-right font-mono text-sm font-bold ${rankColor} shrink-0`}>
-        {rank}
-      </div>
+      <div className="flex items-center gap-3 min-w-0 w-full sm:contents">
+        {/* Rank */}
+        <div className={`w-7 sm:w-8 text-right font-mono text-sm font-bold ${rankColor} shrink-0`}>
+          {rank}
+        </div>
 
-      {/* Image */}
-      <div className="w-12 h-16 rounded-md overflow-hidden bg-surface-raised shrink-0">
-        {card.image_url ? (
-          <img
-            src={card.image_url}
-            alt=""
-            className="w-full h-full object-cover"
-            onError={(e) => { e.target.style.display = 'none'; }}
-          />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-frost-dim text-xs">
-            --
+        {/* Image */}
+        <div className="w-11 h-14 sm:w-12 sm:h-16 rounded-md overflow-hidden bg-surface-raised shrink-0">
+          {card.image_url ? (
+            <img
+              src={card.image_url}
+              alt=""
+              className="w-full h-full object-cover"
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-frost-dim text-xs">
+              --
+            </div>
+          )}
+        </div>
+
+        {/* Card info */}
+        <div className="flex-1 min-w-0 sm:order-none">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 mb-0.5">
+            <span className="text-sm font-semibold text-frost-light truncate max-w-full">
+              {card.player_name}
+            </span>
+            {card.parallel && card.parallel !== 'Base' && (
+              <span className="badge-neutral text-[10px] shrink-0">{card.parallel}</span>
+            )}
+            {card.is_rookie && (
+              <span className="badge-ember text-[10px] shrink-0">RC</span>
+            )}
           </div>
-        )}
-      </div>
-
-      {/* Card info */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-0.5">
-          <span className="text-sm font-semibold text-frost-light truncate">
-            {card.player_name}
-          </span>
-          {card.parallel && card.parallel !== 'Base' && (
-            <span className="badge-neutral text-[10px]">{card.parallel}</span>
-          )}
-          {card.is_rookie && (
-            <span className="badge-ember text-[10px]">RC</span>
-          )}
-        </div>
-        <div className="text-xs text-frost-dim truncate">
-          {card.card_year} {card.card_set}
-          {card.card_number ? ` #${card.card_number}` : ''}
+          <div className="text-xs text-frost-dim line-clamp-2 sm:truncate">
+            {card.card_year} {card.card_set}
+            {card.card_number ? ` #${card.card_number}` : ''}
+          </div>
         </div>
       </div>
 
-      {/* Signals - WHY it's moving */}
-      <div className="flex items-center gap-2 shrink-0">
-        {signals.slice(0, 2).map((sig, i) => (
-          <span
-            key={i}
-            className={`text-[10px] font-medium px-2 py-0.5 rounded-md ${
-              sig.type === 'hot'
-                ? 'bg-ember-glow text-ember-light'
-                : sig.type === 'warm'
-                ? 'bg-amber-500/10 text-amber-400'
-                : sig.type === 'cold'
-                ? 'bg-loss/10 text-loss'
-                : 'bg-surface-raised text-frost-dim'
-            }`}
-          >
-            {sig.label}
-          </span>
-        ))}
-      </div>
-
-      {/* Price */}
-      <div className="text-right shrink-0 w-20">
-        <div className="text-sm font-semibold font-mono text-frost-light">
-          ${price.toFixed(2)}
+      {/* Mobile: stacked + aligned; sm+: single row */}
+      <div className="w-full flex flex-col gap-2 border-t border-surface-border/50 pt-2 mt-1 sm:border-0 sm:pt-0 sm:mt-0 sm:flex-row sm:items-center sm:justify-end sm:gap-4 sm:ml-auto sm:w-auto">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 min-w-0">
+          {signals.slice(0, 2).map((sig, i) => (
+            <span
+              key={i}
+              className={`text-[10px] font-medium px-1.5 sm:px-2 py-0.5 rounded-md whitespace-nowrap ${
+                sig.type === 'hot'
+                  ? 'bg-ember-glow text-ember-light'
+                  : sig.type === 'warm'
+                  ? 'bg-amber-500/10 text-amber-400'
+                  : sig.type === 'cold'
+                  ? 'bg-loss/10 text-loss'
+                  : 'bg-surface-raised text-frost-dim'
+              }`}
+            >
+              {sig.label}
+            </span>
+          ))}
         </div>
-        <div className={`text-[10px] font-mono ${velocity > 0 ? 'text-gain' : velocity < 0 ? 'text-loss' : 'text-frost-dim'}`}>
-          {velocity > 0 ? '+' : ''}{velocity.toFixed(1)}%
+        <div className="flex w-full justify-end items-center gap-3 sm:w-auto sm:justify-end sm:gap-4">
+          <div className="text-right w-[4.5rem] sm:w-20 shrink-0">
+            <div className="text-[9px] text-frost-dim uppercase tracking-wide sm:hidden">Avg</div>
+            <div className="text-sm font-semibold font-mono text-frost-light">${price.toFixed(2)}</div>
+            <div className={`text-[10px] font-mono ${velocity > 0 ? 'text-gain' : velocity < 0 ? 'text-loss' : 'text-frost-dim'}`}>
+              {velocity > 0 ? '+' : ''}{velocity.toFixed(1)}%
+            </div>
+          </div>
+          <div className={`text-center shrink-0 px-2 py-1 rounded-lg border ${heatBg} w-[3.25rem] sm:w-14`}>
+            <div className="sm:hidden text-[9px] text-frost-dim uppercase tracking-wider mb-0.5">heat</div>
+            <div className={`text-sm font-bold font-mono ${heatColor}`}>{hotness.toFixed(0)}</div>
+            <div className="hidden sm:block text-[9px] text-frost-dim uppercase tracking-wider">heat</div>
+          </div>
         </div>
-      </div>
-
-      {/* Hotness */}
-      <div className={`w-14 text-center shrink-0 px-2 py-1 rounded-lg border ${heatBg}`}>
-        <div className={`text-sm font-bold font-mono ${heatColor}`}>
-          {hotness.toFixed(0)}
-        </div>
-        <div className="text-[9px] text-frost-dim uppercase tracking-wider">heat</div>
       </div>
     </Link>
   );

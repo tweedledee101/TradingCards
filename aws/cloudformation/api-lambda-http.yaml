@@ -124,7 +124,9 @@ Resources:
       FunctionName: !Ref ApiFunction
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*/*/*
+      # HTTP API (v2) sends SourceArn ...:api-id/$default/$default (two segments), not REST's */*/*/*.
+      # Wrong pattern = invoke denied before Lambda runs → API GW 500 + empty /aws/lambda logs.
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*/*
 
   ApiCustomDomain:
     Type: AWS::ApiGatewayV2::DomainName

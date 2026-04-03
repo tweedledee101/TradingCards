@@ -119,6 +119,17 @@ def _dispatch(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
 
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    # Always emit one line first — if you see API Gateway 500 but never this line in
+    # /aws/lambda/ragnarok-trading-api, the break is before user code (invoke/permission/init).
+    rid = getattr(context, "aws_request_id", None) if context else None
+    raw_path = event.get("rawPath") if isinstance(event, dict) else None
+    print(
+        json.dumps(
+            {"lambda_diag": "handler_entry", "aws_request_id": rid, "rawPath": raw_path},
+            default=str,
+        ),
+        flush=True,
+    )
     try:
         return _dispatch(event, context)
     except Exception:
