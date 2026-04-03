@@ -963,7 +963,13 @@ if __name__ == '__main__':
 
         if not qualified:
             print("\nNo qualified auctions found.")
-            tracker.complete(summary={'auctions_searched': len(all_auctions), 'qualified': 0, 'opportunities': 0})
+            tracker.complete(summary={
+                'auctions_searched': len(all_auctions),
+                'qualified': 0,
+                'opportunities_found': 0,
+                'step2_skip_reasons': skip_reasons,
+                'detail_lookups': detail_lookups,
+            })
             exit()
 
         # Step 3: SCP validation (DB first, Selenium fallback)
@@ -981,7 +987,11 @@ if __name__ == '__main__':
         cache_hits = 0
         ebay_comp_hits = 0
         sold_comp_hits = 0
-        no_scp = 0
+        no_scp = 0  # legacy aggregate for console line
+        step3_no_pricing = 0
+        step3_bin_sanity = 0
+        step3_low_volume = 0
+        step3_below_min_profit = 0
 
         for i, auction in enumerate(qualified, 1):
             player = auction['_player']
@@ -1050,6 +1060,7 @@ if __name__ == '__main__':
                         print(f"  [{i}/{len(qualified)}] {label} -- eBay comps: ${scp['scp_price']:.2f} (median of {len(prices)} BINs)")
                 else:
                     no_scp += 1
+                    step3_no_pricing += 1
                     if i <= 20 or i % 50 == 0:
                         print(f"  [{i}/{len(qualified)}] {label} -- no SCP match, no eBay comps")
                     # Diagnostic: show WHY matching failed
@@ -1081,7 +1092,8 @@ if __name__ == '__main__':
                 if bin_ratio < 0.50:
                     if i <= 30 or i % 50 == 0:
                         print(f"  [{i}/{len(qualified)}] {label} -- BIN ${bin_price:.2f} is {bin_ratio:.0%} of SCP ${scp_price:.2f} (seller disagrees)")
-                    no_scp += 1  # Count as bad match
+                    no_scp += 1
+                    step3_bin_sanity += 1
                     continue
 
             # Profit check: SCP * 0.87 - (bid + shipping) >= min_profit
@@ -1091,11 +1103,13 @@ if __name__ == '__main__':
             # Check volume -- skip dead cards
             volume = scp.get('volume', '')
             if volume and any(lv in volume.lower() for lv in LOW_VOLUME):
+                step3_low_volume += 1
                 if i <= 20 or i % 50 == 0:
                     print(f"  [{i}/{len(qualified)}] {label} -- low volume ({volume})")
                 continue
 
             if profit < args.min_profit:
+                step3_below_min_profit += 1
                 if i <= 20 or i % 50 == 0:
                     print(f"  [{i}/{len(qualified)}] {label} -- ${profit:.2f} profit (below ${args.min_profit:.0f})")
                 continue
@@ -1173,6 +1187,10 @@ if __name__ == '__main__':
             scp_scraper.close()
 
         print(f"\nSCP lookups: {db_hits} DB, {cache_hits} cache, {selenium_hits} Selenium, {sold_comp_hits} 130point, {ebay_comp_hits} eBay comps, {no_scp} no match")
+        print(
+            f"Step 3 drops: no_pricing={step3_no_pricing}, bin_sanity={step3_bin_sanity}, "
+            f"low_volume={step3_low_volume}, below_min_profit=${args.min_profit}: {step3_below_min_profit}"
+        )
 
         # Summary
         print("\n" + "=" * 80)
@@ -1247,13 +1265,26 @@ if __name__ == '__main__':
         summary = {
             'auctions_searched': len(all_auctions),
             'qualified': len(qualified),
+            'step2_skip_reasons': skip_reasons,
+            'detail_lookups': detail_lookups,
             'cache_hits': cache_hits,
             'db_hits': db_hits,
             'selenium_hits': selenium_hits,
             'ebay_comp_hits': ebay_comp_hits,
             'sold_comp_hits': sold_comp_hits,
-            'no_scp_match': no_scp,
+            'no_scp_or_rejected': no_scp,
+            'step3_no_pricing': step3_no_pricing,
+            'step3_bin_sanity': step3_bin_sanity,
+            'step3_low_volume': step3_low_volume,
+            'step3_below_min_profit': step3_below_min_profit,
             'opportunities_found': len(opportunities),
+            'parameters': {
+                'hours': args.hours,
+                'min_profit': args.min_profit,
+                'max_budget': args.max_budget,
+                'sport': args.sport,
+                'years': years,
+            },
         }
         log.info('Auction pipeline complete', context=summary)
         tracker.complete(summary=summary)

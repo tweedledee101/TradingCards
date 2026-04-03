@@ -1,5 +1,11 @@
 # Trading Card Platform - Current Status
-**Last Updated:** 2026-03-27 (Session 23)
+**Last Updated:** 2026-03-30 (Session 26)
+
+Session 26: **Auction funnel observability** — `find_auction_opportunities.py` writes **`step2_skip_reasons`**, **`step3_no_pricing`**, **`step3_bin_sanity`**, **`step3_low_volume`**, **`step3_below_min_profit`**, **`detail_lookups`**, and run **`parameters`** into `job_runs.results_summary`. New **`scripts/audit_auction_pipeline.py`** prints live auction row counts vs ended-stale, parses last auction_finder runs, and summarizes `error_log`. **`PIPELINE-OPS.md`**: audit commands + **hypothesis / experiment table** for improving auction volume without abandoning ROI/liquidity goals.
+
+Session 25: **Production SPA deploy** — `npm run build`, `aws s3 sync` to `ragnarok-spa-635601810497-us-east-1`, CloudFront invalidation `E1I0LKGWO56GR5` (`/*`). **`aws/README.md`**: “Traffic: volume vs where from” (CloudWatch/Monitoring, optional Standard logging, third-party analytics).
+
+Session 24: **Mobile list layout** — Trending (`Home.jsx`): stacked stats row with optional **Avg** label below `sm`; heat box label order preserved on desktop. Opportunities (`Opportunities.jsx`): auction/BIN rows use a **3-column metric strip** below `sm` (Bid–SCP–Profit / Buy–SCP–Profit) so numbers line up; header row is timer+image+chevron (auctions) or BIN+image+chevron; countdown column narrowed on small screens; expanded action rows **flex-wrap**.
 
 Session 23: **Card Data Pipeline** — added **daily schedule** (`0 11 * * *` UTC) so **`sales`** refresh for Trending; scheduled runs **always `--skip-scp`** (dispatch unchanged unless SCP unchecked). Root cause of empty Trending was **no cron + zero prior runs**.
 

@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""
+Data-driven audit: auction opportunities + last auction_finder job summaries.
+
+Run against RDS (or local) with DATABASE_URL set:
+  DATABASE_URL=postgresql://... python3 scripts/audit_auction_pipeline.py
+
+Prints:
+  - Rows the UI would show (listing_type=auction, not ended)
+  - Stale rows (ended but still in table)
+  - Latest job_runs for job_name='auction_finder' with parsed funnel JSON
+  - error_log rows for source auction_finder (last 7 days)
+
+Use this to validate hypotheses (e.g. "we lose everyone at step2 no_card_number")
+instead of guessing from code alone.
+"""
+from __future__ import annotations
+
+import json
+import os
+import sys
+from datetime import datetime
+
+# Repo root on path
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from sqlalchemy import text
+
+from backend.utils.database import SessionLocal
+
+
+def main():
+    db = SessionLocal()
+    try:
+        now = datetime.now()
+        print("=== Opportunities table: auctions (what /api/auctions serves) ===\n")
+
+        row = db.execute(
+            text(
+                """
+                SELECT
+                    COUNT(*) FILTER (
+                        WHERE end_time IS NULL OR end_time > :now
+                    ) AS active_ui,
+                    COUNT(*) FILTER (
+                        WHERE end_time IS NOT NULL AND end_time <= :now
+                    ) AS ended_still_stored,
+                    COUNT(*) AS total_auction_rows
+                FROM opportunities
+                WHERE listing_type = 'auction'
+                """
+            ),
+            {"now": now},
+        ).mappings().first()
+        print(f"  Active (end_time null or future): {row['active_ui']}")
+        print(f"  Ended but still in DB:            {row['ended_still_stored']}")
+        print(f"  Total auction rows:               {row['total_auction_rows']}")
+
+        print("\n=== Latest auction_finder job_runs (funnel in results_summary) ===\n")
+        runs = db.execute(
+            text(
+                """
+                SELECT id, status, started_at, completed_at, error_message, results_summary, parameters
+                FROM job_runs
+                WHERE job_name = 'auction_finder'
+                ORDER BY id DESC
+                LIMIT 8
+                """
+            )
+        ).mappings().all()
+
+        if not runs:
+            print("  (no job_runs for auction_finder — pipeline may never have completed against this DB)")
+        for r in runs:
+            print(f"--- run id={r['id']} status={r['status']} started={r['started_at']} ---")
+            if r["error_message"]:
+                print(f"  error_message: {r['error_message'][:500]}")
+            params = r["parameters"]
+            if params:
+                try:
+                    print(f"  parameters: {params[:300]}..." if len(params) > 300 else f"  parameters: {params}")
+                except TypeError:
+                    print(f"  parameters: {params}")
+            raw = r["results_summary"]
+            if not raw:
+                print("  results_summary: (null)")
+                print()
+                continue
+            try:
+                s = json.loads(raw) if isinstance(raw, str) else raw
+            except json.JSONDecodeError:
+                print(f"  results_summary (raw): {raw[:400]}")
+                print()
+                continue
+            print("  results_summary (parsed):")
+            for k in (
+                "auctions_searched",
+                "qualified",
+                "opportunities_found",
+                "detail_lookups",
+                "db_hits",
+                "cache_hits",
+                "selenium_hits",
+                "sold_comp_hits",
+                "ebay_comp_hits",
+                "no_scp_or_rejected",
+                "no_scp_match",
+                "step3_no_pricing",
+                "step3_bin_sanity",
+                "step3_low_volume",
+                "step3_below_min_profit",
+            ):
+                if k in s:
+                    print(f"    {k}: {s[k]}")
+            if "step2_skip_reasons" in s:
+                print("    step2_skip_reasons:")
+                for sk, sv in sorted(s["step2_skip_reasons"].items(), key=lambda x: -x[1]):
+                    print(f"      {sk}: {sv}")
+            if "parameters" in s:
+                print(f"    run_parameters: {s['parameters']}")
+            print()
+
+        print("=== error_log: auction_finder, last 7 days (WARN+) ===\n")
+        errs = db.execute(
+            text(
+                """
+                SELECT level, category, COUNT(*) AS n
+                FROM error_log
+                WHERE source = 'auction_finder'
+                  AND timestamp > NOW() - INTERVAL '7 days'
+                GROUP BY level, category
+                ORDER BY n DESC
+                LIMIT 30
+                """
+            )
+        ).mappings().all()
+        if not errs:
+            print("  (no rows — logger may not persist INFO, or no recent warnings)")
+        for e in errs:
+            print(f"  {e['level']:7} {e['category'] or '-':20} {e['n']}")
+
+    finally:
+        db.close()
+
+
+if __name__ == "__main__":
+    main()

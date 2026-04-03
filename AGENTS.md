@@ -29,6 +29,8 @@ Deep dives: [docs/architecture/system-architecture.md](./docs/architecture/syste
 | Config | `backend/config/settings.py`, `config/targets.yaml` |
 | Frontend | `frontend/src/` — API client `frontend/src/api/client.js`; pages in `frontend/src/pages/` |
 | Pipelines (repo root) | `find_opportunities.py`, `find_auction_opportunities.py`, `worm_130point.py`, `daily_report.py`, `migrate.py` |
+| GitHub Actions summary (CLI) | `scripts/summarize_github_actions.py` — recent run conclusions + failed steps (`gh auth login` or `GITHUB_TOKEN`); see `PIPELINE-OPS.md` |
+| Auction funnel audit (RDS) | `scripts/audit_auction_pipeline.py` — `opportunities` auction counts + `job_runs` funnel JSON + `error_log`; see `PIPELINE-OPS.md` |
 | Full data pipeline | `backend/run_pipeline_full.py` |
 | Tests | `tests/unit`, `tests/integration`, `tests/qa` |
 | CI | `.github/workflows/` (BIN, auction, daily report, QA) |
