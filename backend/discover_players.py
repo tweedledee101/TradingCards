@@ -1,29 +1,34 @@
 """
 Volume-Based Player Discovery
 
-Searches eBay sold listings for a broad seed list of players,
-counts actual sales per player, and ranks by volume.
+Queries eBay Buy Browse (active listing ``total`` per seed) and ranks players.
+Runs on every opportunity pipeline when ``--players`` is not set.
 
-The seed list is large (100+ players) but we only use 1 API call each.
-The TOP players by volume become our targets.
-
-This runs weekly to refresh the target list.
+Operational visibility:
+- Every run prints one machine-readable line: ``DISCOVER_SUMMARY {...}`` (grep in CI logs).
+- Failures (zero players returned) persist one ``error_log`` row:
+  ``category=discover_all_seeds_zero``, ``source=discover_players``.
+- Per-seed HTTP/API issues persist as ``WARN`` rows (throttled so we do not insert 45 rows on total outage).
 
 Usage:
     /usr/bin/python3 -m backend.discover_players
     /usr/bin/python3 -m backend.discover_players --limit 20 --days 7
 """
 
+import json
 import sys
 import os
 import time
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.scrapers.ebay_scraper import EbayScraper
+from backend.utils.logger import get_logger
 import requests
+
+log = get_logger('discover_players')
 
 # Broad seed list - covers current stars, hot rookies, legends
 # This list gets pruned by actual eBay volume data
@@ -109,6 +114,23 @@ SEED_PLAYERS = [
 ]
 
 
+def _ebay_errors_summary(data: dict) -> Optional[List[Dict[str, Any]]]:
+    raw = data.get('errors')
+    if not raw:
+        return None
+    items = raw if isinstance(raw, list) else [raw]
+    out: List[Dict[str, Any]] = []
+    for e in items[:8]:
+        if isinstance(e, dict):
+            out.append({
+                'errorId': e.get('errorId'),
+                'domain': e.get('domain'),
+                'severity': e.get('severity'),
+                'message': str(e.get('message') or '')[:500],
+            })
+    return out or None
+
+
 def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None, sport: str = None) -> List[Dict]:
     """
     Discover top players by eBay **active listing** volume (Browse search ``total``).
@@ -135,27 +157,46 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
     print(f"API calls needed: {len(players_to_search)} (1 per player, limit=1)")
     print("=" * 70)
     
-    results = []
+    results: List[Dict] = []
+    stats: Dict[str, Any] = {
+        'seeds_queried': len(players_to_search),
+        'sport_filter': sport,
+        'http_not_200': 0,
+        'json_errors_in_200': 0,
+        'exceptions': 0,
+        'zero_total_after_fallback': 0,
+        'fallback_recovered': 0,
+        'nonzero_seeds': 0,
+        'browse_base_url': scraper.base_url,
+    }
+    samples: List[Dict[str, Any]] = []
+    http_warn_logged = 0
+    json_err_warn_logged = 0
+    exc_warn_logged = 0
 
-    # Browse item_summary/search returns *active* listings. A past-only itemEndDate
-    # window (e.g. last 7 days) matches almost nothing → total=0 for every seed.
-    # Volume proxy: count active BUY/auction hits; optional category to cut noise.
-    def _discovery_filter(sp: Optional[str]) -> str:
-        parts = ['buyingOptions:{AUCTION|FIXED_PRICE}']
+    def _sample(row: Dict[str, Any]) -> None:
+        if len(samples) < 8:
+            samples.append(row)
+
+    # Browse item_summary/search: use category_ids as a query param (documented), not categoryId
+    # inside ``filter`` — the latter can invalidate the filter and return total=0 for every query.
+    # Default search already returns FIXED_PRICE listings; buyingOptions adds pure auctions.
+    def _discovery_params(player_name: str, sp: Optional[str]) -> dict:
+        p: dict = {
+            'q': f'{player_name} card',
+            'filter': 'buyingOptions:{AUCTION|FIXED_PRICE}',
+            'limit': 1,
+        }
         if sp == 'Baseball':
-            parts.append('categoryId:{261328}')  # Trading Card Singles
-        return ','.join(parts)
+            p['category_ids'] = '261328'  # Trading Card Singles (URI param per Buy Browse docs)
+        return p
 
     for i, (player_name, sport) in enumerate(players_to_search, 1):
         print(f"  [{i}/{len(players_to_search)}] {player_name}...", end=" ", flush=True)
         
         try:
             scraper.headers['Authorization'] = f'Bearer {scraper.token_manager.get_token()}'
-            params = {
-                'q': f'{player_name} card',
-                'filter': _discovery_filter(sport),
-                'limit': 1
-            }
+            params = _discovery_params(player_name, sport)
             r = requests.get(
                 f'{scraper.base_url}/item_summary/search',
                 headers=scraper.headers,
@@ -172,14 +213,89 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
                     params=params,
                     timeout=10
                 )
+
+            data = r.json() if r.content else {}
+            if r.status_code != 200:
+                stats['http_not_200'] += 1
+                err = data.get('errors', data) if isinstance(data, dict) else r.text
+                snippet = str(err)[:400]
+                print(f"HTTP {r.status_code} {snippet[:200]}")
+                _sample({
+                    'player': player_name, 'sport': sport, 'phase': 'primary',
+                    'http_status': r.status_code, 'params': params,
+                    'ebay_errors': _ebay_errors_summary(data) if isinstance(data, dict) else None,
+                    'body_snippet': snippet,
+                })
+                if http_warn_logged < 5:
+                    log.warn(
+                        'eBay Browse discovery HTTP non-success',
+                        category='ebay_browse_discover_http',
+                        context={
+                            'player': player_name, 'sport': sport, 'http_status': r.status_code,
+                            'params': params, 'ebay_errors': _ebay_errors_summary(data) if isinstance(data, dict) else None,
+                            'body_snippet': snippet,
+                        },
+                    )
+                    http_warn_logged += 1
+                continue
+
+            api_errs = _ebay_errors_summary(data)
+            if api_errs:
+                stats['json_errors_in_200'] += 1
+                print(f"errors: {str(data.get('errors'))[:200]}")
+                _sample({
+                    'player': player_name, 'sport': sport, 'phase': 'primary',
+                    'http_status': 200, 'params': params, 'ebay_errors': api_errs,
+                })
+                if json_err_warn_logged < 5:
+                    log.warn(
+                        'eBay Browse discovery returned errors[] with HTTP 200',
+                        category='ebay_browse_discover_api_errors',
+                        context={'player': player_name, 'sport': sport, 'params': params, 'ebay_errors': api_errs},
+                    )
+                    json_err_warn_logged += 1
             
-            data = r.json()
             total = data.get('total', 0)
+            if isinstance(total, str) and total.isdigit():
+                total = int(total)
+            elif not isinstance(total, int):
+                total = 0
+
+            used_fallback = False
+            fb_params: Optional[dict] = None
+            # Fallback: BIN-default search without buyingOptions filter
+            if total == 0:
+                fb_params = {'q': f'{player_name} card', 'limit': 1}
+                if sport == 'Baseball':
+                    fb_params['category_ids'] = '261328'
+                r2 = requests.get(
+                    f'{scraper.base_url}/item_summary/search',
+                    headers=scraper.headers,
+                    params=fb_params,
+                    timeout=10,
+                )
+                if r2.status_code == 200:
+                    d2 = r2.json()
+                    t2 = d2.get('total', 0)
+                    if isinstance(t2, str) and str(t2).isdigit():
+                        t2 = int(t2)
+                    if isinstance(t2, int) and t2 > 0:
+                        total = t2
+                        used_fallback = True
+                        stats['fallback_recovered'] += 1
+
             print(f"{total:,} listings")
             
             if total == 0:
+                stats['zero_total_after_fallback'] += 1
+                _sample({
+                    'player': player_name, 'sport': sport,
+                    'primary_params': params, 'fallback_params': fb_params,
+                    'used_fallback': used_fallback, 'total': 0,
+                })
                 continue
-            
+
+            stats['nonzero_seeds'] += 1
             results.append({
                 'player_name': player_name,
                 'sport': sport,
@@ -189,14 +305,59 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
             time.sleep(0.3)
             
         except Exception as e:
+            stats['exceptions'] += 1
             print(f"ERROR: {e}")
+            _sample({'player': player_name, 'sport': sport, 'exception': str(e)[:400]})
+            if exc_warn_logged < 5:
+                log.warn(
+                    f'eBay Browse discovery exception: {e}',
+                    category='ebay_browse_discover_exception',
+                    context={'player': player_name, 'sport': sport},
+                )
+                exc_warn_logged += 1
             continue
     
     # Rank by volume
     results.sort(key=lambda x: x['sales_volume'], reverse=True)
     
     print(f"\nSearched {len(players_to_search)} players, {len(results)} had listings")
-    
+
+    top_names = [p['player_name'] for p in results[:limit]]
+    summary_line = {
+        'event': 'discover_players',
+        'ts': datetime.utcnow().isoformat() + 'Z',
+        'nonzero_seeds': stats['nonzero_seeds'],
+        'seeds_queried': stats['seeds_queried'],
+        'returned_top_n': len(results[:limit]),
+        'http_not_200': stats['http_not_200'],
+        'json_errors_in_200': stats['json_errors_in_200'],
+        'exceptions': stats['exceptions'],
+        'zero_after_fallback': stats['zero_total_after_fallback'],
+        'fallback_recovered': stats['fallback_recovered'],
+        'top_players_preview': top_names[:10],
+    }
+    print(f"DISCOVER_SUMMARY {json.dumps(summary_line, default=str)}", flush=True)
+
+    degraded = stats['http_not_200'] or stats['exceptions'] or stats['json_errors_in_200']
+    if degraded and results:
+        log.warn(
+            'Player discovery completed with errors but found some seeds',
+            category='discover_run_degraded',
+            context={**stats, 'samples': samples[:5], 'top_players': top_names[:limit]},
+        )
+
+    if not results:
+        log.error(
+            'Player discovery returned ZERO ranked players — opportunity pipeline cannot choose top 40.',
+            category='discover_all_seeds_zero',
+            context={
+                **stats,
+                'samples': samples,
+                'hint': 'Query error_log WHERE category IN (\'discover_all_seeds_zero\',\'ebay_browse_discover_http\',\'ebay_browse_discover_api_errors\') ORDER BY timestamp DESC LIMIT 20',
+            },
+            stack_trace=None,
+        )
+
     return results[:limit]
 
 

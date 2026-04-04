@@ -400,7 +400,8 @@ if __name__ == '__main__':
     if not players:
         msg = (
             "eBay player discovery returned 0 players (every seed had total=0). "
-            "Usually fixed by discover_players Browse filters; use --players a,b,c to override."
+            "In logs, grep DISCOVER_SUMMARY for per-seed totals and error_log for "
+            "discover_all_seeds_zero / ebay_browse_discover_*; use --players a,b,c to override."
         )
         print(msg, file=sys.stderr)
         log.error(msg, category='discover_zero_players', context={'top_players': args.top_players})

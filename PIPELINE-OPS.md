@@ -16,6 +16,21 @@ cd /home/tweedledee101/TradingCards
 
 GitHub Actions workflows run with network and repo secrets; local parity requires the same.
 
+## Player discovery observability (eBay Browse)
+
+When discovery returns **0 players**, the run is not “silent”: **`backend/discover_players.py`** prints a **`DISCOVER_SUMMARY`** JSON line (stdout) and writes **`error_log`** rows when all seeds are zero or when Browse returns HTTP/API errors.
+
+- **Logs:** search workflow output for **`DISCOVER_SUMMARY`** (per-seed `total`, `http_status`, `ebay_errors`, samples).
+- **Database:** `error_log` rows use categories such as **`discover_all_seeds_zero`**, **`ebay_browse_discover_http`**, **`ebay_browse_discover_api_errors`**, **`ebay_browse_discover_exception`**, **`discover_run_degraded`**.
+
+```sql
+SELECT created_at, category, message, context
+FROM error_log
+WHERE category LIKE 'discover%' OR category LIKE 'ebay_browse_discover%'
+ORDER BY created_at DESC
+LIMIT 50;
+```
+
 ## What The Pipeline Does (In Order)
 
 | Step | What | API Calls (40 players) | Time |

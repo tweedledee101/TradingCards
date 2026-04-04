@@ -82,9 +82,12 @@ class EbayScraper:
             self.base_url = "https://api.ebay.com/buy/browse/v1"
             print("🔴 Using eBay PRODUCTION (5,000 calls/day limit)")
         
+        # Browse search expects a marketplace; omitting headers can yield empty totals on some clients.
         self.headers = {
             "Authorization": f"Bearer {self.token_manager.get_token()}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
+            "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+            "X-EBAY-C-ENDUSERCTX": "contextualLocation=country%3DUS",
         }
     
     def search_sold_listings(self, query: str, days_back: int = 7, player_name: str = None, sport: str = None) -> List[Dict]:

@@ -77,7 +77,10 @@ jobs:
           EBAY_APP_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CERT_ID: ${{ secrets.EBAY_CLIENT_SECRET }}
         # inputs.* is empty on schedule(); defaults must be in ${{ }}, not bash ${VAR:-x}.
+        # pipefail: python exit code survives tee (otherwise success masks failures).
         run: |
+          set -o pipefail
+          LOG=/tmp/opportunity_pipeline.log
           ARGS=(
             python3 find_opportunities.py
             --max-budget "${{ inputs.max_budget || '200' }}"
@@ -89,12 +92,13 @@ jobs:
           if [ -n "${{ inputs.players }}" ]; then
             ARGS+=(--players "${{ inputs.players }}")
           fi
-          "${ARGS[@]}"
+          "${ARGS[@]}" 2>&1 | tee "$LOG"
 
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: pipeline-logs
-          path: /tmp/*.log
+          path: /tmp/opportunity_pipeline.log
+          if-no-files-found: ignore
           retention-days: 7
