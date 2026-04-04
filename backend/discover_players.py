@@ -5,7 +5,8 @@ Queries eBay Buy Browse (active listing ``total`` per seed) and ranks players.
 Runs on every opportunity pipeline when ``--players`` is not set.
 
 Operational visibility:
-- Every run prints one machine-readable line: ``DISCOVER_SUMMARY {...}`` (grep in CI logs).
+- Right before per-seed Browse calls, one **Analytics** line when available: ``BROWSE_APP_QUOTA {...}`` (app-level Buy/Browse **remaining** / **limit**).
+- Every run prints one machine-readable line: ``DISCOVER_SUMMARY {...}`` (grep in CI logs; includes **ebay_quota_analytics**, **ebay_ratelimit_last** when present).
 - Failures (zero players returned) persist one ``error_log`` row:
   ``category=discover_all_seeds_zero``, ``source=discover_players``.
 - Per-seed HTTP/API issues persist as ``WARN`` rows (throttled so we do not insert 45 rows on total outage).
@@ -26,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from backend.scrapers.ebay_scraper import EbayScraper
 from backend.utils.logger import get_logger
+from backend.utils.ebay_rate_limits import fetch_buy_browse_app_quota, parse_ratelimit_headers
 import requests
 
 log = get_logger('discover_players')
@@ -114,23 +116,34 @@ SEED_PLAYERS = [
 ]
 
 
-def _discover_429_sleep_seconds(retry_after_header: Optional[str]) -> float:
+def _discover_429_backoff_seconds(attempt: int, retry_after_header: Optional[str]) -> float:
     """
-    Seconds to sleep after HTTP 429 on discovery.
+    Decreasing backoff after HTTP 429: first wait longer, later waits shrink toward ~0.
 
-    eBay often sends Retry-After: 60; capping avoids spending a full minute per
-    seed while still backing off. Override cap: EBAY_DISCOVER_429_MAX_SLEEP (5–120).
+    Default schedule (seconds): 25, 12, 6, 2, 0.5 — override with
+    ``EBAY_DISCOVER_429_BACKOFF`` (comma-separated, e.g. ``30,15,8,3,1``).
+
+    If eBay sends a **shorter** ``Retry-After``, we use ``min(schedule, Retry-After)``
+    so we do not wait longer than eBay asks. We **never** wait longer than the
+    schedule step (so Retry-After: 60 becomes 25 on the first retry, not 60).
     """
+    raw = os.environ.get('EBAY_DISCOVER_429_BACKOFF', '25,12,6,2,0.5')
+    parts = [p.strip() for p in raw.split(',') if p.strip()]
     try:
-        cap = int(os.environ.get('EBAY_DISCOVER_429_MAX_SLEEP', '25'))
+        schedule = [max(0.1, float(x)) for x in parts]
     except ValueError:
-        cap = 25
-    cap = max(5, min(120, cap))
-    try:
-        ra = int(retry_after_header) if retry_after_header else 15
-    except ValueError:
-        ra = 15
-    return float(min(max(ra, 2), cap))
+        schedule = [25.0, 12.0, 6.0, 2.0, 0.5]
+    if not schedule:
+        schedule = [25.0, 12.0, 6.0, 2.0, 0.5]
+    base = schedule[attempt] if attempt < len(schedule) else schedule[-1]
+    if retry_after_header:
+        try:
+            ra = float(retry_after_header)
+            if ra > 0:
+                return float(min(base, ra))
+        except ValueError:
+            pass
+    return float(base)
 
 
 def _browse_item_summary_get(
@@ -143,9 +156,8 @@ def _browse_item_summary_get(
     """
     GET ``/item_summary/search`` with 401 refresh and 429 ``Retry-After`` backoff.
 
-    Discovery uses a **lower max sleep** than auction Browse (see
-    ``_discover_429_sleep_seconds``) so a throttled run fails faster instead of
-    burning hours at 60s × 45 seeds.
+    Discovery uses **decreasing** 429 backoff (see ``_discover_429_backoff_seconds``)
+    instead of repeating a 60s ``Retry-After`` on every attempt.
     """
     last: Optional[requests.Response] = None
     for attempt in range(6):
@@ -159,6 +171,11 @@ def _browse_item_summary_get(
             timeout=timeout,
         )
         last = r
+        if stats is not None:
+            h = parse_ratelimit_headers(r)
+            if h:
+                stats['ebay_ratelimit_last'] = {k: v for k, v in h.items() if k != 'source'}
+                stats['ebay_ratelimit_last_source'] = 'response_headers'
         if r.status_code == 401:
             scraper.token_manager._refresh_token()
             scraper.headers['Authorization'] = f'Bearer {scraper.token_manager.get_token()}'
@@ -169,14 +186,19 @@ def _browse_item_summary_get(
                 timeout=timeout,
             )
             last = r
+            if stats is not None:
+                h = parse_ratelimit_headers(r)
+                if h:
+                    stats['ebay_ratelimit_last'] = {k: v for k, v in h.items() if k != 'source'}
+                    stats['ebay_ratelimit_last_source'] = 'response_headers'
 
         if r.status_code == 429:
             if stats is not None:
                 stats['browse_429_waits'] = stats.get('browse_429_waits', 0) + 1
-            wait = _discover_429_sleep_seconds(r.headers.get('Retry-After'))
+            wait = _discover_429_backoff_seconds(attempt, r.headers.get('Retry-After'))
             if attempt < 5:
                 print(
-                    f"  eBay Browse 429 — sleeping {wait:.0f}s then retry ({attempt + 1}/5)...",
+                    f"  eBay Browse 429 — sleeping {wait:g}s then retry ({attempt + 1}/5)...",
                     flush=True,
                 )
                 time.sleep(wait)
@@ -241,7 +263,13 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
         'nonzero_seeds': 0,
         'browse_base_url': scraper.base_url,
         'browse_429_waits': 0,
+        'ebay_quota_analytics': None,
+        'ebay_ratelimit_last': None,
     }
+    quota = fetch_buy_browse_app_quota(scraper)
+    if quota:
+        stats['ebay_quota_analytics'] = quota
+        print(f"BROWSE_APP_QUOTA {json.dumps(quota, default=str)}", flush=True)
     samples: List[Dict[str, Any]] = []
     http_warn_logged = 0
     json_err_warn_logged = 0
@@ -388,6 +416,8 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
         'zero_after_fallback': stats['zero_total_after_fallback'],
         'fallback_recovered': stats['fallback_recovered'],
         'browse_429_waits': stats.get('browse_429_waits', 0),
+        'ebay_quota_analytics': stats.get('ebay_quota_analytics'),
+        'ebay_ratelimit_last': stats.get('ebay_ratelimit_last'),
         'top_players_preview': top_names[:10],
     }
     print(f"DISCOVER_SUMMARY {json.dumps(summary_line, default=str)}", flush=True)
@@ -404,9 +434,9 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
         rate_hint = ''
         if stats.get('browse_429_waits'):
             rate_hint = (
-                ' Many responses were HTTP 429 (Browse throttling). Discovery now retries with Retry-After; '
-                'avoid running Card Data / Auction / Opportunity jobs back-to-back on the same app id, '
-                'or wait for quota reset.'
+                ' Many responses were HTTP 429 (Browse throttling). Discovery uses decreasing backoff; '
+                'check DISCOVER_SUMMARY ebay_quota_analytics / ebay_ratelimit_last. '
+                'Avoid stacking pipelines on the same app id or wait for quota reset.'
             )
         log.error(
             'Player discovery returned ZERO ranked players — opportunity pipeline cannot choose top 40.'

@@ -1,9 +1,9 @@
-"""Browse GET helper used by player discovery (429 + Retry-After)."""
+"""Browse GET helper used by player discovery (429 + decreasing backoff)."""
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from backend.discover_players import _browse_item_summary_get
+from backend.discover_players import _browse_item_summary_get, _discover_429_backoff_seconds
 
 
 @pytest.fixture
@@ -38,8 +38,8 @@ def test_browse_get_429_then_200(mock_get, _sleep, scraper):
 
 @patch('backend.discover_players.time.sleep', return_value=None)
 @patch('backend.discover_players.requests.get')
-def test_browse_get_429_retry_after_capped(mock_get, _sleep, scraper):
-    """eBay Retry-After 90 is capped (default max 25s) so discovery does not stall a minute per try."""
+def test_browse_get_429_retry_after_respects_schedule_not_60(mock_get, mock_sleep, scraper):
+    """Retry-After 90 does not force 60s; first backoff uses schedule step 25s."""
     r429 = MagicMock()
     r429.status_code = 429
     r429.headers = {'Retry-After': '90'}
@@ -53,9 +53,33 @@ def test_browse_get_429_retry_after_capped(mock_get, _sleep, scraper):
     r = _browse_item_summary_get(scraper, {'q': 'x', 'limit': 1}, stats=stats)
 
     assert r.status_code == 200
-    _sleep.assert_called()
-    # one 429 wait + one inter-attempt 0.5
-    assert any(call[0][0] == 25 for call in _sleep.call_args_list)
+    waits = [c.args[0] for c in mock_sleep.call_args_list if c.args]
+    assert 25.0 in waits
+
+
+@patch('backend.discover_players.time.sleep', return_value=None)
+@patch('backend.discover_players.requests.get')
+def test_browse_get_two_429s_use_decreasing_backoff(mock_get, mock_sleep, scraper):
+    r429 = MagicMock()
+    r429.status_code = 429
+    r429.headers = {}
+    r200 = MagicMock()
+    r200.status_code = 200
+    r200.content = b'{"total": 1}'
+    r200.json.return_value = {'total': 1}
+    mock_get.side_effect = [r429, r429, r200]
+
+    stats = {}
+    r = _browse_item_summary_get(scraper, {'q': 'x', 'limit': 1}, stats=stats)
+
+    assert r.status_code == 200
+    waits = [c.args[0] for c in mock_sleep.call_args_list if c.args]
+    assert waits.index(25.0) < waits.index(12.0)
+
+
+def test_discover_429_backoff_short_retry_after():
+    assert _discover_429_backoff_seconds(0, '3') == 3.0
+    assert _discover_429_backoff_seconds(1, '90') == 12.0
 
 
 @patch('backend.discover_players.time.sleep', return_value=None)
