@@ -114,6 +114,62 @@ SEED_PLAYERS = [
 ]
 
 
+def _browse_item_summary_get(
+    scraper: EbayScraper,
+    params: dict,
+    *,
+    timeout: int = 30,
+    stats: Optional[Dict[str, Any]] = None,
+) -> requests.Response:
+    """
+    GET ``/item_summary/search`` with 401 refresh and 429 ``Retry-After`` backoff.
+
+    Matches ``EbayScraper.search_auctions_ending_soon`` so discovery does not
+    burn all seeds on a short Browse throttle window.
+    """
+    last: Optional[requests.Response] = None
+    for attempt in range(6):
+        if attempt > 0:
+            time.sleep(0.5)
+        scraper.headers['Authorization'] = f'Bearer {scraper.token_manager.get_token()}'
+        r = requests.get(
+            f'{scraper.base_url}/item_summary/search',
+            headers=scraper.headers,
+            params=params,
+            timeout=timeout,
+        )
+        last = r
+        if r.status_code == 401:
+            scraper.token_manager._refresh_token()
+            scraper.headers['Authorization'] = f'Bearer {scraper.token_manager.get_token()}'
+            r = requests.get(
+                f'{scraper.base_url}/item_summary/search',
+                headers=scraper.headers,
+                params=params,
+                timeout=timeout,
+            )
+            last = r
+
+        if r.status_code == 429:
+            if stats is not None:
+                stats['browse_429_waits'] = stats.get('browse_429_waits', 0) + 1
+            try:
+                ra = int(r.headers.get('Retry-After', '60'))
+            except ValueError:
+                ra = 60
+            wait = min(max(ra, 5), 120)
+            if attempt < 5:
+                print(
+                    f"  eBay Browse 429 — sleeping {wait}s then retry ({attempt + 1}/5)...",
+                    flush=True,
+                )
+                time.sleep(wait)
+                continue
+        return r
+    assert last is not None
+    return last
+
+
 def _ebay_errors_summary(data: dict) -> Optional[List[Dict[str, Any]]]:
     raw = data.get('errors')
     if not raw:
@@ -168,6 +224,7 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
         'fallback_recovered': 0,
         'nonzero_seeds': 0,
         'browse_base_url': scraper.base_url,
+        'browse_429_waits': 0,
     }
     samples: List[Dict[str, Any]] = []
     http_warn_logged = 0
@@ -193,26 +250,13 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
 
     for i, (player_name, sport) in enumerate(players_to_search, 1):
         print(f"  [{i}/{len(players_to_search)}] {player_name}...", end=" ", flush=True)
-        
+        # Pace Browse calls — burst discovery after token refresh triggers 429 for every seed.
+        if i > 1:
+            time.sleep(0.5)
+
         try:
-            scraper.headers['Authorization'] = f'Bearer {scraper.token_manager.get_token()}'
             params = _discovery_params(player_name, sport)
-            r = requests.get(
-                f'{scraper.base_url}/item_summary/search',
-                headers=scraper.headers,
-                params=params,
-                timeout=10
-            )
-            
-            if r.status_code == 401:
-                scraper.token_manager._refresh_token()
-                scraper.headers['Authorization'] = f'Bearer {scraper.token_manager.get_token()}'
-                r = requests.get(
-                    f'{scraper.base_url}/item_summary/search',
-                    headers=scraper.headers,
-                    params=params,
-                    timeout=10
-                )
+            r = _browse_item_summary_get(scraper, params, timeout=30, stats=stats)
 
             data = r.json() if r.content else {}
             if r.status_code != 200:
@@ -268,12 +312,7 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
                 fb_params = {'q': f'{player_name} card', 'limit': 1}
                 if sport == 'Baseball':
                     fb_params['category_ids'] = '261328'
-                r2 = requests.get(
-                    f'{scraper.base_url}/item_summary/search',
-                    headers=scraper.headers,
-                    params=fb_params,
-                    timeout=10,
-                )
+                r2 = _browse_item_summary_get(scraper, fb_params, timeout=30, stats=stats)
                 if r2.status_code == 200:
                     d2 = r2.json()
                     t2 = d2.get('total', 0)
@@ -301,8 +340,6 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
                 'sport': sport,
                 'sales_volume': total,
             })
-            
-            time.sleep(0.3)
             
         except Exception as e:
             stats['exceptions'] += 1
@@ -334,6 +371,7 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
         'exceptions': stats['exceptions'],
         'zero_after_fallback': stats['zero_total_after_fallback'],
         'fallback_recovered': stats['fallback_recovered'],
+        'browse_429_waits': stats.get('browse_429_waits', 0),
         'top_players_preview': top_names[:10],
     }
     print(f"DISCOVER_SUMMARY {json.dumps(summary_line, default=str)}", flush=True)
@@ -347,8 +385,16 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
         )
 
     if not results:
+        rate_hint = ''
+        if stats.get('browse_429_waits'):
+            rate_hint = (
+                ' Many responses were HTTP 429 (Browse throttling). Discovery now retries with Retry-After; '
+                'avoid running Card Data / Auction / Opportunity jobs back-to-back on the same app id, '
+                'or wait for quota reset.'
+            )
         log.error(
-            'Player discovery returned ZERO ranked players — opportunity pipeline cannot choose top 40.',
+            'Player discovery returned ZERO ranked players — opportunity pipeline cannot choose top 40.'
+            + rate_hint,
             category='discover_all_seeds_zero',
             context={
                 **stats,

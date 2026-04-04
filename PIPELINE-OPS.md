@@ -31,6 +31,8 @@ ORDER BY created_at DESC
 LIMIT 50;
 ```
 
+**HTTP 429 on discovery:** eBay Browse returns **Too many requests** when calls are bursty or other jobs share the same **application id**. Discovery uses **`Retry-After`** backoff (same idea as auction Browse) and **0.5s** pacing between seeds. If every seed still fails with 429, spread runs in time or wait for the daily Browse budget to reset — **`DISCOVER_SUMMARY`** includes **`browse_429_waits`**.
+
 ## What The Pipeline Does (In Order)
 
 | Step | What | API Calls (40 players) | Time |
