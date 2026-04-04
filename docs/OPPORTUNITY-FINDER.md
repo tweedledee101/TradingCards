@@ -1,5 +1,7 @@
 # Opportunity Finder - Arbitrage + Momentum System
 
+> **Current pipeline behavior** lives in **`PIPELINE-OPS.md`**, **`STATUS.md`**, and **`docs/architecture/diagrams/data-flow.md`**. This file is a **product concept** doc; API query params below may not match the live FastAPI contract — use **`backend/api/routes/opportunities.py`** as source of truth.
+
 **Replaces "Trending Cards" with actionable arbitrage opportunities**
 
 ---

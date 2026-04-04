@@ -4,21 +4,23 @@
 - [README.md](../README.md) - Project overview, quick start, features
 - [STATUS.md](../STATUS.md) - Current project status and database state
 - [PIPELINE-OPS.md](../PIPELINE-OPS.md) - Pipeline commands, flags, troubleshooting
+- [ROADMAP.md](./ROADMAP.md) - Milestones and backlog (including future brand/content ideas)
 
 ## How Things Work
-- [OPPORTUNITY-FINDER.md](./OPPORTUNITY-FINDER.md) - Arbitrage scoring, pricing logic, API usage
+- [OPPORTUNITY-FINDER.md](./OPPORTUNITY-FINDER.md) - Product concept (see `PIPELINE-OPS` + live API for current behavior)
 - [KNOWN-ISSUES.md](./KNOWN-ISSUES.md) - Documented false positive patterns and pipeline bugs
+- [research-and-practice-notes.md](./research-and-practice-notes.md) - Literature + flipper teachings → hypotheses, code mapping, experiments
 
 ## Architecture
 - [system-architecture.md](./architecture/system-architecture.md) - System design and component overview
 - [database-design.md](./architecture/database-design.md) - Schema, ERD, table descriptions
-- [data-flow.md](./architecture/diagrams/data-flow.md) - Data flow diagrams (mermaid)
+- [data-flow.md](./architecture/diagrams/data-flow.md) - Pipeline + post-pipeline vision flow (ASCII diagrams)
 
 ## Architecture Decision Records
 - [ADR-001](./architecture/decisions/ADR-001-postgresql-database.md) - Why PostgreSQL
 - [ADR-002](./architecture/decisions/ADR-002-ebay-primary-source.md) - Why eBay as primary source
 - [ADR-003](./architecture/decisions/ADR-003-testing-strategy.md) - Testing strategy (pytest)
-- [ADR-004](./architecture/decisions/ADR-004-demand-driven-refresh.md) - Demand-driven refresh (no crons)
+- [ADR-004](./architecture/decisions/ADR-004-demand-driven-refresh.md) - Demand-driven refresh (GitHub Actions schedule is ops-level; no in-app clock SCP crons)
 
 ## Setup
 - [installation.md](./setup/installation.md) - Development environment setup

@@ -28,12 +28,16 @@ Deep dives: [docs/architecture/system-architecture.md](./docs/architecture/syste
 | DB schema + migrations | `backend/models/schema.sql`, `backend/models/migration_*.sql`, ORM in `backend/models/__init__.py` |
 | Config | `backend/config/settings.py`, `config/targets.yaml` |
 | Frontend | `frontend/src/` — API client `frontend/src/api/client.js`; pages in `frontend/src/pages/` |
-| Pipelines (repo root) | `find_opportunities.py`, `find_auction_opportunities.py`, `worm_130point.py`, `daily_report.py`, `migrate.py` |
+| Pipelines (repo root) | `find_opportunities.py`, `find_auction_opportunities.py`, `worm_130point.py`, `daily_report.py`, `migrate.py` — vision is **post-pipeline** only: `job_runs.results_summary.vision_post_pipeline_queue_sample`, `scripts/vision_retry_scp_from_images.py` |
 | GitHub Actions summary (CLI) | `scripts/summarize_github_actions.py` — recent run conclusions + failed steps (`gh auth login` or `GITHUB_TOKEN`); see `PIPELINE-OPS.md` |
 | Auction funnel audit (RDS) | `scripts/audit_auction_pipeline.py` (`--compare` = delta vs prior run); `scripts/cleanup_stale_auction_opportunities.py` — see `PIPELINE-OPS.md` |
+| Nova Act (dev / vision) | `scripts/dev/nova_act_smoke_gym.py` (headed demo), `nova_act_listing_card_extract.py` (eBay images → JSON), `nova_act_listing_visual_probe.py`, `run_nova_act_probe_cases.py`; CI gym smoke `.github/workflows/nova-act-smoke.yml` — see `PIPELINE-OPS.md` |
+| Collectors Edge AI (dev research) | `scripts/dev/collectors_edge_photo_run.py` (Playwright → screenshot/HTML/JSON, `--from-db`, `--opportunity-ids`, `--merge-qa-to-db`); `scripts/scp_lookup_from_ce_json.py` (CE JSON → DB SCP via `find_scp_match_for_vision`); `scripts/dev/collectors_edge_explore.py` (cohort sampling, dedupe across cohorts, `--merge-qa-to-db`); `backend/utils/collectors_edge_result.py`, `ce_scp_identity.py`, `collectors_edge_cohorts.py`, `collectors_edge_qa_merge.py`; `backend/utils/opportunity_image_urls.py`; `scripts/dev/extra-requirements-collectors-edge.txt` — see `PIPELINE-OPS.md` |
+| DB image URLs (dev) | `scripts/dev/print_opportunity_image_urls.py` — prints `opportunities.image_url` / `listing_image_urls` for CE or vision probes |
+| Vision SCP retry (CDN, no browser) | `scripts/vision_retry_scp_from_images.py` (`--latest-*-job`, `--from-recent-opportunities N`, `--json`; **default persists HITs** to `opportunities` with `--no-persist` to disable); `backend/utils/vision_queue_from_opportunities.py`; `backend/services/vision_card_extract.py`, `scp_db_match.py` — see `PIPELINE-OPS.md` |
 | Full data pipeline | `backend/run_pipeline_full.py` |
 | Tests | `tests/unit`, `tests/integration`, `tests/qa` |
-| CI | `.github/workflows/` (BIN, auction, daily report, QA) |
+| CI | `.github/workflows/` (BIN, auction, daily report, QA, optional Nova Act gym smoke) |
 | AWS IaC | `aws/cloudformation/` (RDS, eBay compliance, Cognito auth, **frontend SPA**), `aws/README.md` |
 
 ## Conventions

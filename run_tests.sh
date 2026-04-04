@@ -22,12 +22,19 @@ case $TEST_TYPE in
         ;;
     integration)
         echo -e "${YELLOW}Running integration tests only...${NC}"
-        echo "⚠️  Make sure test database is running!"
+        echo "⚠️  Needs PostgreSQL (RDS or local) — outbound network + DATABASE_URL."
+        if [ -f backend/.env ]; then
+            set -a
+            # shellcheck disable=SC1091
+            . backend/.env
+            set +a
+        fi
         pytest tests/integration/ -v -m integration
         ;;
     coverage)
         echo -e "${YELLOW}Running all tests with coverage...${NC}"
-        pytest --cov=backend --cov-report=html --cov-report=term-missing
+        echo "Requires Python with sqlite3 (_sqlite3). If this fails, use distro python3.12 or libsqlite3-dev + rebuild."
+        pytest -p pytest_cov --cov=backend --cov-report=html --cov-report=term-missing
         echo -e "${GREEN}Coverage report generated in htmlcov/index.html${NC}"
         ;;
     quick)
@@ -36,6 +43,12 @@ case $TEST_TYPE in
         ;;
     all)
         echo -e "${YELLOW}Running all tests...${NC}"
+        if [ -f backend/.env ]; then
+            set -a
+            # shellcheck disable=SC1091
+            . backend/.env
+            set +a
+        fi
         pytest -v
         ;;
     *)

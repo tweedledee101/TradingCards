@@ -270,6 +270,7 @@ class Opportunity(Base):
     ebay_url = Column(Text)
     ebay_item_id = Column(String(50))
     image_url = Column(Text)
+    listing_image_urls = Column(JSONB)
     scp_url = Column(Text)
     scp_grade_9 = Column(DECIMAL(10, 2))
     scp_psa_10 = Column(DECIMAL(10, 2))

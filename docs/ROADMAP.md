@@ -1,6 +1,6 @@
 # Feature Roadmap
 
-**Last Updated:** 2026-03-23
+**Last Updated:** 2026-03-27
 
 ## Milestone 1 -- "Make Money From the UI"
 
@@ -384,6 +384,34 @@ Validate prediction accuracy against historical data.
 | YouTube | Breaker schedules, card review videos | YouTube Data API (free tier) |
 | Topps/Panini | Product release calendars | Scrape announcement pages |
 | Facebook Groups | Local community chatter | NovaAct (already scaffolded) |
+
+---
+
+## Backlog: Brand, commerce & content (unscheduled)
+
+Captured so ideas are not lost; **not** current sprint work.
+
+### Print-on-demand merch (no home inventory)
+
+- Small-run kitsch: mugs, T-shirts, keychains, stickers — fine for one or two buyers at first.
+- **Print-on-demand (POD)** fulfillment: vendor manufactures and ships from their facility; operator does not hold stock.
+- When ready: pick one POD path (e.g. storefront + Printful/Printify, or marketplace + POD) — mostly separate from the trading app unless we embed a simple “Shop” link.
+
+### In-app “buy this card”
+
+- Today: pain point is **no purchase inside the platform**; realistic v1 is **deep links** to eBay (already aligned with driving traffic to listings).
+- Full **checkout in-app** implies merchant-of-record, payments, shipping, disputes — a deliberate product/legal decision, not a small UI tweak.
+- Future: weigh **affiliate / partner** flows vs owning checkout; ties to Milestone 3 (eBay OAuth) for “I bought this” tracking.
+
+### Blog: voice, personas, and reacting to the ecosystem
+
+- **Tone:** positive, upbeat, optionally light snark — define **guardrails** (no punching down, no pile-ons on individuals).
+- **Personas:** a few consistent voices (e.g. data-first flipper, set-builder arbitrager, auction sniper) for variety without a writing staff.
+- **Cadence:** “daily” is heavy for one person; consider **fewer longer posts** or a **weekly digest** unless content is short/templated.
+- **Format:** link out to others’ articles/posts/data; **summarize, cite, then support / refute / extend** with Ragnarok’s own stats, filters, or extra variables readers should consider.
+- **Engagement:** occasional thoughtful comment on someone else’s post can work; avoid spammy brand drive-bys. A **“reads of the week”** post that links 5 sources + your take is lower risk than mass commenting.
+- **Discovery:** start with **RSS, newsletters, Reddit threads, YouTube descriptions** — before building a **custom blog scraper**, check **robots.txt, ToS, rate limits**, and attribution norms.
+- **Quality / trust:** if any step is **AI-drafted**, plan for **human review** before publish and **clear disclosure** if you adopt a public policy.
 
 ---
 

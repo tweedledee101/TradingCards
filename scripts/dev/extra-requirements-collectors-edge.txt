@@ -1,0 +1,4 @@
+# Optional: Collectors Edge AI photo probe (Playwright).
+#   pip install -r scripts/dev/extra-requirements-collectors-edge.txt
+#   playwright install chromium
+playwright>=1.40.0

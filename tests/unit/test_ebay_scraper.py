@@ -3,6 +3,7 @@ Unit tests for eBay scraper
 Tests title parsing, data extraction, and API response handling
 """
 import pytest
+import requests
 from unittest.mock import Mock, patch
 from backend.scrapers.ebay_scraper import EbayScraper
 from tests.fixtures.sample_data import (
@@ -256,6 +257,78 @@ class TestScraperMethods:
         
         # Should add player_name to results
         assert all('player_name' in item for item in results)
+
+
+# Minimal Browse `item_summary/search` payload for `search_auctions_ending_soon` (auction branch)
+_AUCTION_ITEM = {
+    "itemId": "v1|123|0",
+    "title": "2023 Topps Chrome Test Player RC",
+    "price": {"value": "25.00", "currency": "USD"},
+    "buyingOptions": ["AUCTION"],
+    "bidCount": 3,
+    "itemEndDate": "2026-04-06T12:00:00.000Z",
+    "shippingOptions": [{"shippingCost": {"value": "0", "currency": "USD"}}],
+    "localizedAspects": [],
+    "image": {"imageUrl": "https://i.ebayimg.com/images/g/xx/s-l500.jpg"},
+}
+
+
+class TestSearchAuctionsEndingSoon:
+    """`search_auctions_ending_soon` HTTP behavior (429 retry, success path)."""
+
+    @pytest.mark.unit
+    @patch("backend.scrapers.ebay_scraper.time.sleep", return_value=None)
+    @patch("backend.scrapers.ebay_scraper.requests.get")
+    def test_success_200_parses_auction(self, mock_get, _sleep, scraper):
+        ok = Mock()
+        ok.status_code = 200
+        ok.json.return_value = {"itemSummaries": [_AUCTION_ITEM]}
+        ok.raise_for_status.return_value = None
+        mock_get.return_value = ok
+
+        rows = scraper.search_auctions_ending_soon("baseball test", hours=48)
+
+        assert len(rows) == 1
+        assert rows[0]["ebay_item_id"] == "v1|123|0"
+        assert rows[0]["listing_type"] == "auction"
+        assert rows[0]["price"] == 25.0
+        mock_get.assert_called()
+
+    @pytest.mark.unit
+    @patch("backend.scrapers.ebay_scraper.time.sleep", return_value=None)
+    @patch("backend.scrapers.ebay_scraper.requests.get")
+    def test_429_then_200_retries(self, mock_get, _sleep, scraper):
+        r429 = Mock()
+        r429.status_code = 429
+        r429.headers = {"Retry-After": "5"}
+
+        r200 = Mock()
+        r200.status_code = 200
+        r200.json.return_value = {"itemSummaries": []}
+        r200.raise_for_status.return_value = None
+
+        mock_get.side_effect = [r429, r200]
+
+        rows = scraper.search_auctions_ending_soon("q", hours=12)
+
+        assert rows == []
+        assert mock_get.call_count == 2
+
+    @pytest.mark.unit
+    @patch("backend.scrapers.ebay_scraper.time.sleep", return_value=None)
+    @patch("backend.scrapers.ebay_scraper.requests.get")
+    def test_429_exhausted_returns_empty(self, mock_get, _sleep, scraper):
+        r429 = Mock()
+        r429.status_code = 429
+        r429.headers = {"Retry-After": "1"}
+        r429.raise_for_status.side_effect = requests.exceptions.HTTPError(response=r429)
+
+        mock_get.return_value = r429
+
+        rows = scraper.search_auctions_ending_soon("q", hours=12)
+
+        assert rows == []
+        assert mock_get.call_count == 6
 
 
 class TestDataValidation:

@@ -440,6 +440,7 @@ def _auction_to_dict(o: Opportunity) -> dict:
         "flagged": o.flagged,
         "listing_type": "auction",
         "image_url": o.image_url,
+        "listing_image_urls": o.listing_image_urls if o.listing_image_urls else None,
         "scp_url": o.scp_url,
         "title": o.ebay_title,
         "ebay_url": o.ebay_url,
@@ -480,6 +481,7 @@ def _opp_to_dict(o: Opportunity) -> dict:
         "listing_type": o.listing_type or 'buy_it_now',
         "scp_title": o.scp_title,
         "image_url": o.image_url,
+        "listing_image_urls": o.listing_image_urls if o.listing_image_urls else None,
         "scp_url": o.scp_url,
         "arbitrage": {
             "buy_price": float(o.buy_price),

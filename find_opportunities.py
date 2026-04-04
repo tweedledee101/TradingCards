@@ -1,16 +1,7 @@
 #!/usr/bin/env python3
-"""
-SCP-to-eBay Opportunity Pipeline
+"""SCP-to-eBay Opportunity Pipeline — SCP catalog, eBay listings, store opportunities."""
+from __future__ import annotations
 
-1. Scrape SportsCardsPro for full player catalog (all variations + prices)
-2. Filter to profitable variations within budget
-3. Search eBay for active listings below SCP market price
-4. Show opportunities with buy links
-
-Usage:
-    python3 find_opportunities.py --max-budget 200 --min-profit 10 --min-roi 20
-    python3 find_opportunities.py --players "Colton Cowser,Bobby Witt Jr"
-"""
 import argparse
 import time
 import re
@@ -157,8 +148,27 @@ def build_ebay_query(variation):
     return ' '.join(parts)
 
 
-def find_ebay_opportunities(scraper, variation, max_budget):
-    """Search eBay for listings below SCP price"""
+def _ebay_numeric_id(listing: dict) -> str | None:
+    raw = listing.get("ebay_item_id") or ""
+    if "|" in raw:
+        return raw.split("|")[1].strip() or None
+    return raw.strip() or None
+
+
+def find_ebay_opportunities(
+    scraper,
+    variation,
+    max_budget,
+    *,
+    vision_post_pipeline_queue: list | None = None,
+    vision_queue_max: int = 0,
+):
+    """Search eBay for listings below SCP price.
+
+    ``vision_post_pipeline_queue`` collects a **bounded sample** of listings for optional
+    **post-pipeline** multimodal review (Nova / manual). The main pipeline never waits on
+    vision and never uses vision to include/exclude opportunities.
+    """
     query = build_ebay_query(variation)
     scp_price = variation['price']
 
@@ -243,6 +253,28 @@ def find_ebay_opportunities(scraper, variation, max_budget):
                     'ebay_title': title, 'buy_price': price, 'scp_price': scp_price,
                     'ratio': round(price / scp_price, 2)
                 })
+                if (
+                    vision_post_pipeline_queue is not None
+                    and vision_queue_max > 0
+                    and len(vision_post_pipeline_queue) < vision_queue_max
+                ):
+                    vu = list(listing.get("image_urls") or [])
+                    if listing.get("image_url") and listing["image_url"] not in vu:
+                        vu.insert(0, listing["image_url"])
+                    vision_post_pipeline_queue.append(
+                        {
+                            "reason": "bin_price_floor_excluded",
+                            "pipeline_card": (
+                                f"{variation['player']} {variation.get('year')} "
+                                f"{variation['set_name']} #{card_number} [{variation.get('parallel', 'Base')}]"
+                            ),
+                            "scp_price": float(scp_price),
+                            "buy_price": float(price),
+                            "ebay_item_id": _ebay_numeric_id(listing),
+                            "title": title[:240],
+                            "image_urls": vu[:15],
+                        }
+                    )
                 continue
 
             # Reprint / replica detection
@@ -296,6 +328,10 @@ def find_ebay_opportunities(scraper, variation, max_budget):
                     'ratio': round(price / scp_price, 2), 'url': url
                 })
 
+            img_urls = list(listing.get('image_urls') or [])
+            if listing.get('image_url') and listing['image_url'] not in img_urls:
+                img_urls.insert(0, listing['image_url'])
+
             opportunities.append({
                 'title': listing.get('title', 'Unknown'),
                 'buy_price': price,
@@ -304,6 +340,7 @@ def find_ebay_opportunities(scraper, variation, max_budget):
                 'roi': roi,
                 'url': url,
                 'image_url': listing.get('image_url'),
+                'listing_image_urls': img_urls,
                 'flagged': flagged,
                 'listing_type': 'auction' if is_auction else 'buy_it_now'
             })
@@ -424,13 +461,21 @@ if __name__ == '__main__':
         # Step 4: Search eBay for each variation
         scraper = EbayScraper()
         all_opportunities = []
+        vision_post_pipeline_queue: list = []
+        _VISION_Q_MAX = 50
 
         for i, var in enumerate(all_variations, 1):
             label = f"{var['player']} {var['year']} {var['set_name']} #{var['card_number']} [{var['parallel']}]"
             print(f"[eBay {i}/{len(all_variations)}] {label}")
             print(f"  SCP: ${var['price']:.2f}")
 
-            query, opps = find_ebay_opportunities(scraper, var, max_budget=args.max_budget)
+            query, opps = find_ebay_opportunities(
+                scraper,
+                var,
+                max_budget=args.max_budget,
+                vision_post_pipeline_queue=vision_post_pipeline_queue,
+                vision_queue_max=_VISION_Q_MAX,
+            )
             print(f"  Query: {query}")
 
             good_opps = [o for o in opps if o['profit'] >= args.min_profit and o['roi'] >= args.min_roi]
@@ -442,6 +487,29 @@ if __name__ == '__main__':
                     print(f"    {tag} ${opp['buy_price']:.2f} -> ${opp['scp_price']:.2f} = ${opp['profit']:.2f} profit ({opp['roi']:.0f}% ROI)")
                     print(f"    {opp['title'][:80]}")
                     print(f"    {opp['url']}")
+                    if (
+                        opp.get("flagged")
+                        and len(vision_post_pipeline_queue) < _VISION_Q_MAX
+                    ):
+                        vu = list(opp.get("listing_image_urls") or [])
+                        if opp.get("image_url") and opp["image_url"] not in vu:
+                            vu.insert(0, opp["image_url"])
+                        nid = None
+                        if "/itm/" in (opp.get("url") or ""):
+                            tail = opp["url"].split("/itm/", 1)[-1].split("?")[0]
+                            nid = tail.strip() or None
+                        vision_post_pipeline_queue.append(
+                            {
+                                "reason": "bin_tertiary_visual_vs_scp",
+                                "pipeline_card": label,
+                                "scp_price": float(opp["scp_price"]),
+                                "buy_price": float(opp["buy_price"]),
+                                "ebay_item_id": nid,
+                                "title": (opp.get("title") or "")[:240],
+                                "image_urls": vu[:15],
+                                "note": "BIN 30–50% of SCP — verify listing photo matches SCP card identity",
+                            }
+                        )
                     all_opportunities.append({
                         'card': label,
                         'scp_title': var['title'],
@@ -461,6 +529,12 @@ if __name__ == '__main__':
         bin_count = sum(1 for o in all_opportunities if o.get('listing_type') != 'auction')
         auction_count = len(all_opportunities) - bin_count
         print(f"RESULTS: {len(all_opportunities)} opportunities found ({bin_count} BIN, {auction_count} Auction)")
+        if vision_post_pipeline_queue:
+            print(
+                f"Vision follow-up sample: {len(vision_post_pipeline_queue)} listing(s) "
+                f"(job results_summary.vision_post_pipeline_queue_sample — run vision_retry after pipeline; "
+                f"does not gate ingest)"
+            )
         print("=" * 80)
 
         if all_opportunities:
@@ -538,6 +612,7 @@ if __name__ == '__main__':
                     ebay_url=opp['url'],
                     ebay_item_id=numeric_id,
                     image_url=opp.get('image_url'),
+                    listing_image_urls=opp.get('listing_image_urls') or None,
                     listing_type=opp.get('listing_type', 'buy_it_now'),
                     flagged=opp.get('flagged', False),
                     price_source='scp',
@@ -557,7 +632,8 @@ if __name__ == '__main__':
             'players': len(players),
             'variations_checked': len(all_variations),
             'opportunities_found': len(all_opportunities),
-            'flagged_suspicious': flagged_count
+            'flagged_suspicious': flagged_count,
+            'vision_post_pipeline_queue_sample': vision_post_pipeline_queue,
         }
         log.info('Pipeline complete', context=summary)
         tracker.complete(summary=summary)

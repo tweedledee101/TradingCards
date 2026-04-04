@@ -2,7 +2,7 @@
 
 ## Overview
 
-Data flows through two pipelines (BIN and Auction), both triggered on demand -- no cron jobs. See ADR-004 for the demand-driven refresh philosophy.
+Data flows through two pipelines (BIN and Auction). **GitHub Actions** also runs them on a schedule (see `PIPELINE-OPS.md`); **ADR-004** still applies to *data* refresh philosophy (no clock-based SCP re-scrape inside the app). **Multimodal / vision tools are post-pipeline only** — they never include or exclude listings during ingest; they consume bounded samples from `job_runs.results_summary` after a run completes.
 
 ## 1. BIN Opportunity Pipeline (SCP-First)
 
@@ -38,6 +38,10 @@ CALCULATE -- SCP price - buy price - 13% fees = profit
 STORE -- opportunities table (listing_type: buy_it_now or auction)
     |
     v
+SAMPLE -- ``vision_post_pipeline_queue_sample`` on ``job_runs`` (cap ~50): BIN price-floor
+         rejects + BIN rows still stored with ``flagged`` (30–50% of SCP) for tertiary visual check
+    |
+    v
 [Auto-trigger Auction Pipeline via subprocess]
 ```
 
@@ -56,10 +60,11 @@ find_auction_opportunities.py
 DEDUP -- by eBay item ID across all queries
     |
     v
-QUALITY FILTER -- card number required (title -> aspects -> full item details)
-               -- player ID: MLB API (2,269) + period/accent normalization + eBay aspects fallback
+QUALITY FILTER -- year / card # / player required (title -> aspects -> full item details)
+               -- player ID: MLB API + DB + eBay aspects fallback
                -- lot detection
                -- budget check (bid + shipping <= max_budget)
+               -- bounded sample of Step 2 drops with images → ``vision_post_pipeline_queue_sample`` (post-pipeline Nova)
     |
     v
 SCP VALIDATE -- DB lookup first (4,400 market rates)
@@ -79,6 +84,10 @@ FALLBACK PRICING (when SCP fails)
     |
     v
 SANITY CHECK -- hybrid listing BIN < 50% of SCP = reject (seller disagrees)
+    |
+    v
+SAMPLE -- ``vision_post_pipeline_queue_sample`` merges Step 2 metadata skips (with gallery) +
+         no-pricing-after-fallback rows + BIN-sanity rejects (bounded per bucket) for post-run Nova / manual review
     |
     v
 PROFIT CHECK -- SCP * 0.87 - (current bid + shipping) >= $10
@@ -109,7 +118,40 @@ UPDATE -- qa_status (pending/clean/flagged/critical)
        -- qa_reviewed_at timestamp
 ```
 
-## 4. API Request Flow
+## 4. Post-pipeline vision (optional)
+
+```
+find_opportunities.py / find_auction_opportunities.py complete
+    |
+    v
+job_runs.results_summary.vision_post_pipeline_queue_sample  (BIN floor + flagged BIN; auction Step 2 skips + Step 3 queues; legacy no_scp_vision_queue_sample on auction)
+    |
+    v
+scripts/vision_retry_scp_from_images.py  (--latest-bin-job | --latest-auction-job | --from-recent-opportunities N | --json)
+    |
+    v
+Download CDN images -> Nova multimodal identity -> find_scp_match_for_vision (vision fallbacks; ingest uses find_scp_match_in_db)
+    |
+    v
+Optional insert into ``opportunities`` on HIT (flagged + ``qa_flags``; ``--no-persist`` to skip)
+    |
+    v
+Human review when vision disagrees with listing or SCP row
+```
+
+**When eBay and SCP (or the local SCP-backed catalog row) do not agree:** treat the situation as an **identity problem first**, not a pricing problem. Other signals — CE on the photo, Nova vision, 130point, manual SCP search — exist to **clarify what the listing actually is**. **Only after you are confident the eBay photos match that resolved card** should you treat comps (SCP DB, CE band, 130point) as “the same card” for a buy/sell decision.
+
+Practical ladder (manual / dev tools; does not gate ingest):
+
+1. **Collectors Edge (photo)** on the same CDN image — compare CE identity to the listing; if they diverge, use the photo + CE to hypothesize the true card before trusting title keywords.
+2. **Local catalog lookup again** with CE-backed fields: `scripts/scp_lookup_from_ce_json.py` (artifact JSON + optional `--player` / `--year` / `--number` / `--parallel` / `--prefer-db-year`). This only queries PostgreSQL `cards` / `market_rates`; it does not scrape SCP live.
+3. If there is still **no DB row**, **CE median/band/confidence** and **130point** / sold comps are for **spot-checking value** once identity is settled; using them while identity is still fuzzy compounds error. Automated scoring from those sources without a clear policy is out of scope here.
+
+**Nova** path (`vision_retry_scp_from_images.py`) is image → identity → same DB lookup without CE; use whichever fits cost and insert difficulty.
+
+Collectors Edge / other browser probes are separate dev workflows; they also do not gate core ingest.
+
+## 5. API Request Flow
 
 ```
 Client Request --> FastAPI Endpoint
@@ -127,7 +169,7 @@ Client Request --> FastAPI Endpoint
 JSON Response --> React Frontend (Ragnarok Gaming theme)
 ```
 
-## 5. Observability Flow
+## 6. Observability Flow
 
 ```
 Any pipeline script
@@ -171,7 +213,7 @@ Managed by `run_retention_cleanup()` PostgreSQL function.
 | Job runs | 30 days | Operational history |
 | Error log | 30 days | Debugging window |
 
-## 6. Background Data Worm
+## 7. Background Data Worm
 
 ```
 worm_130point.py (runs independently, no eBay API calls)
@@ -195,4 +237,4 @@ STORE -- sold_comps table (player, year, card#, parallel, price)
 
 ---
 
-**Last Updated:** 2026-03-22 (Session 12)
+**Last Updated:** 2026-03-27 — vision queues documented as post-pipeline only; scheduling note aligned with Actions.

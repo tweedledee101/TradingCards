@@ -1,7 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { getOpportunities, getAuctions, getScheduledBids, cancelScheduledBid, getOpportunitiesContextStrip } from '../api/client';
 import CardDetailModal from '../components/CardDetailModal';
+
+/** Same cap as CardDetailModal: SCP after 13% fees minus $10 target profit and shipping */
+const estimateAuctionMaxSnipe = (scpSell, shipping = 0) => {
+  if (scpSell == null || Number(scpSell) <= 0) return null;
+  const raw = Number(scpSell) * (1 - 0.13) - 10 - Number(shipping || 0);
+  if (raw <= 0) return null;
+  return Math.floor(raw * 100) / 100;
+};
 
 const Opportunities = () => {
   const [auctions, setAuctions] = useState([]);
@@ -87,10 +95,12 @@ const Opportunities = () => {
     } catch (err) { /* ignore */ }
   };
 
-  const clean = auctions.filter(a => !a.flagged);
-  const flaggedAuctions = auctions.filter(a => a.flagged);
+  /** One list: higher-confidence first, then flagged (still shown — no hidden “second queue”) */
+  const auctionsDisplay = useMemo(() => {
+    return [...auctions].sort((a, b) => Number(!!a.flagged) - Number(!!b.flagged));
+  }, [auctions]);
 
-  const filteredAuctions = clean.filter(a => {
+  const filteredAuctions = auctionsDisplay.filter((a) => {
     if (filters.maxBid && a.current_bid > Number(filters.maxBid)) return false;
     if (filters.minProfit && a.net_profit < Number(filters.minProfit)) return false;
     if (filters.minRoi && a.roi < Number(filters.minRoi)) return false;
@@ -260,7 +270,12 @@ const Opportunities = () => {
           Refresh
         </button>
         <span className="text-xs text-frost-dim basis-full sm:basis-auto sm:ml-auto sm:text-right leading-snug">
-          {filteredBin.length} BIN{filteredAuctions.length > 0 ? ` | ${filteredAuctions.length} auction${filteredAuctions.length !== 1 ? 's' : ''}` : ''}{flaggedBin.length > 0 ? ` | ${flaggedBin.length} flagged` : ''}
+          {filteredBin.length} BIN
+          {filteredAuctions.length > 0
+            ? ` | ${filteredAuctions.length} auction${filteredAuctions.length !== 1 ? 's' : ''}`
+            : ''}
+          {filteredAuctions.some((a) => a.flagged) ? ` (${filteredAuctions.filter((a) => a.flagged).length} lower confidence)` : ''}
+          {flaggedBin.length > 0 ? ` | ${flaggedBin.length} BIN review` : ''}
         </span>
       </div>
 
@@ -281,15 +296,15 @@ const Opportunities = () => {
         </div>
       )}
 
-      {/* LIVE AUCTIONS */}
-      <SectionHeader title="Live Auctions" subtitle="Ending soon - bid below SCP market rate" count={filteredAuctions.length} />
+      {/* LIVE AUCTIONS — includes flagged at bottom of sort; amber border = verify listing vs SCP */}
+      <SectionHeader title="Live Auctions" subtitle="Ending soon — max snipe = SCP after fees − $10 profit − ship" count={filteredAuctions.length} />
 
       {filteredAuctions.length === 0 ? (
         <EmptyState message="No profitable auctions found. Run the auction scanner to refresh." />
       ) : (
         <div className="space-y-2 mb-10">
           {filteredAuctions.map((a, i) => (
-            <AuctionCard key={a.ebay_item_id || i} auction={a} rank={i + 1}
+            <AuctionCard key={a.ebay_item_id || i} auction={a} rank={i + 1} isFlagged={!!a.flagged}
               isExpanded={expandedAuction === (a.ebay_item_id || i)}
               onToggle={() => setExpandedAuction(expandedAuction === (a.ebay_item_id || i) ? null : (a.ebay_item_id || i))}
               onDrillIn={() => setSelectedCard({ data: a, type: 'auction' })} />
@@ -312,25 +327,19 @@ const Opportunities = () => {
         </>
       )}
 
-      {/* NEEDS REVIEW */}
-      {(flaggedAuctions.length > 0 || flaggedBin.length > 0) && (
+      {/* NEEDS REVIEW — BIN only (auctions stay in Live list with amber border) */}
+      {flaggedBin.length > 0 && (
         <>
           <div className="border-t border-surface-border mt-10 pt-6 mb-4">
             <div className="flex items-center gap-2 mb-1">
-              <h2 className="text-lg font-display font-semibold text-amber-400">Needs Review</h2>
-              <span className="text-xs text-frost-dim bg-surface-card px-2 py-0.5 rounded-md">{flaggedAuctions.length + flaggedBin.length}</span>
+              <h2 className="text-lg font-display font-semibold text-amber-400">Needs Review (BIN)</h2>
+              <span className="text-xs text-frost-dim bg-surface-card px-2 py-0.5 rounded-md">{flaggedBin.length}</span>
             </div>
             <p className="text-xs text-frost-dim">
-              Price gap seems too large. May be a mismatch -- review before buying.
+              Wide gap vs SCP — double-check the listing before buying.
             </p>
           </div>
           <div className="space-y-2 opacity-75">
-            {flaggedAuctions.map((a, i) => (
-              <AuctionCard key={`review-${a.ebay_item_id || i}`} auction={a} rank={i + 1} isFlagged
-                isExpanded={expandedReview === (a.ebay_item_id || i)}
-                onToggle={() => setExpandedReview(expandedReview === (a.ebay_item_id || i) ? null : (a.ebay_item_id || i))}
-                onDrillIn={() => setSelectedCard({ data: a, type: 'auction' })} />
-            ))}
             {flaggedBin.map((opp, i) => (
               <BinCard key={`review-bin-${i}`} opp={opp} rank={i + 1}
                 isExpanded={expandedReview === `flagged-bin-${i}`}
@@ -387,8 +396,9 @@ const MetricCell = ({ label, value, sub, valueClass = 'text-frost-light' }) => (
 
 
 const AuctionCard = ({ auction: a, rank, isExpanded, onToggle, onDrillIn, isFlagged }) => {
+  const maxSnipe = estimateAuctionMaxSnipe(a.scp_sell_price, a.shipping);
   return (
-    <div className={`card-surface overflow-hidden ${isFlagged ? 'border-amber-500/30' : ''}`}>
+    <div className={`card-surface overflow-hidden ${isFlagged ? 'border-amber-500/40 ring-1 ring-amber-500/20' : ''}`}>
       <div role="button" tabIndex={0} aria-expanded={isExpanded}
         className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-2 px-3 sm:px-4 py-3 cursor-pointer hover:bg-surface-hover transition-colors min-w-0"
         onClick={onToggle}
@@ -438,23 +448,25 @@ const AuctionCard = ({ auction: a, rank, isExpanded, onToggle, onDrillIn, isFlag
 
         <div className={`hidden sm:block text-frost-dim text-xs transition-transform shrink-0 ${isExpanded ? 'rotate-180' : ''}`}>▼</div>
 
-        <MobileMetricStrip>
+        <div className="sm:hidden w-full grid grid-cols-2 gap-x-2 gap-y-1 border-t border-surface-border/50 pt-2 mt-0.5 text-center">
           <MetricCell label="Bid" value={`$${a.current_bid?.toFixed(2)}`} sub={`${a.bid_count} bid${a.bid_count !== 1 ? 's' : ''}`} valueClass="text-amber-400" />
+          <MetricCell label="Max bid" value={maxSnipe != null ? `$${maxSnipe.toFixed(2)}` : '—'} sub="cap (est.)" valueClass="text-ember-light" />
           <MetricCell label="SCP" value={`$${a.scp_sell_price?.toFixed(2)}`} sub={a.scp_price_tier ? `SCP ${a.scp_price_tier}` : 'SCP'} />
           <MetricCell label="Profit" value={`+$${a.net_profit?.toFixed(2)}`} sub={`${a.roi?.toFixed(0)}% ROI`} valueClass="text-gain" />
-        </MobileMetricStrip>
+        </div>
       </div>
 
       {/* Expanded */}
       {isExpanded && (
         <div className="border-t border-surface-border px-4 py-4">
-          {isFlagged && a.flag_reason && (
+          {isFlagged && (
             <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-3 text-xs text-amber-400">
-              {a.flag_reason}
+              {a.flag_reason || 'Lower confidence match (eBay comps or variant). Open the listing and confirm before bidding.'}
             </div>
           )}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3 text-xs">
             <Stat label="Current Bid" value={`$${a.current_bid?.toFixed(2)}`} />
+            <Stat label="Max bid (est.)" value={maxSnipe != null ? `$${maxSnipe.toFixed(2)}` : '—'} />
             <Stat label="Shipping" value={a.shipping > 0 ? `$${a.shipping.toFixed(2)}` : 'Free'} />
             <Stat label="Total Cost" value={`$${a.total_cost?.toFixed(2)}`} />
             <Stat label="Fees (13%)" value={`$${a.fees?.toFixed(2)}`} />

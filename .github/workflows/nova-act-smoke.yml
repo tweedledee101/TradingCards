@@ -1,0 +1,32 @@
+# Proves Nova Act + Playwright on GitHub-hosted Linux (headless).
+# Does NOT hit eBay — uses Amazon's public gym URL only.
+#
+# Repo → Settings → Secrets → Actions: add NOVA_ACT_API_KEY (from https://nova.amazon.com/act )
+name: Nova Act smoke (gym)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  gym-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install nova-act
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install nova-act pydantic
+
+      - name: Install Playwright browser + OS deps
+        run: python -m playwright install --with-deps chromium
+
+      - name: Run gym smoke (headless)
+        env:
+          NOVA_ACT_API_KEY: ${{ secrets.NOVA_ACT_API_KEY }}
+        run: python scripts/dev/nova_act_smoke_gym.py --headless

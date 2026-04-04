@@ -166,8 +166,27 @@ def main():
                 print("    step2_skip_reasons:")
                 for sk, sv in sorted(s["step2_skip_reasons"].items(), key=lambda x: -x[1]):
                     print(f"      {sk}: {sv}")
+            s2v = s.get("step2_skip_vision_queue_sample")
+            if isinstance(s2v, list) and s2v:
+                print(
+                    f"    step2_skip_vision_queue_sample: {len(s2v)} listings "
+                    f"(metadata skips w/ images → merged into vision_post_pipeline_queue_sample)"
+                )
             if "parameters" in s:
                 print(f"    run_parameters: {s['parameters']}")
+            q = s.get("no_scp_vision_queue_sample")
+            if isinstance(q, list):
+                print(f"    no_scp_vision_queue_sample: {len(q)} listings (legacy; see vision_post_pipeline_queue_sample)")
+            elif q is not None:
+                print(f"    no_scp_vision_queue_sample: (unexpected type {type(q).__name__})")
+            vpp = s.get("vision_post_pipeline_queue_sample")
+            if isinstance(vpp, list):
+                print(
+                    f"    vision_post_pipeline_queue_sample: {len(vpp)} listings "
+                    f"(post-pipeline Nova — scripts/vision_retry_scp_from_images.py)"
+                )
+            elif vpp is not None:
+                print(f"    vision_post_pipeline_queue_sample: (unexpected type {type(vpp).__name__})")
             print()
 
         if args.compare and len(parsed_pair) >= 2:

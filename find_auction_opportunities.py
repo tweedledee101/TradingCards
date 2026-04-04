@@ -31,6 +31,7 @@ from sqlalchemy import func, or_
 from backend.utils.database import SessionLocal
 from backend.utils.listing_card_identity import card_number_tokens_from_free_text
 from backend.models import Opportunity, Card, MarketRate
+from backend.services.scp_db_match import find_scp_match_in_db
 
 log = get_logger('auction_finder')
 
@@ -64,10 +65,72 @@ FACTORY_SET_PATTERNS = [
 # Volume terms that mean the card is dead
 LOW_VOLUME = ['rare', '1 sale per year', '2 sales per year']
 
+# Step 2 drops (no_year / no_card_number / no_player) → bounded post-pipeline vision sample
+# (merged into vision_post_pipeline_queue_sample). Uses image URLs already on the listing from
+# Browse search + GET /item only when that item call ran for missing #/player/year (no extra
+# API round-trips solely for vision).
+STEP2_VISION_CAP_PER_REASON = 25
+
 # Minimum BIN comps required to trust eBay-derived market price
 MIN_COMPS = 3
 # Minimum sold comps from 130point to trust the price
 MIN_SOLD_COMPS = 3
+
+
+def _auction_http_gallery_urls(auction: dict) -> list:
+    """Browse + merged item-detail gallery; only http(s) URLs, max 15."""
+    vu = list(auction.get('image_urls') or [])
+    iu = (auction.get('image_url') or '').strip()
+    if iu.startswith('http') and iu not in vu:
+        vu.insert(0, iu)
+    return [u for u in vu if isinstance(u, str) and u.strip().startswith('http')][:15]
+
+
+def _merge_auction_gallery_from_item_details(auction: dict, details: dict) -> None:
+    """Merge GET /item gallery into auction (same shape as Step 2 primary detail path)."""
+    if not details:
+        return
+    extras = details.get('image_urls') or []
+    base = list(auction.get('image_urls') or [])
+    seen: set = set()
+    merged: list = []
+    for u in base + extras:
+        if u and u not in seen:
+            seen.add(u)
+            merged.append(u)
+    auction['image_urls'] = merged
+    if merged:
+        auction['image_url'] = merged[0]
+
+
+def _append_step2_vision_sample(
+    auction: dict,
+    title: str,
+    skip_key: str,
+    queue: list,
+    counts: dict,
+    cap_per_reason: int,
+) -> None:
+    """Under cap and HTTP gallery already present → queue for vision_retry after the run (no new eBay calls here)."""
+    if counts.get(skip_key, 0) >= cap_per_reason:
+        return
+    urls = _auction_http_gallery_urls(auction)
+    if not urls:
+        return
+    counts[skip_key] = counts.get(skip_key, 0) + 1
+    queue.append(
+        {
+            'reason': f'step2_{skip_key}',
+            'step2_skip': skip_key,
+            'ebay_item_id': auction.get('ebay_item_id'),
+            'title': title[:240],
+            'image_urls': urls,
+            'note': (
+                'Step 2 dropped (incomplete player/year/# from text); '
+                'vision may read identity from photos. Does not gate ingest.'
+            ),
+        }
+    )
 
 
 def gather_card_number_candidates(title: str, aspects: dict, extra_text: str = None) -> list:
@@ -371,57 +434,6 @@ def is_junk(title: str) -> bool:
     return False
 
 
-def find_scp_match_in_db(db, player_name: str, card_year: int, card_number: str,
-                         parallel: str, card_set: str) -> dict:
-    """Look up SCP market rate from database. Returns dict with prices or None."""
-    from sqlalchemy import and_, func
-
-    if not player_name or not card_number:
-        return None
-
-    query = db.query(Card, MarketRate).join(
-        MarketRate, Card.id == MarketRate.card_id
-    ).filter(
-        func.lower(Card.player_name) == player_name.lower(),
-    )
-
-    if card_year:
-        query = query.filter(Card.card_year == card_year)
-
-    query = query.filter(func.lower(Card.card_number) == card_number.lower())
-
-    results = query.order_by(MarketRate.date_recorded.desc()).all()
-
-    if not results:
-        return None
-
-    # Try to match parallel, but cross-check URL to catch bad data
-    parallel_lower = (parallel or 'base').lower()
-    for card, rate in results:
-        card_parallel = (card.parallel or 'Base').lower()
-        if card_parallel == parallel_lower:
-            # Cross-check: if URL contains a different parallel name, skip
-            url = rate.scp_product_url or ''
-            if url and card_parallel != 'base':
-                url_lower = url.lower()
-                # Check that the parallel name appears in the URL
-                parallel_slug = card_parallel.replace(' ', '-')
-                if parallel_slug not in url_lower:
-                    continue  # URL doesn't match parallel -- bad data
-            return {
-                'scp_price': float(rate.ungraded_price) if rate.ungraded_price else None,
-                'grade_9': float(rate.grade_9_price) if rate.grade_9_price else None,
-                'psa_10': float(rate.psa_10_price) if rate.psa_10_price else None,
-                'scp_url': rate.scp_product_url,
-                'card_set': card.card_set,
-                'source': 'database',
-                'match_type': 'exact',
-                'matched_parallel': card.parallel or 'Base',
-            }
-
-    return None
-
-
 def _scp_url_has_card_number(url: str, card_number: str) -> bool:
     """Check if SCP URL contains the expected card number."""
     if not url or not card_number:
@@ -597,23 +609,29 @@ def _get_scp_variants(scp_scraper, db, player_name: str, card_year: int,
     from datetime import datetime, timedelta
     import json
 
-    if not card_number:
-        return []
+    # scp_cache columns: player_name VARCHAR(255), card_number VARCHAR(50)
+    _pn = (player_name or "").strip()
+    _cn = (card_number or "").strip()
+    if not _cn:
+        return [], False
 
-    # Check cache (24h TTL)
-    cache_cutoff = datetime.now() - timedelta(hours=24)
-    cached = db.query(SCPCache).filter(
-        SCPCache.player_name.ilike(player_name),
-        SCPCache.card_year == card_year,
-        SCPCache.card_number.ilike(card_number),
-        SCPCache.created_at > cache_cutoff
-    ).first()
+    cache_ok = len(_pn) <= 255 and len(_cn) <= 50
 
-    if cached:
-        variants = cached.variants if isinstance(cached.variants, list) else json.loads(cached.variants)
-        priced = [v for v in variants if v.get('ungraded')]
-        if priced:
-            return priced, True  # True = cache hit
+    # Check cache (24h TTL); skip if identity too long (e.g. whole roster misparsed as one "player")
+    if cache_ok:
+        cache_cutoff = datetime.now() - timedelta(hours=24)
+        cached = db.query(SCPCache).filter(
+            SCPCache.player_name.ilike(_pn),
+            SCPCache.card_year == card_year,
+            SCPCache.card_number.ilike(_cn),
+            SCPCache.created_at > cache_cutoff
+        ).first()
+
+        if cached:
+            variants = cached.variants if isinstance(cached.variants, list) else json.loads(cached.variants)
+            priced = [v for v in variants if v.get('ungraded')]
+            if priced:
+                return priced, True  # True = cache hit
 
     # Cache miss -- Selenium lookup
     if not scp_scraper or scp_scraper is False:
@@ -621,19 +639,19 @@ def _get_scp_variants(scp_scraper, db, player_name: str, card_year: int,
 
     # Try full query first, then simpler fallback
     queries = []
-    parts = [player_name]
+    parts = [_pn]
     if card_year:
         parts.append(str(card_year))
     if card_set:
         parts.append(card_set)
-    parts.append(f"#{card_number}")
+    parts.append(f"#{_cn}")
     queries.append(' '.join(parts))
 
     if card_set:
-        simple_parts = [player_name]
+        simple_parts = [_pn]
         if card_year:
             simple_parts.append(str(card_year))
-        simple_parts.append(f"#{card_number}")
+        simple_parts.append(f"#{_cn}")
         queries.append(' '.join(simple_parts))
 
     all_matches = []
@@ -641,38 +659,39 @@ def _get_scp_variants(scp_scraper, db, player_name: str, card_year: int,
         results = scp_scraper.search(query)
         if not results:
             continue
-        card_number_matches = [r for r in results if _scp_url_has_card_number(r.get('url', ''), card_number)]
+        card_number_matches = [r for r in results if _scp_url_has_card_number(r.get('url', ''), _cn)]
         if card_number_matches:
             all_matches = card_number_matches
             break
 
     # Store in cache (even empty results, to avoid re-scraping)
     try:
-        # Serialize for JSONB -- strip non-serializable fields
-        cache_data = []
-        for v in all_matches:
-            cache_data.append({
-                'parallel': v.get('parallel', 'Base'),
-                'ungraded': v.get('ungraded'),
-                'grade_9': v.get('grade_9'),
-                'psa_10': v.get('psa_10'),
-                'url': v.get('url', ''),
-                'card_set': v.get('card_set', ''),
-                'set_text': v.get('set_text', ''),
-                'raw_title': v.get('raw_title', ''),
-                'is_rc': v.get('is_rc', False),
-                'is_auto': v.get('is_auto', False),
-                'print_run': v.get('print_run'),
-            })
-        row = SCPCache(
-            player_name=player_name,
-            card_year=card_year,
-            card_number=card_number,
-            search_query=queries[0],
-            variants=cache_data,
-        )
-        db.add(row)
-        db.commit()
+        if cache_ok:
+            # Serialize for JSONB -- strip non-serializable fields
+            cache_data = []
+            for v in all_matches:
+                cache_data.append({
+                    'parallel': v.get('parallel', 'Base'),
+                    'ungraded': v.get('ungraded'),
+                    'grade_9': v.get('grade_9'),
+                    'psa_10': v.get('psa_10'),
+                    'url': v.get('url', ''),
+                    'card_set': v.get('card_set', ''),
+                    'set_text': v.get('set_text', ''),
+                    'raw_title': v.get('raw_title', ''),
+                    'is_rc': v.get('is_rc', False),
+                    'is_auto': v.get('is_auto', False),
+                    'print_run': v.get('print_run'),
+                })
+            row = SCPCache(
+                player_name=_pn,
+                card_year=card_year,
+                card_number=_cn,
+                search_query=queries[0],
+                variants=cache_data,
+            )
+            db.add(row)
+            db.commit()
     except Exception as e:
         db.rollback()
         log.warn(f'SCP cache write failed: {e}', category='scp_cache')
@@ -1001,6 +1020,7 @@ if __name__ == '__main__':
                     break
             print(f"  {query_total} auctions found, {query_new} new (deduped)")
             tracker.update(processed=i)
+            time.sleep(1.0)  # reduce Browse API burst 429s between queries
 
         print(f"\nTotal unique auctions: {len(all_auctions)}")
 
@@ -1016,6 +1036,8 @@ if __name__ == '__main__':
                         'not_auction': 0}
         detail_lookups = 0
         cn_cache = {}
+        step2_skip_vision_queue: list = []
+        step2_vision_counts: dict = {'no_year': 0, 'no_card_number': 0, 'no_player': 0}
 
         with closing(SessionLocal()) as db_step2:
             for auction_idx, auction in enumerate(all_auctions, 1):
@@ -1094,6 +1116,9 @@ if __name__ == '__main__':
                         if details.get('parallel') and details['parallel'] != 'Base':
                             aspects['_detail_parallel'] = details['parallel']
 
+                        # Merge extra gallery URLs from GET /item (additionalImages, etc.)
+                        _merge_auction_gallery_from_item_details(auction, details)
+
                 if not year and player_name and card_number:
                     year = infer_year_if_unique_in_catalog(
                         db_step2, player_name, card_number, args.sport.lower()
@@ -1116,18 +1141,42 @@ if __name__ == '__main__':
                     skip_reasons['no_year'] += 1
                     if skip_reasons['no_year'] <= 10:
                         log.info(f"no_year: {title[:80]}", category='skip_debug')
+                    _append_step2_vision_sample(
+                        auction,
+                        title,
+                        'no_year',
+                        step2_skip_vision_queue,
+                        step2_vision_counts,
+                        STEP2_VISION_CAP_PER_REASON,
+                    )
                     continue
 
                 if not card_number:
                     skip_reasons['no_card_number'] += 1
                     if skip_reasons['no_card_number'] <= 10:
                         log.info(f"no_card_number: {title[:80]}", category='skip_debug')
+                    _append_step2_vision_sample(
+                        auction,
+                        title,
+                        'no_card_number',
+                        step2_skip_vision_queue,
+                        step2_vision_counts,
+                        STEP2_VISION_CAP_PER_REASON,
+                    )
                     continue
 
                 if not player_name:
                     skip_reasons['no_player'] += 1
                     if skip_reasons['no_player'] <= 10:
                         log.info(f"no_player: {title[:80]}", category='skip_debug')
+                    _append_step2_vision_sample(
+                        auction,
+                        title,
+                        'no_player',
+                        step2_skip_vision_queue,
+                        step2_vision_counts,
+                        STEP2_VISION_CAP_PER_REASON,
+                    )
                     continue
 
                 # Extract card details for SCP lookup
@@ -1158,12 +1207,20 @@ if __name__ == '__main__':
 
         if not qualified:
             print("\nNo qualified auctions found.")
+            vpp_early = list(step2_skip_vision_queue)
+            if vpp_early:
+                print(
+                    f"Step 2 vision follow-up sample: {len(vpp_early)} listing(s) "
+                    f"(metadata skips with images → vision_post_pipeline_queue_sample)"
+                )
             tracker.complete(summary={
                 'auctions_searched': len(all_auctions),
                 'qualified': 0,
                 'opportunities_found': 0,
                 'step2_skip_reasons': skip_reasons,
                 'detail_lookups': detail_lookups,
+                'step2_skip_vision_queue_sample': step2_skip_vision_queue,
+                'vision_post_pipeline_queue_sample': vpp_early,
                 'step3_no_pricing': 0,
                 'step3_no_pricing_after_primary': 0,
                 'step3_no_pricing_after_sold_comps': 0,
@@ -1192,6 +1249,10 @@ if __name__ == '__main__':
         step3_bin_sanity = 0
         step3_low_volume = 0
         step3_below_min_profit = 0
+        no_scp_vision_queue: list = []
+        _max_no_scp_vision = 40
+        bin_sanity_vision_queue: list = []
+        _max_bin_sanity_vision = 40
 
         for i, auction in enumerate(qualified, 1):
             diag = {}
@@ -1268,6 +1329,18 @@ if __name__ == '__main__':
                 if not scp or not scp.get('scp_price'):
                     no_scp += 1
                     step3_no_pricing += 1
+                    if len(no_scp_vision_queue) < _max_no_scp_vision:
+                        vu = list(auction.get('image_urls') or [])
+                        if auction.get('image_url') and auction['image_url'] not in vu:
+                            vu.insert(0, auction['image_url'])
+                        no_scp_vision_queue.append({
+                            'ebay_item_id': auction.get('ebay_item_id'),
+                            'title': title[:240],
+                            'image_urls': vu[:15],
+                            'listing_type': 'auction',
+                            'buy_price': float(price),
+                            'shipping': float(shipping),
+                        })
                     if i <= 20 or i % 50 == 0:
                         print(f"  [{i}/{len(qualified)}] {label} -- no pricing (SCP + 130point + eBay comps exhausted)")
                     if diag and no_scp <= 30:
@@ -1301,6 +1374,26 @@ if __name__ == '__main__':
                 if bin_ratio < 0.50:
                     if i <= 30 or i % 50 == 0:
                         print(f"  [{i}/{len(qualified)}] {label} -- BIN ${bin_price:.2f} is {bin_ratio:.0%} of SCP ${scp_price:.2f} (seller disagrees)")
+                    if len(bin_sanity_vision_queue) < _max_bin_sanity_vision:
+                        vu = list(auction.get("image_urls") or [])
+                        if auction.get("image_url") and auction["image_url"] not in vu:
+                            vu.insert(0, auction["image_url"])
+                        bin_sanity_vision_queue.append(
+                            {
+                                "reason": "auction_bin_tertiary_visual_vs_scp",
+                                "pipeline_card": label,
+                                "scp_price": float(scp_price),
+                                "buy_price_or_bin": float(bin_price),
+                                "bin_ratio": round(bin_ratio, 3),
+                                "ebay_item_id": auction.get("ebay_item_id"),
+                                "title": title[:240],
+                                "image_urls": vu[:15],
+                                "listing_type": "auction",
+                                "buy_price": float(price),
+                                "shipping": float(shipping),
+                                "note": "Hybrid listing BIN << SCP — vision may confirm wrong SCP match vs cheap BIN",
+                            }
+                        )
                     no_scp += 1
                     step3_bin_sanity += 1
                     continue
@@ -1365,6 +1458,10 @@ if __name__ == '__main__':
             if match_type not in ('exact', 'text_match'):
                 print(f"    ** Flagged: match was '{match_type}' (SCP matched: {matched_parallel})")
 
+            img_urls = list(auction.get('image_urls') or [])
+            if auction.get('image_url') and auction['image_url'] not in img_urls:
+                img_urls.insert(0, auction['image_url'])
+
             opportunities.append({
                 'player_name': player,
                 'card_year': year,
@@ -1385,6 +1482,7 @@ if __name__ == '__main__':
                 'ebay_url': url,
                 'ebay_item_id': numeric_id,
                 'image_url': auction.get('image_url'),
+                'listing_image_urls': img_urls if img_urls else None,
                 'bid_count': auction.get('bid_count', 0),
                 'end_time': end_time_dt,
                 'listing_type': 'auction',
@@ -1407,6 +1505,24 @@ if __name__ == '__main__':
         # Summary
         print("\n" + "=" * 80)
         print(f"RESULTS: {len(opportunities)} auction opportunities found")
+        vision_post_pipeline_queue_sample: list = []
+        vision_post_pipeline_queue_sample.extend(step2_skip_vision_queue)
+        for row in no_scp_vision_queue:
+            vision_post_pipeline_queue_sample.append(
+                {
+                    **row,
+                    "reason": "auction_no_pricing_after_fallbacks",
+                }
+            )
+        vision_post_pipeline_queue_sample.extend(bin_sanity_vision_queue)
+        if vision_post_pipeline_queue_sample:
+            n2 = len(step2_skip_vision_queue)
+            tail = len(vision_post_pipeline_queue_sample) - n2
+            print(
+                f"Vision follow-up sample: {len(vision_post_pipeline_queue_sample)} listing(s) "
+                f"(Step 2 metadata w/ images: {n2}; Step 3 queues: {tail} — "
+                f"results_summary.vision_post_pipeline_queue_sample; does not gate ingest)"
+            )
         print("=" * 80)
 
         if opportunities:
@@ -1454,6 +1570,7 @@ if __name__ == '__main__':
                         ebay_url=opp['ebay_url'],
                         ebay_item_id=opp['ebay_item_id'],
                         image_url=opp.get('image_url'),
+                        listing_image_urls=opp.get('listing_image_urls') or None,
                         bid_count=opp.get('bid_count', 0),
                         end_time=opp.get('end_time'),
                         listing_type='auction',
@@ -1474,6 +1591,8 @@ if __name__ == '__main__':
 
         db.close()
 
+        # Always emit vision_* keys (possibly empty) so tools can tell current code from older
+        # job_runs rows that omit vision_post_pipeline_queue_sample entirely.
         summary = {
             'auctions_searched': len(all_auctions),
             'qualified': len(qualified),
@@ -1492,6 +1611,9 @@ if __name__ == '__main__':
             'step3_low_volume': step3_low_volume,
             'step3_below_min_profit': step3_below_min_profit,
             'opportunities_found': len(opportunities),
+            'no_scp_vision_queue_sample': no_scp_vision_queue,
+            'step2_skip_vision_queue_sample': step2_skip_vision_queue,
+            'vision_post_pipeline_queue_sample': vision_post_pipeline_queue_sample,
             'parameters': {
                 'hours': args.hours,
                 'min_profit': args.min_profit,

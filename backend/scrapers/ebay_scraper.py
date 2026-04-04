@@ -19,6 +19,40 @@ from typing import List, Dict, Optional
 from backend.config.settings import config
 from backend.utils.listing_card_identity import card_number_tokens_from_free_text
 
+
+def collect_browse_item_image_urls(item: Dict) -> List[str]:
+    """
+    All distinct image URLs eBay exposes on a Browse API item (search summary or GET /item).
+
+    Uses ``image``, ``thumbnailImages``, and ``additionalImages`` only — no HTML scraping.
+    CDN URLs are usually fetchable without hitting www.ebay.com (avoids browser bot walls
+    for downstream vision / multimodal models).
+    """
+    urls: List[str] = []
+    seen: set = set()
+
+    def add(u: Optional[str]) -> None:
+        if u and isinstance(u, str) and u not in seen:
+            seen.add(u)
+            urls.append(u)
+
+    img = item.get("image")
+    if isinstance(img, dict):
+        add(img.get("imageUrl"))
+
+    for th in item.get("thumbnailImages") or []:
+        if isinstance(th, dict):
+            add(th.get("imageUrl"))
+
+    for ex in item.get("additionalImages") or []:
+        if isinstance(ex, dict):
+            add(ex.get("imageUrl"))
+        elif isinstance(ex, str):
+            add(ex)
+
+    return urls
+
+
 class EbayScraper:
     """
     Scraper for eBay sold listings using Browse API
@@ -128,14 +162,8 @@ class EbayScraper:
             if not card_info.get('card_year') or not card_info.get('card_set'):
                 continue
             
-            # Get best image URL (prefer full-size thumbnail)
-            image_url = None
-            thumbs = item.get('thumbnailImages', [])
-            if thumbs:
-                image_url = thumbs[0].get('imageUrl')
-            if not image_url:
-                img = item.get('image', {})
-                image_url = img.get('imageUrl') if img else None
+            image_urls = collect_browse_item_image_urls(item)
+            image_url = image_urls[0] if image_urls else None
 
             parsed = {
                 'ebay_item_id': item.get('itemId'),
@@ -145,7 +173,8 @@ class EbayScraper:
                 'sale_date': item.get('itemEndDate') or datetime.now().isoformat(),  # Fallback to now
                 'condition': item.get('condition'),
                 'listing_type': 'auction' if 'AUCTION' in item.get('buyingOptions', []) else 'buy_it_now',
-                'image_url': image_url
+                'image_url': image_url,
+                'image_urls': image_urls,
             }
             
             # Skip junk data (price < $1)
@@ -310,7 +339,8 @@ class EbayScraper:
             item_id: eBay item ID (e.g., "v1|123456789|0")
             
         Returns:
-            Dictionary with card_number, parallel, grade_company, grade_value, player_name
+            Dictionary with card_number, parallel, grade_company, grade_value, player_name,
+            image_urls (ordered CDN URLs from Browse GET /item for gallery / vision).
             
         Example:
             >>> scraper = EbayScraper()
@@ -343,6 +373,7 @@ class EbayScraper:
             aspects = item_data.get('localizedAspects', [])
             
             data = self._extract_from_aspects(aspects)
+            data['image_urls'] = collect_browse_item_image_urls(item_data)
             need_blob = (not data.get('card_number')) or (not data.get('card_year'))
             blob = self._item_description_plain_text(item_data) if need_blob else ''
             if blob:
@@ -742,21 +773,16 @@ class EbayScraper:
             items = []
             for item in response.json().get('itemSummaries', []):
                 card_info = self._extract_card_info(item.get('title', ''), item.get('condition'))
-                # Get best image URL
-                image_url = None
-                thumbs = item.get('thumbnailImages', [])
-                if thumbs:
-                    image_url = thumbs[0].get('imageUrl')
-                if not image_url:
-                    img = item.get('image', {})
-                    image_url = img.get('imageUrl') if img else None
+                image_urls = collect_browse_item_image_urls(item)
+                image_url = image_urls[0] if image_urls else None
                 items.append({
                     'ebay_item_id': item.get('itemId'),
                     'title': item.get('title'),
                     'price': float(item.get('price', {}).get('value', 0)),
                     'listing_type': 'auction' if 'AUCTION' in item.get('buyingOptions', []) else 'buy_it_now',
                     'card_info': card_info,
-                    'image_url': image_url
+                    'image_url': image_url,
+                    'image_urls': image_urls,
                 })
             
             return items
@@ -861,16 +887,10 @@ class EbayScraper:
         try:
             self.headers["Authorization"] = f"Bearer {self.token_manager.get_token()}"
 
-            response = requests.get(
-                f"{self.base_url}/item_summary/search",
-                headers=self.headers,
-                params=params,
-                timeout=30,
-            )
-
-            if response.status_code == 401:
-                self.token_manager._refresh_token()
-                self.headers["Authorization"] = f"Bearer {self.token_manager.get_token()}"
+            response = None
+            for attempt in range(6):
+                if attempt > 0:
+                    time.sleep(1.0)
                 response = requests.get(
                     f"{self.base_url}/item_summary/search",
                     headers=self.headers,
@@ -878,7 +898,31 @@ class EbayScraper:
                     timeout=30,
                 )
 
-            response.raise_for_status()
+                if response.status_code == 401:
+                    self.token_manager._refresh_token()
+                    self.headers["Authorization"] = f"Bearer {self.token_manager.get_token()}"
+                    response = requests.get(
+                        f"{self.base_url}/item_summary/search",
+                        headers=self.headers,
+                        params=params,
+                        timeout=30,
+                    )
+
+                if response.status_code == 429:
+                    try:
+                        ra = int(response.headers.get("Retry-After", "60"))
+                    except ValueError:
+                        ra = 60
+                    wait = min(max(ra, 5), 120)
+                    if attempt < 5:
+                        print(f"  eBay 429 rate limit — sleeping {wait}s then retry ({attempt + 1}/5)...")
+                        time.sleep(wait)
+                        continue
+                    response.raise_for_status()
+
+                response.raise_for_status()
+                break
+
             time.sleep(0.5)
 
             data = response.json()
@@ -906,14 +950,8 @@ class EbayScraper:
                 # End time
                 end_time = item.get('itemEndDate')
 
-                # Image
-                image_url = None
-                thumbs = item.get('thumbnailImages', [])
-                if thumbs:
-                    image_url = thumbs[0].get('imageUrl')
-                if not image_url:
-                    img = item.get('image', {})
-                    image_url = img.get('imageUrl') if img else None
+                image_urls = collect_browse_item_image_urls(item)
+                image_url = image_urls[0] if image_urls else None
 
                 card_info = self._extract_card_info(title, item.get('condition'))
 
@@ -958,6 +996,7 @@ class EbayScraper:
                     'card_info': card_info,
                     'aspects': aspects,
                     'image_url': image_url,
+                    'image_urls': image_urls,
                     'condition': item.get('condition'),
                     'short_description': short_plain or None,
                 })
@@ -965,6 +1004,7 @@ class EbayScraper:
             return items
         except requests.exceptions.RequestException as e:
             print(f"Error fetching auctions for '{query}': {e}")
+            time.sleep(2.0)  # avoid tight loop of failures (e.g. 429 after retries exhausted)
             return []
 
 

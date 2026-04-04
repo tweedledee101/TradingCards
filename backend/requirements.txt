@@ -21,13 +21,18 @@ numpy>=1.24.0
 # API framework
 fastapi==0.104.1
 uvicorn==0.24.0
-pydantic==2.5.0
+# 2.10+ required if nova-act / MCP share this env (pip warns below 2.10.6)
+pydantic>=2.10.6,<3
 
 # Task scheduling
 apscheduler==3.10.4
 
 # Utilities
 python-dateutil==2.8.2
+
+# Amazon Nova (OpenAI-compatible chat + multimodal) — vision retry, dev scrapers
+# Needs Python 3.9+ (3.10+ recommended). openai 2.x + jiter may not resolve on 3.8; use one clean venv (see PIPELINE-OPS).
+openai>=1.40.0
 
 # Auth (Cognito JWT)
 python-jose[cryptography]==3.3.0
@@ -37,6 +42,8 @@ pytest==7.4.3
 pytest-cov==4.1.0
 pytest-mock==3.12.0
 httpx==0.27.0
+# Fallback DB-API when Python is built without stdlib _sqlite3 (some /usr/local installs); QA in-memory SQLite
+pysqlite3-binary==0.5.4.post2
 
 # Configuration
 pyyaml==6.0.1

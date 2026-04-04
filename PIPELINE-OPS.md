@@ -7,6 +7,15 @@ cd /home/tweedledee101/TradingCards
 /usr/bin/python3 -m backend.run_pipeline_full --fresh --sport Baseball --top 40
 ```
 
+## Tests (unit + PostgreSQL integration)
+
+- **Integration tests** (`tests/integration/`, marker `integration`) connect to **`DATABASE_URL`** — typically **RDS** (`backend/.env`). They need **outbound network** (DNS + port **5432**). If you see `could not translate host name` or connection timeouts, the failure is usually **no network path** (corporate firewall, offline laptop, or a **sandboxed** tool run), not “AWS is unreachable” by default.
+- **Local / WSL:** `source .venv/bin/activate` then either `set -a && . backend/.env && set +a` before `pytest`, or rely on `tests/integration/conftest.py` (loads `DATABASE_URL` from `backend/.env` when the env var is unset).
+- **Full suite:** `./run_tests.sh all` or `./run_tests.sh integration` sources `backend/.env` when present.
+- **`ModuleNotFoundError: No module named '_sqlite3'`** when running `pytest`: the **`pytest-cov`** plugin loads **`coverage`**, which needs the stdlib **`sqlite3`** extension. This repo’s **`pytest.ini`** disables **`pytest_cov` by default** so normal runs work on Pythons built without SQLite (common with **`/usr/local`** installs). Use **`./run_tests.sh coverage`** or **`pytest -p pytest_cov --cov=...`** only on an interpreter that has **`_sqlite3`** (e.g. Ubuntu **`apt install python3.12 python3.12-venv`**, or rebuild from source after **`libsqlite3-dev`**). **`tests/qa/`** in-memory SQLite uses **`pysqlite3-binary`** when **`import sqlite3`** fails; it is listed in **`backend/requirements.txt`** — run **`pip install -r backend/requirements.txt`** after pull.
+
+GitHub Actions workflows run with network and repo secrets; local parity requires the same.
+
 ## What The Pipeline Does (In Order)
 
 | Step | What | API Calls (40 players) | Time |
@@ -64,6 +73,8 @@ python3 find_auction_opportunities.py --years 2025,2026
 # Dry run (no DB storage)
 python3 find_auction_opportunities.py --dry-run
 ```
+
+**HTTP 429 on Browse `item_summary/search`:** eBay is rate-limiting (daily cap or burst). Wait (often **hours** or until the next **UTC/Pacific** day), check usage in [eBay Developers](https://developer.ebay.com/) → your keyset → **Analytics**. The scraper **retries 429** using `Retry-After` and waits **1s between queries**; if every call still 429s, only time or a higher Browse limit fixes it.
 
 ### Auction Finder Flags
 ```bash
@@ -132,6 +143,137 @@ Interpretation:
 11. Fallback pricing: 130point sold comps (DB cache) -> eBay active BIN comps (1 API call)
 12. Diagnostic logging: first 30 no_scp cards show variants found, pass attempts, failure reason
 13. Stores opportunities with listing_type='auction', shipping, bid_count, end_time
+
+---
+
+## Nova Act — listing photo vs expected card (dev)
+
+Proof script uses the **Nova Act Python SDK** (`act_get` + browser screenshots), not the Nova **chat** HTTP API used in `scripts/dev/test_nova_act_real_data.py`.
+
+```bash
+python3 scripts/dev/nova_act_listing_visual_probe.py --dry-run
+export NOVA_ACT_API_KEY="..."   # https://nova.amazon.com/act
+# Nova-act needs Python 3.10+ (Ubuntu default python3 is often 3.8/3.9 — use 3.12):
+python3.12 -m pip install --user nova-act && python3.12 -m playwright install chrome
+python3 scripts/dev/nova_act_listing_visual_probe.py \
+  --listing-url "https://www.ebay.com/itm/..." \
+  --expected "2022 Bowman Chrome Elly De La Cruz 1st"
+```
+
+More context: `acquisition/facebook_marketplace/README.md`.
+
+Batch / benchmark cases (JSON + optional confidence thresholds):
+
+```bash
+python scripts/dev/run_nova_act_probe_cases.py --dry-run
+# Edit scripts/dev/nova_act_probe_cases.json (enabled + real URLs), then:
+python3.12 scripts/dev/run_nova_act_probe_cases.py --headless
+```
+
+**See Nova Act move a real browser (local, no eBay):**
+
+```bash
+python3.12 scripts/dev/nova_act_smoke_gym.py
+```
+
+Opens headed Chrome against Amazon’s public gym page — confirms SDK + API key + Playwright.
+
+**WSL2 / odd window managers:** If you see `Page.captureScreenshot: Cannot take screenshot with 0 width`, the browser viewport was effectively 0×0 (minimized window, Wayland quirks). The dev scripts pass **`screen_width=1280`, `screen_height=720`** to `NovaAct`; maximize the Chrome window or use **`--headless`** if headed mode still fails.
+
+**Python env:** `pip install -r backend/requirements.txt` pins **FastAPI** stack but uses **`pydantic>=2.10.6`** so **nova-act** can share the same user site-packages without a version clash. If you still see resolver warnings for **mcp** / **sse-starlette**, use a **dedicated venv** for Nova Act–only tools.
+
+**Collectors Edge AI — full photo valuation (Playwright dev probe, not production):**
+
+Uses https://collectorsedgeai.com **Photo** tab: upload image → click through CTAs → save **screenshot + HTML + JSON** (parsed low/median/high, confidence, recommendation when regex matches) under `scripts/dev/_collectors_edge_artifacts/` (gitignored), or **`$TMPDIR/tradingcards_collectors_edge`** if that folder is not writable (fix ownership with `sudo chown -R "$USER" ~/TradingCards` on WSL if needed). Success URL is **`/result`** or **`/cards/...`**. Stdout includes **`=== CE_RESULT_JSON ===`** … **`=== END CE_RESULT_JSON ===`** for quick copy/paste. The JSON object adds **`ce_extracted`** (pricing band, comps narrative, card signals, trend hints) and **`ce_pipeline_analysis`** (hard facts, verification lines vs `opportunities` identity + `scp_price`, suggested QA flags) when pipeline fields are present (`--from-db`). With **`--merge-qa-to-db`** (only valid with **`--from-db`**), each successful run merges **`suggested_qa_flags`** into **`opportunities.qa_flags`** using the same **`rule` / `severity` / `reason`** object shape as **`qa_opportunities.py`** (prior **`ce_*`** entries from CE are replaced; pipeline QA rules are kept). **`qa_status`** is escalated to **`flagged`** when CE adds non-critical flags, or **`critical`** + **`flagged=true`** when CE reports **`ce_player_mismatch_risk`**. Respect site terms; login may be required for some flows.
+
+```bash
+# Use `python -m pip` / `python -m playwright` so installs match the interpreter you run the script with.
+python -m pip install -r scripts/dev/extra-requirements-collectors-edge.txt
+python -m playwright install chromium
+python scripts/dev/collectors_edge_photo_run.py \
+  --image-url "https://i.ebayimg.com/..." \
+  --keep-open 20
+# No shell URL variable: first DB opportunity with an image (needs backend/.env + backend/requirements.txt):
+python scripts/dev/collectors_edge_photo_run.py --from-db --db-skip 0 --headless --settle-ms 8000
+# Watch several listings in one browser (headed): pause between CE results, leave window open at the end:
+python scripts/dev/collectors_edge_photo_run.py --from-db --db-limit 3 --settle-ms 8000 --pause-between-cards 15 --keep-open 25 --slow-mo-ms 120
+```
+If you see “Cannot load Playwright” but pip succeeded, you’re on a **different** `python` than the venv’s (try `which python` and `python3.12` explicitly).
+
+**Image URLs from your DB (no manual eBay copy-paste):** `opportunities.image_url` and `listing_image_urls` — print recent rows for probes:
+
+```bash
+cd ~/TradingCards && source .venv/bin/activate
+python scripts/dev/print_opportunity_image_urls.py --limit 5
+URL=$(python scripts/dev/print_opportunity_image_urls.py --limit 1 | head -1)
+# Newest row is always the same card? Skip it: `--skip 1` (then 2, 3, …).
+URL=$(python scripts/dev/print_opportunity_image_urls.py --limit 1 --skip 1 | head -1)
+python scripts/dev/collectors_edge_photo_run.py --image-url "$URL" --keep-open 25
+# Equivalent: --from-db --db-skip 1
+# Explicit opportunity rows (order preserved), e.g. weak-SCP cohort samples:
+python scripts/dev/collectors_edge_photo_run.py --from-db --opportunity-ids 2687,2685 --headless --settle-ms 8000 --keep-open 0
+# Persist CE QA hints on the opportunity row (see merge behavior above):
+python scripts/dev/collectors_edge_photo_run.py --from-db --opportunity-ids 2687 --headless --merge-qa-to-db
+```
+
+**CE artifact → SCP row in PostgreSQL:** `scripts/vision_retry_scp_from_images.py` uses **Amazon Nova + `cards`/`market_rates` only** — it does **not** call Collectors Edge. If the **listing text or Nova year/#** disagrees with your catalog but the **photo** is clear, run **`collectors_edge_photo_run.py`** on the same CDN URL, save the JSON, then:
+
+```bash
+# Pass the real path printed as `JSON: ...` after a CE run, or:
+# --latest-ce-artifact: newest valid collectors_edge_*.json (skips empty/corrupt files); if none,
+# follows ce_explore_*.json → artifact_json. You may also pass a ce_explore_*.json path directly.
+python3 scripts/scp_lookup_from_ce_json.py --latest-ce-artifact
+python3 scripts/scp_lookup_from_ce_json.py scripts/dev/_collectors_edge_artifacts/<name>.json
+# When CE headline year ≠ opportunity row (e.g. 2019 vs 2020), match catalog to listing year:
+python3 scripts/scp_lookup_from_ce_json.py artifact.json --prefer-db-year
+python3 scripts/scp_lookup_from_ce_json.py /full/path/to/artifact.json --player "Mike Trout" --year 2011 --number US175
+```
+(Do not use literal `path/to/…` or a non-existent `ce.json` from docs — the script will error with a hint.)
+
+That runs **`find_scp_match_for_vision`** using best-effort parsing from **`ce_extracted`** (`backend/utils/ce_scp_identity.py`). If nothing prices for the requested year but the same **#** exists under another **`cards.card_year`**, the matcher may **drop the year filter** and report **`db_match_mode`** `*_year_relaxed` (verify before trading). **MISS** lines from this script describe **catalog gaps**, not Nova. You still **manually** confirm eBay image ≈ CE result ≈ SCP product art before trusting comps.
+
+**Collectors Edge — cohort exploration (polite sampling, not load testing):** `scripts/dev/collectors_edge_explore.py` picks recent rows **with listing images** per **cohort** (`baseline`, `weak_scp_url`, `scp_or_qa_gap`, `auction`, `qa_attention`, `flagged`, `bin`, `non_scp_price_source`). **`scp_or_qa_gap`** = missing **`scp_url`** **or** **`flagged`** **or** QA **`flagged`/`critical`** (not “everyone is `qa_pending`”). Default is **dry-run** (prints ids + row summaries). **`--execute`** runs `collectors_edge_photo_run.py` once per cohort. By default, **the same `opportunity_id` is not reused** across cohorts in one batch (later cohorts skip ids already sampled earlier); use **`--allow-duplicate-ids-across-cohorts`** to override. **`--merge-qa-to-db`** forwards to the photo script. **Sequential (default):** **`--cooldown-seconds`** between subprocesses (default 90s). **Parallel:** **`--max-parallel N`** runs up to **N Chromium subprocesses** at once (RAM-heavy; respect CE — use **`--launch-stagger-seconds`** e.g. 8–15 to spread starts). When **`--max-parallel` > 1**, cooldown is skipped. Writes **`ce_explore_<utc>.json`** under `_collectors_edge_artifacts/` with exit codes and artifact summaries. Use **`--list-cohorts`** for keys.
+
+```bash
+python scripts/dev/collectors_edge_explore.py --list-cohorts
+python scripts/dev/collectors_edge_explore.py --dry-run --cohorts baseline,weak_scp_url,scp_or_qa_gap --per-cohort 2
+python scripts/dev/collectors_edge_explore.py --execute --cooldown-seconds 90 --cohorts weak_scp_url,scp_or_qa_gap --per-cohort 1
+python scripts/dev/collectors_edge_explore.py --execute --max-parallel 2 --launch-stagger-seconds 10 --cooldown-seconds 0
+```
+
+**Vision extract from an eBay listing (main + gallery thumbnails) for SCP retry:**
+
+```bash
+python3.12 scripts/dev/nova_act_listing_card_extract.py \
+  --listing-url "https://www.ebay.com/itm/..."
+```
+
+Outputs JSON (`player_name`, `card_number`, `set_product_line`, `parallel_insert`, slab fields, etc.). Intended follow-up: map into existing SCP lookup (`find_scp_match_*`) for listings that failed text-only matching.
+
+### Nova Act in GitHub Actions
+
+- **Chromium in CI:** Yes. `ubuntu-latest` runners work with **headless** Playwright/Chromium. Nova Act’s loop uses screenshots internally; you do not need a display server for headless runs.
+- **This repo:** [`.github/workflows/nova-act-smoke.yml`](.github/workflows/nova-act-smoke.yml) runs **`nova_act_smoke_gym.py --headless`** on **workflow_dispatch** only (gym URL, not eBay). Add repository secret **`NOVA_ACT_API_KEY`**.
+- **eBay inside Actions:** Risky for default pipelines: datacenter IPs, consent walls, bot friction, and **cost per run** (Nova Act steps). Prefer **manual / scheduled** jobs, **`workflow_dispatch`**, **self-hosted** runner, or **AWS-managed browser** ([Bedrock AgentCore Browser](https://aws.amazon.com/blogs/machine-learning/introducing-amazon-bedrock-agentcore-browser-tool/) — see Nova Act docs) for production-scale listing automation.
+- **Workaround pattern:** Keep **auction/BIN pipelines** text+API-based on GitHub; run **vision only after** a pipeline completes, using **`job_runs.results_summary.vision_post_pipeline_queue_sample`** (bounded samples — excluded rows + tertiary checks). Vision must **not** gate ingest.
+
+**Browse API images vs www Cloudflare:** Item **CDN image URLs** from the **Buy Browse API** (`image`, `thumbnailImages`, `additionalImages`) are usually **HTTP-fetchable directly** for multimodal models (no `ebay.com` browser). **`opportunities.listing_image_urls`** stores gallery URLs on stored rows. Completed runs record **`vision_post_pipeline_queue_sample`** in **`job_runs.results_summary`**: **BIN** job — price-floor rejects + **flagged** suspicious BIN (30–50% of SCP) still written to **`opportunities`**; **auction** job — **Step 2 metadata skips** (`no_year` / `no_card_number` / `no_player`, bounded per reason, **only if HTTP image URLs are already on the row** from Browse search and/or the same GET `/item` call Step 2 already made for missing #/player/year — **no extra Browse calls for vision**) + no-pricing-after-fallback rows + **BIN ≪ SCP** sanity rejects. Summary also stores **`step2_skip_vision_queue_sample`** (same Step 2 rows only, for audits). Legacy auction-only key **`no_scp_vision_queue_sample`** remains for older summaries; **`vision_retry_scp_from_images.py`** prefers the unified key when present. Migration **`024`** added **`listing_image_urls`** on opportunities (`migrate.py --both` if you are behind).
+
+**Vision → DB SCP retry (CDN only, post-pipeline):**
+
+```bash
+pip install openai   # also in backend/requirements.txt
+python3 scripts/vision_retry_scp_from_images.py --latest-auction-job --limit 5
+python3 scripts/vision_retry_scp_from_images.py --latest-bin-job --limit 5
+# No recent job_runs sample yet — use rows already in `opportunities` (CDN images):
+python3 scripts/vision_retry_scp_from_images.py --from-recent-opportunities 5 --dry-run
+python3 scripts/vision_retry_scp_from_images.py --from-recent-opportunities 5 --listing-type buy_it_now --dry-run
+# Or: python3 scripts/vision_retry_scp_from_images.py --json /path/to/queue.json --dry-run
+```
+
+Uses **`NOVA_API_KEY`** + **`NOVA_VISION_MODEL`** (default `nova-2-lite-v1`) against **`api.nova.amazon.com`**. Downloads images with **`backend/services/vision_card_extract.py`**, then **`find_scp_match_for_vision`** (Base↔RC-style parallel fallback + multi-variant heuristic; ingest still uses stricter **`find_scp_match_in_db`**). **On HIT (default):** inserts a **new** **`opportunities`** row when profit ≥ **`--min-profit`** (default 10), confidence ≥ **`--min-confidence`** (default `medium`), **`buy_price`** is on the queue row, and **`ebay_item_id`** is not already in **`opportunities`**. Rows are **`flagged=True`** with **`qa_flags`** `vision_retry_persist`. **`--no-persist`** = print HIT/MISS only. **Step 2–only** queue rows often lack **`buy_price`** → HIT may print **`DB_SKIP … skip_no_buy_price`**. **Auction** no-pricing / BIN-sanity samples now include **`buy_price`** + **`shipping`** (current bid) so persist can run. Review hint when vision **player** ≠ **`pipeline_card`** still prints. **MISS** lines append a **catalog hint** (`vision_scp_miss_hint`); empty **auction** queue prints **`job_run.id`** + **`results_summary`** keys when the latest job has no sample.
+
+**If `import openai` fails but `pip` says satisfied:** the venv is almost certainly **mixed** (e.g. `.venv/lib/python3.12/site-packages` exists while `.venv/bin/python` is **3.8**, or the opposite). **`pip install`** and **`python3`** must target the **same** interpreter. **`openai` 2.x** does not install cleanly on **Python 3.8** (`jiter` wheel gap). **Fix:** `deactivate; rm -rf .venv; python3.12 -m venv .venv; source .venv/bin/activate; python3 -m pip install -r backend/requirements.txt` then `python3 -c "import openai"`.
 
 ---
 

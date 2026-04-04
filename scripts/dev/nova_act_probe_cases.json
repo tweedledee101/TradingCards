@@ -1,0 +1,36 @@
+{
+  "cases": [
+    {
+      "id": "01_baseline_photo_matches_expected",
+      "enabled": false,
+      "listing_url": "",
+      "expected_identity": "2023 Topps Chrome Corbin Carroll rookie base",
+      "want_confidence_at_least": "medium",
+      "notes": "Pick any live listing where the main photo clearly matches this identity. Expect high/medium match_confidence."
+    },
+    {
+      "id": "02_decoy_expected_wrong_player_same_photo",
+      "enabled": false,
+      "listing_url": "",
+      "expected_identity": "2023 Topps Chrome Shohei Ohtani base",
+      "want_confidence_at_most": "low",
+      "notes": "Use the SAME listing_url as 01 but a deliberately wrong expected_identity. Agent should not claim a strong match if the photo is clearly Carroll (or vice versa)."
+    },
+    {
+      "id": "03_vague_title_hypothesis",
+      "enabled": false,
+      "listing_url": "",
+      "expected_identity": "2022 Bowman Chrome Elly De La Cruz 1st Bowman",
+      "want_confidence_at_least": "medium",
+      "notes": "Choose a listing with a lazy title (e.g. 'rookie lot chrome') but a sharp main image. Tests whether vision recovers what text-based filters drop."
+    },
+    {
+      "id": "04_slab_grade_visible",
+      "enabled": false,
+      "listing_url": "",
+      "expected_identity": "PSA 10 2011 Topps Update Mike Trout rookie",
+      "want_confidence_at_least": "medium",
+      "notes": "Slab listing: visible_grading should usually be non-empty; match depends on whether the slab matches expected."
+    }
+  ]
+}

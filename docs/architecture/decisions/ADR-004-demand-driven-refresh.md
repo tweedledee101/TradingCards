@@ -161,6 +161,10 @@ The data gathering workload (Selenium browsers, eBay API calls, opportunity comp
 - **No CloudWatch Events for scheduling** -- demand-driven only
 - Worker triggered by API when cache is stale, not by a clock
 
+## Amendment (2026-03-27): Scheduled GitHub Actions
+
+**Ops scheduling** (e.g. `.github/workflows` cron for `find_opportunities.py` / auction / daily report) is **external** to the FastAPI app: it replaces a human running the same CLI, not an in-process clock that re-scrapes on every page view. The **in-app** rules above (staleness from rows, no “2 AM just because”) still apply to how the **API** should behave. Documented in `PIPELINE-OPS.md` and `docs/architecture/diagrams/data-flow.md`.
+
 ## Related Decisions
 
 - ADR-001: PostgreSQL database (cache storage)

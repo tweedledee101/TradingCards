@@ -14,13 +14,28 @@ from backend.models import (
 )
 
 
+def _sqlite_dbapi():
+    """Use stdlib sqlite3 when _sqlite3 exists; else pysqlite3-binary (bundled libsqlite)."""
+    try:
+        import sqlite3 as mod
+    except ModuleNotFoundError:
+        try:
+            import pysqlite3 as mod
+        except ModuleNotFoundError as e:
+            raise ModuleNotFoundError(
+                "QA tests need sqlite3 or the pysqlite3-binary package "
+                "(pip install -r backend/requirements.txt)."
+            ) from e
+    return mod
+
+
 @pytest.fixture
 def db():
     """Create a fresh in-memory database for each test.
     
     Remaps PostgreSQL JSONB to Text so SQLite can handle it.
     """
-    engine = create_engine("sqlite:///:memory:")
+    engine = create_engine("sqlite:///:memory:", module=_sqlite_dbapi())
 
     # SQLite can't handle JSONB -- remap to Text at compile time
     @event.listens_for(engine, "connect")

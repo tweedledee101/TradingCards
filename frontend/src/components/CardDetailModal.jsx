@@ -25,6 +25,7 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
   const [stats, setStats] = useState(null);
   const [priceHistory, setPriceHistory] = useState(null);
   const [timing, setTiming] = useState(null);
+  const [playerDataError, setPlayerDataError] = useState(null);
   const [imgError, setImgError] = useState(false);
   const [showSnipe, setShowSnipe] = useState(false);
   const [showManualBid, setShowManualBid] = useState(false);
@@ -64,12 +65,32 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
 
   const [remaining, setRemaining] = useState(() => calcRemaining(endTime));
 
-  // Load data on mount
+  // Load data on mount (failures are visible — previously silent empty tabs)
   useEffect(() => {
     if (!playerName) return;
-    getPlayerStats(playerName).then(setStats).catch(() => {});
-    getPlayerPriceHistory(playerName).then(setPriceHistory).catch(() => {});
-    getPlayerTiming(playerName).then(setTiming).catch(() => {});
+    setPlayerDataError(null);
+    let cancelled = false;
+    const fail = (label, err) => {
+      if (cancelled) return;
+      const st = err?.response?.status;
+      const detail = err?.response?.data?.detail;
+      const msg = st === 401
+        ? 'Sign in again to load player stats.'
+        : st
+          ? `Player stats unavailable (HTTP ${st}).`
+          : 'Player stats unavailable (network or API).';
+      setPlayerDataError(typeof detail === 'string' ? detail : msg);
+    };
+    getPlayerStats(playerName)
+      .then((d) => { if (!cancelled) { setStats(d); setPlayerDataError(null); } })
+      .catch((e) => { if (!cancelled) { setStats(null); fail('stats', e); } });
+    getPlayerPriceHistory(playerName)
+      .then((d) => { if (!cancelled) setPriceHistory(d); })
+      .catch(() => { if (!cancelled) setPriceHistory(null); });
+    getPlayerTiming(playerName)
+      .then((d) => { if (!cancelled) setTiming(d); })
+      .catch(() => { if (!cancelled) setTiming(null); });
+    return () => { cancelled = true; };
   }, [playerName]);
 
   // Live countdown
@@ -107,15 +128,20 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
   const dailyReturn = daysToSell && daysToSell > 0 && netProfit ? (netProfit / daysToSell) : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 pointer-events-none">
+      {/* Backdrop alone receives close — avoids mobile taps hitting wrong layer */}
+      <button
+        type="button"
+        aria-label="Close dialog"
+        className="absolute inset-0 z-0 bg-black/70 backdrop-blur-sm pointer-events-auto p-0 cursor-pointer appearance-none"
+        onClick={onClose}
+      />
 
-      <div className="relative bg-surface-card border border-surface-border rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col min-h-0"
-        onClick={e => e.stopPropagation()}>
+      <div className="relative z-10 bg-surface-card border border-surface-border rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden shadow-2xl flex flex-col min-h-0 pointer-events-auto">
 
         {/* Close */}
-        <button onClick={onClose}
-          className="absolute top-3 right-3 z-10 w-8 h-8 flex items-center justify-center rounded-full bg-surface-raised text-frost-dim hover:text-frost-light transition-colors text-sm">
+        <button type="button" onClick={onClose}
+          className="absolute top-3 right-3 z-20 w-8 h-8 flex items-center justify-center rounded-full bg-surface-raised text-frost-dim hover:text-frost-light transition-colors text-sm">
           X
         </button>
 
@@ -183,7 +209,7 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
             {snipeStatus === 'scheduled' ? (
               <div className="px-4 py-2.5 rounded-xl text-sm font-bold bg-gain/10 text-gain border border-gain/20 text-center">Bid Queued</div>
             ) : isAuction && remaining > 0 ? (
-              <button onClick={() => { setShowSnipe(!showSnipe); setShowManualBid(false); }}
+              <button type="button" onClick={() => { setShowSnipe(!showSnipe); setShowManualBid(false); }}
                 className="w-full px-4 py-2.5 rounded-xl text-sm font-bold bg-ember/20 text-ember-light border border-ember/30 hover:bg-ember/30 transition-colors">
                 {recSnipe > 0 ? `Snipe $${recSnipe.toFixed(2)}` : 'Place Bid'}
               </button>
@@ -247,7 +273,7 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
                     <option value={15}>15s</option>
                     <option value={30}>30s</option>
                   </select>
-                  <button onClick={async () => {
+                  <button type="button" onClick={async () => {
                     const maxBid = parseFloat(snipeBid);
                     if (!maxBid || maxBid <= 0) return;
                     try {
@@ -272,9 +298,15 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
         </div>
 
         {/* ===== TABS ===== */}
-        <div className="flex flex-wrap border-b border-surface-border shrink-0">
+        <div className="flex flex-wrap border-b border-surface-border shrink-0 relative z-20">
           {TABS.map(t => (
-            <button key={t} onClick={() => setTab(t)}
+            <button
+              key={t}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setTab(t);
+              }}
               className={`px-3 sm:px-4 py-2 sm:py-2.5 text-[11px] sm:text-xs font-medium transition-colors ${
                 tab === t
                   ? 'text-ember-light border-b-2 border-ember'
@@ -286,7 +318,13 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
         </div>
 
         {/* ===== TAB CONTENT ===== */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 overscroll-contain">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-5 overscroll-contain touch-pan-y">
+
+          {playerDataError && (
+            <div className="mb-4 text-xs text-amber-400 bg-amber-500/10 border border-amber-500/25 rounded-lg px-3 py-2">
+              {playerDataError}
+            </div>
+          )}
 
           {/* OVERVIEW TAB */}
           {tab === 'Overview' && (
@@ -316,6 +354,14 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
                     <MiniStat label="SCP Rates" value={stats.market_rates} />
                   </div>
                 </>
+              )}
+              {!stats && !playerDataError && (
+                <p className="text-xs text-frost-dim">Loading player analytics…</p>
+              )}
+              {stats && (!stats.recent_sales_30d || stats.recent_sales_30d === 0) && (
+                <p className="text-xs text-frost-dim">
+                  No recent sales in DB for this player — run the card data pipeline so Sell-Through / charts can populate.
+                </p>
               )}
 
               {/* Capital efficiency callout */}
@@ -414,11 +460,11 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
           {/* PRICE HISTORY TAB */}
           {tab === 'Price History' && (
             <div className="space-y-4">
-              {priceHistory?.history?.length > 1 ? (
+              {priceHistory?.history?.length > 0 ? (
                 <>
                   <SectionLabel text={`Sale prices over ${priceHistory.days} days`} />
-                  <div className="bg-surface-raised rounded-lg p-4" style={{ height: 260 }}>
-                    <ResponsiveContainer width="100%" height="100%">
+                  <div className="bg-surface-raised rounded-lg p-4 min-h-[200px]" style={{ height: 260 }}>
+                    <ResponsiveContainer width="100%" height="100%" minHeight={200}>
                       <LineChart data={priceHistory.history}>
                         <XAxis dataKey="date" tick={{ fontSize: 9, fill: '#6b7280' }}
                           tickFormatter={d => d.slice(5)} />
@@ -456,7 +502,7 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
                   </div>
                 </>
               ) : (
-                <Empty text="Not enough price history data yet. Need 2+ days of sales." />
+                <Empty text="No daily sale history for this player yet. Sales data comes from the card pipeline (not the auction scanner alone)." />
               )}
             </div>
           )}

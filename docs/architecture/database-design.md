@@ -37,6 +37,7 @@ PostgreSQL database storing trading card data, sales, market rates, opportunitie
 - scp_price, buy_price, profit, roi
 - listing_type ('buy_it_now' or 'auction')
 - ebay_url, ebay_item_id, image_url
+- listing_image_urls (JSONB) — distinct eBay CDN URLs from Browse API (`image` + `thumbnailImages` + `additionalImages`) for gallery / vision-without-browser
 - scp_url, grade_9_price, psa_10_price
 - shipping, bid_count, end_time, scp_volume
 - flagged (boolean), flag_reason
@@ -96,7 +97,7 @@ PostgreSQL database storing trading card data, sales, market rates, opportunitie
 - job_name, status (running/completed/failed)
 - started_at, completed_at
 - items_processed, items_total
-- parameters (JSONB), results_summary (JSONB)
+- parameters (JSONB), results_summary (JSONB) — may include **`vision_post_pipeline_queue_sample`** (bounded listing snapshots + **`reason`**) for post-pipeline multimodal follow-up; does not affect ingest
 
 **error_log** -- Structured error logging (WARN+)
 - timestamp, level, category, source, message
@@ -121,6 +122,8 @@ PostgreSQL database storing trading card data, sales, market rates, opportunitie
 | 012 | QA fields (qa_status, qa_flags, qa_reviewed_at) |
 | 013 | SCP cache table (scp_cache with JSONB variants, 24h TTL) |
 | 014 | Sold comps table (130point eBay sold data cache) |
+| … | See `backend/models/migration_*.sql` for 015–023 (price_source, scheduled_bids, business planner, auth, etc.) |
+| 024 | `opportunities.listing_image_urls` JSONB (Browse API gallery URLs) |
 
 ## Key Indexes
 
