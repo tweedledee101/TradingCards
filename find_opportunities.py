@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 import time
 import re
 from selenium import webdriver
@@ -396,6 +397,16 @@ if __name__ == '__main__':
                     'min_roi': args.min_roi, 'players': players}
     )
 
+    if not players:
+        msg = (
+            "eBay player discovery returned 0 players (every seed had total=0). "
+            "Usually fixed by discover_players Browse filters; use --players a,b,c to override."
+        )
+        print(msg, file=sys.stderr)
+        log.error(msg, category='discover_zero_players', context={'top_players': args.top_players})
+        tracker.fail(msg)
+        sys.exit(1)
+
     try:
         # Step 2: Start Selenium for SCP
         print("Starting browser for SportsCardsPro...")
@@ -454,9 +465,18 @@ if __name__ == '__main__':
         print(f"{'=' * 80}\n")
 
         if not all_variations:
-            print("No variations found in price range. Try adjusting --min-scp-price or --max-scp-price.")
-            tracker.complete(summary={'variations': 0, 'opportunities': 0})
-            exit()
+            msg = (
+                "No SCP variations in price range — SCP returned nothing usable, site/blocking/HTML changed, "
+                "or filters (--min-scp-price / volume) removed everything. Adjust thresholds or check SCP rows."
+            )
+            print(msg, file=sys.stderr)
+            log.error(msg, category='scp_no_variations', context={
+                'players': len(players),
+                'min_scp_price': args.min_scp_price,
+                'max_scp_price': args.max_scp_price,
+            })
+            tracker.fail(msg)
+            sys.exit(1)
 
         # Step 4: Search eBay for each variation
         scraper = EbayScraper()
@@ -625,6 +645,8 @@ if __name__ == '__main__':
         except Exception as e:
             db.rollback()
             log.error(f'Failed to store opportunities: {e}', category='db_write_error')
+            tracker.fail(f'db_write_error: {e}')
+            sys.exit(1)
         finally:
             db.close()
 

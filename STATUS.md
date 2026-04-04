@@ -1,5 +1,7 @@
 # Trading Card Platform - Current Status
-**Last Updated:** 2026-03-27 (Session 52)
+**Last Updated:** 2026-04-04 (Session 53)
+
+Session 53: **eBay discovery filter** — **`discover_players.discover_top_players`** no longer uses a **past-only** `itemEndDate` window on Browse search (that returned **total=0** for every seed on Actions). Ranks seeds by **active** listing count; **Baseball** adds **categoryId 261328**. **`find_opportunities`**: **exit 1** if discovery yields **0 players**. **`ebay_scraper`**: **`itemEndDate`** bounds use UTC **`.000Z`** (aligned with auction search).
 
 Session 52: **Ship-ready tree** — Stopped tracking **`frontend/node_modules`** (~6.6k files) and **`__pycache__`** / **`*.pyc`** (use **`.gitignore`** + **`npm ci`**). Staged feature work: migration **024** **`listing_image_urls`**, vision/SCP/Collectors Edge utilities + scripts, Opportunities API/UI, test hygiene (**234** pytest), **`nova-act-smoke`** workflow. **CI** frontend job runs **`npm ci`**; local **`npm run build`** verified.
 

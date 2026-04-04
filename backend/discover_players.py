@@ -18,7 +18,7 @@ import sys
 import os
 import time
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -111,9 +111,10 @@ SEED_PLAYERS = [
 
 def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None, sport: str = None) -> List[Dict]:
     """
-    Discover top players by eBay sales volume.
-    
-    Searches each seed player, counts total listings, ranks by volume.
+    Discover top players by eBay **active listing** volume (Browse search ``total``).
+
+    ``days`` is kept for CLI compatibility; ranking uses current buyable inventory,
+    not a past ``itemEndDate`` window (that filter yields 0 hits on active listings).
     
     Args:
         days: Lookback period (default 7 days)
@@ -130,16 +131,21 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
     if sport:
         players_to_search = [(n, s) for n, s in players_to_search if s == sport]
     
-    print(f"Discovering top players from {len(players_to_search)} seed players ({days} days)...")
+    print(f"Discovering top players from {len(players_to_search)} seed players (active eBay Browse matches)...")
     print(f"API calls needed: {len(players_to_search)} (1 per player, limit=1)")
     print("=" * 70)
     
     results = []
-    
-    from datetime import timedelta
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=days)
-    
+
+    # Browse item_summary/search returns *active* listings. A past-only itemEndDate
+    # window (e.g. last 7 days) matches almost nothing → total=0 for every seed.
+    # Volume proxy: count active BUY/auction hits; optional category to cut noise.
+    def _discovery_filter(sp: Optional[str]) -> str:
+        parts = ['buyingOptions:{AUCTION|FIXED_PRICE}']
+        if sp == 'Baseball':
+            parts.append('categoryId:{261328}')  # Trading Card Singles
+        return ','.join(parts)
+
     for i, (player_name, sport) in enumerate(players_to_search, 1):
         print(f"  [{i}/{len(players_to_search)}] {player_name}...", end=" ", flush=True)
         
@@ -147,7 +153,7 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
             scraper.headers['Authorization'] = f'Bearer {scraper.token_manager.get_token()}'
             params = {
                 'q': f'{player_name} card',
-                'filter': f'buyingOptions:{{AUCTION|FIXED_PRICE}},itemEndDate:[{start_date.isoformat()}..{end_date.isoformat()}]',
+                'filter': _discovery_filter(sport),
                 'limit': 1
             }
             r = requests.get(

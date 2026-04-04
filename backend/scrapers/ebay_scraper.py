@@ -14,8 +14,16 @@ Usage:
 import requests
 import re
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
+
+
+def _browse_datetime_utc_z(dt: datetime) -> str:
+    """eBay Browse ``itemEndDate`` filters expect UTC with a ``Z`` suffix."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    dt = dt.astimezone(timezone.utc)
+    return dt.strftime('%Y-%m-%dT%H:%M:%S.000Z')
 from backend.config.settings import config
 from backend.utils.listing_card_identity import card_number_tokens_from_free_text
 
@@ -101,7 +109,10 @@ class EbayScraper:
         # eBay API filter format
         params = {
             "q": query,
-            "filter": f"buyingOptions:{{AUCTION|FIXED_PRICE}},itemEndDate:[{start_date.isoformat()}..{end_date.isoformat()}]",
+            "filter": (
+                "buyingOptions:{AUCTION|FIXED_PRICE},"
+                f"itemEndDate:[{_browse_datetime_utc_z(start_date)}..{_browse_datetime_utc_z(end_date)}]"
+            ),
             "sort": "endTimeSoonest",
             "limit": 200
         }
@@ -871,7 +882,7 @@ class EbayScraper:
         """
         end_deadline = datetime.now() + timedelta(hours=hours)
 
-        filter_str = f"buyingOptions:{{AUCTION}},itemEndDate:[..{end_deadline.isoformat()}Z]"
+        filter_str = f"buyingOptions:{{AUCTION}},itemEndDate:[..{_browse_datetime_utc_z(end_deadline)}]"
         if category_id:
             filter_str += f",categoryId:{{{category_id}}}"
 
