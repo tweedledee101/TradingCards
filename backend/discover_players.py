@@ -114,6 +114,25 @@ SEED_PLAYERS = [
 ]
 
 
+def _discover_429_sleep_seconds(retry_after_header: Optional[str]) -> float:
+    """
+    Seconds to sleep after HTTP 429 on discovery.
+
+    eBay often sends Retry-After: 60; capping avoids spending a full minute per
+    seed while still backing off. Override cap: EBAY_DISCOVER_429_MAX_SLEEP (5–120).
+    """
+    try:
+        cap = int(os.environ.get('EBAY_DISCOVER_429_MAX_SLEEP', '25'))
+    except ValueError:
+        cap = 25
+    cap = max(5, min(120, cap))
+    try:
+        ra = int(retry_after_header) if retry_after_header else 15
+    except ValueError:
+        ra = 15
+    return float(min(max(ra, 2), cap))
+
+
 def _browse_item_summary_get(
     scraper: EbayScraper,
     params: dict,
@@ -124,8 +143,9 @@ def _browse_item_summary_get(
     """
     GET ``/item_summary/search`` with 401 refresh and 429 ``Retry-After`` backoff.
 
-    Matches ``EbayScraper.search_auctions_ending_soon`` so discovery does not
-    burn all seeds on a short Browse throttle window.
+    Discovery uses a **lower max sleep** than auction Browse (see
+    ``_discover_429_sleep_seconds``) so a throttled run fails faster instead of
+    burning hours at 60s × 45 seeds.
     """
     last: Optional[requests.Response] = None
     for attempt in range(6):
@@ -153,14 +173,10 @@ def _browse_item_summary_get(
         if r.status_code == 429:
             if stats is not None:
                 stats['browse_429_waits'] = stats.get('browse_429_waits', 0) + 1
-            try:
-                ra = int(r.headers.get('Retry-After', '60'))
-            except ValueError:
-                ra = 60
-            wait = min(max(ra, 5), 120)
+            wait = _discover_429_sleep_seconds(r.headers.get('Retry-After'))
             if attempt < 5:
                 print(
-                    f"  eBay Browse 429 — sleeping {wait}s then retry ({attempt + 1}/5)...",
+                    f"  eBay Browse 429 — sleeping {wait:.0f}s then retry ({attempt + 1}/5)...",
                     flush=True,
                 )
                 time.sleep(wait)

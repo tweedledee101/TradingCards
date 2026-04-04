@@ -31,7 +31,17 @@ ORDER BY created_at DESC
 LIMIT 50;
 ```
 
-**HTTP 429 on discovery:** eBay Browse returns **Too many requests** when calls are bursty or other jobs share the same **application id**. Discovery uses **`Retry-After`** backoff (same idea as auction Browse) and **0.5s** pacing between seeds. If every seed still fails with 429, spread runs in time or wait for the daily Browse budget to reset — **`DISCOVER_SUMMARY`** includes **`browse_429_waits`**.
+**HTTP 429 on discovery:** eBay Browse returns **Too many requests** when calls are bursty or other jobs share the same **application id**. Discovery uses **`Retry-After`** backoff with a **capped** sleep (default max **25s** per wait, not a full **60s** every time) and **0.5s** pacing between seeds. To wait longer on 429 (more polite to eBay), set **`EBAY_DISCOVER_429_MAX_SLEEP`** to e.g. **60** (clamped **5–120**). If every seed still fails with 429, spread runs in time or wait for the daily Browse budget to reset — **`DISCOVER_SUMMARY`** includes **`browse_429_waits`**.
+
+**Am I throttled right now?** One Browse call (does not show official daily totals):
+
+```bash
+cd /home/tweedledee101/TradingCards
+set -a && [ -f backend/.env ] && . backend/.env && set +a
+python3 scripts/dev/ebay_browse_ping.py
+```
+
+**Official daily usage:** [API call limits](https://developer.ebay.com/develop/get-started/api-call-limits) and [developer.ebay.com](https://developer.ebay.com/) → **Application Keys** → your app → **Analytics** / **Reports** (labels vary). There is no supported one-line “remaining calls” command for **client-credentials** pipelines; analytics APIs that return **`remaining`** typically need a **user** OAuth token.
 
 ## What The Pipeline Does (In Order)
 

@@ -38,6 +38,28 @@ def test_browse_get_429_then_200(mock_get, _sleep, scraper):
 
 @patch('backend.discover_players.time.sleep', return_value=None)
 @patch('backend.discover_players.requests.get')
+def test_browse_get_429_retry_after_capped(mock_get, _sleep, scraper):
+    """eBay Retry-After 90 is capped (default max 25s) so discovery does not stall a minute per try."""
+    r429 = MagicMock()
+    r429.status_code = 429
+    r429.headers = {'Retry-After': '90'}
+    r200 = MagicMock()
+    r200.status_code = 200
+    r200.content = b'{"total": 1}'
+    r200.json.return_value = {'total': 1}
+    mock_get.side_effect = [r429, r200]
+
+    stats = {}
+    r = _browse_item_summary_get(scraper, {'q': 'x', 'limit': 1}, stats=stats)
+
+    assert r.status_code == 200
+    _sleep.assert_called()
+    # one 429 wait + one inter-attempt 0.5
+    assert any(call[0][0] == 25 for call in _sleep.call_args_list)
+
+
+@patch('backend.discover_players.time.sleep', return_value=None)
+@patch('backend.discover_players.requests.get')
 def test_browse_get_401_refreshes_then_200(mock_get, _sleep, scraper):
     r401 = MagicMock()
     r401.status_code = 401
