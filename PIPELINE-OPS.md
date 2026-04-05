@@ -16,6 +16,8 @@ cd /home/tweedledee101/TradingCards
 
 GitHub Actions workflows run with network and repo secrets; local parity requires the same.
 
+**Outcome / trust (not just green tests):** See [docs/testing/strategy.md](./docs/testing/strategy.md) — pipeline funnel audits (`job_runs`, `scripts/audit_auction_pipeline.py`, `scripts/diagnose_auction_query_efficiency.py`) and future **identity-verification** metrics for Ragnarok opportunities. Pytest marker **`outcome`** for goal-aligned tests.
+
 ## Player discovery observability (eBay Browse)
 
 When discovery returns **0 players**, the run is not “silent”: **`backend/discover_players.py`** prints a **`DISCOVER_SUMMARY`** JSON line (stdout) and writes **`error_log`** rows when all seeds are zero or when Browse returns HTTP/API errors.
@@ -113,6 +115,22 @@ python3 find_auction_opportunities.py --dry-run
 --years 2023,2024,2025,2026  # Years to search (default: all four)
 --sport baseball     # Sport (default: baseball)
 --dry-run            # Show results without storing in DB
+--top-players 40     # Same as BIN: how many volume-ranked names drive player queries (default: 40)
+--days 7             # Same as BIN: eBay volume lookback for that ranking (default: 7)
+--players "A,B"      # Comma-separated names → skips discovery for the player-query arm only
+--no-product-line-queries   # Omit high-listing-volume lines (e.g. "2025 Topps Chrome baseball")
+--product-line-year-cap 3   # Latest N years from --years for those lines (0 = all years)
+--sold-comp-seed-queries 25 # Extra Browse q from top SKUs in sold_comps (130point); 0=off
+--sold-comp-seed-days 7     # Lookback for ranking those SKUs
+```
+
+**Smarter Browse coverage (default on for baseball):** Value queries are built in `backend/config/auction_queries.py`: **product-line × recent years** (Topps Chrome, Series 1, Bowman, etc.) **plus** the original parallel/premium strings. Optional **`sold_comps`** seeds (`backend/services/auction_sold_comp_seeds.py`) add **card-centric** queries from the 130point worm (hot player/year/# keys). Listings are still deduped by item id; overlapping queries are expected—use diagnostics below to trim.
+
+**Per-query efficiency (Step 1):** Each completed run stores **`step1_query_stats`** in `job_runs.results_summary`: per-`q` **`items_returned`**, **`new_after_dedupe`**, **`pages`** (Browse GET count), and **`ebay_total_hint`** (API `total` on first page—shows how deep ≤1000 fetch goes vs full match count).
+
+```bash
+python3 scripts/diagnose_auction_query_efficiency.py
+python3 scripts/diagnose_auction_query_efficiency.py --job-id <auction_finder_run_id>
 ```
 
 ### Audit auction funnel (data, not guesses)
@@ -120,6 +138,12 @@ python3 find_auction_opportunities.py --dry-run
 After any `auction_finder` run, `job_runs.results_summary` stores JSON including **`auctions_searched`**, **`qualified`**, **`step2_skip_reasons`** (why listings dropped before SCP), **`step3_*`** counters (no pricing, bin sanity, low volume, below min profit), and **`opportunities_found`**.
 
 **Step 3 pricing funnel:** **`step3_no_pricing`** counts listings with **no price after all sources**. **`step3_no_pricing_after_primary`** = entered fallback (no DB/SCP price). **`step3_no_pricing_after_sold_comps`** = still no price after 130point (so eBay BIN comps were tried or skipped). Compare the three to see whether the gap is **SCP**, **sold comps**, or **eBay comps**.
+
+**Step 3 — why `qualified` is much larger than `opportunities_found`:** Each qualified listing is processed **once** in Step 3. It either becomes an opportunity or increments **exactly one** of these exit counters (then `continue`): **`step3_no_pricing`**, **`step3_bin_sanity`**, **`step3_low_volume`**, **`step3_below_min_profit`**. So:
+
+`qualified` ≈ `opportunities_found` + `step3_no_pricing` + `step3_bin_sanity` + `step3_low_volume` + `step3_below_min_profit`
+
+(Any tiny mismatch is from exceptions or future early-exit paths.) **Economics:** net resale is modeled as **`scp_price * (1 - 0.13) - (current_bid + shipping)`** vs **`--min-profit`** (default **$10**). Auctions with a **Buy It Now** also run a **BIN sanity** check: if **`bin_price / scp_price < 0.5`**, the row is dropped as a likely **wrong SCP match** (seller’s BIN disagrees with book). That is why a run with **`qualified: 157`** and **`opportunities_found: 8`** is normal when **`step3_below_min_profit`** is in the ~90s and **`step3_no_pricing`** in the ~50s — most cards are either **unpriced after all fallbacks** or **priced but not profitable enough** after fees and shipping.
 
 ```bash
 export DATABASE_URL='postgresql://...'   # RDS or local
@@ -149,7 +173,7 @@ Interpretation:
 | H2: Many qualify but fail `step3_no_pricing` | `step3_no_pricing` large vs `qualified` | SCP cache fill rate, Selenium health, `sold_comps` worm volume, parallel matching fixes |
 | H3: Pricing works but `step3_below_min_profit` dominates | Counters in `results_summary` | Soften `--min-profit` for a “scout” tier in UI; or raise `--max-budget` for high-end flips |
 | H4: UI shows 3 because most rows **ended** | `ended_still_stored` vs `active_ui` in audit | Shorter `--hours` refresh cadence or filter/cleanup ended rows; run pipeline more often |
-| H5: Query set misses liquid segments | `auctions_searched` high, `qualified` flat | Pipeline adds **`get_set_queries`** for top 15 DB players (see `HIGH_VALUE_SETS`); tune player cap or sets in `backend/config/sets.py` |
+| H5: Query set misses liquid segments | `auctions_searched` high, `qualified` flat | Player arm uses **`hot_player_names_for_pipeline`** (same ranking as BIN); **`get_set_queries`** for **top 15** of that list when `HIGH_VALUE_SETS` matches sport; tune **`--top-players`** / sets in `backend/config/sets.py` |
 
 **SCP Selenium slow loads:** Firefox may log `Navigation timed out after … ms`; the scraper catches that and still parses partial HTML when possible. Raise **`SCP_PAGE_LOAD_TIMEOUT`** in `backend/.env` (default **60**s, max **180**) if timeouts are frequent.
 
@@ -159,7 +183,7 @@ Interpretation:
 
 ### What The Auction Finder Does
 
-1. Searches eBay using **value queries + per-player queries** (top 40 DB players: auto/refractor + **set-specific** queries for the top 15 via `backend/config/sets.py`)
+1. Searches eBay using **value queries** (`backend/config/auction_queries.py`: **product-line × years** + parallel/premium strings), optional **`sold_comps` SKU seeds**, and **per-player queries** (**same volume-ranked top N as BIN** via `hot_player_names_for_pipeline`, unless `--players`; auto/refractor + **set-specific** for **top 15** via `backend/config/sets.py`)
 2. Paginates up to 1000 results per query (5 pages x 200)
 3. Filters to eBay category 261328 (Trading Card Singles)
 4. Deduplicates across all queries by eBay item ID

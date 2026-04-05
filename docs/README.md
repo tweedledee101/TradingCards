@@ -2,6 +2,7 @@
 
 ## Project Root
 - [README.md](../README.md) - Project overview, quick start, features
+- [CONTRIBUTING.md](../CONTRIBUTING.md) - Branching, PRs, when not to commit straight to main
 - [STATUS.md](../STATUS.md) - Current project status and database state
 - [PIPELINE-OPS.md](../PIPELINE-OPS.md) - Pipeline commands, flags, troubleshooting
 - [ROADMAP.md](./ROADMAP.md) - Milestones and backlog (including future brand/content ideas)
@@ -24,6 +25,9 @@
 
 ## Setup
 - [installation.md](./setup/installation.md) - Development environment setup
+
+## Testing
+- [testing/strategy.md](./testing/strategy.md) - Correctness vs pipeline health vs outcome/trust metrics
 
 ## Component READMEs
 - [frontend/README.md](../frontend/README.md) - Frontend setup and tech stack

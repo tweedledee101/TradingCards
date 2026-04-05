@@ -20,6 +20,17 @@ Data gathering must run in a separate process from the core app.
 
 ## Milestone 2 -- "Trust the Data"
 
+### 2.0 Listing identity verification (eBay ↔ SCP ↔ Collectors Edge) — IN PROGRESS / REQUIRED
+
+**Problem:** Opportunities sometimes show an eBay listing whose **visual card** does not match the **SCP catalog row** (wrong parallel, wrong year, wrong variation). That is unacceptable for trading decisions.
+
+**Target behavior:**
+
+- For rows that surface on **RagnarokGamez**, treat **identity as unverified** until a defined verification pass succeeds.
+- **Inputs:** eBay listing images (Browse CDN), **SCP product image** from the matched SCP URL, and **Collectors Edge** photo/result where used for research.
+- **Method:** Visual + structured compare (existing Nova vision queue, `collectors_edge_photo_run`, `ce_pipeline_analysis`, `scp_lookup_from_ce_json`); evolve toward **mandatory** gates or clear **UI badges** (`verified` / `unverified` / `mismatch flagged`).
+- **Process:** Documented in [PIPELINE-OPS.md](../PIPELINE-OPS.md) and [KNOWN-ISSUES.md](./KNOWN-ISSUES.md); outcome metrics in [docs/testing/strategy.md](./testing/strategy.md).
+
 ### 2.1 Sold Price Validation (Recent Comps)
 Before buying a $7 card that SCP says is worth $92, show recent eBay sold data for that exact variation.
 - One extra eBay sold-listings search per opportunity

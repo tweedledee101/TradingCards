@@ -28,6 +28,18 @@ def test_get_hot_players_calls_ebay_not_database():
         assert players[1] == 'Aaron Judge'
 
 
+def test_hot_player_names_for_pipeline_wraps_discover():
+    with patch('backend.discover_players.discover_top_players') as mock_discover:
+        mock_discover.return_value = [
+            {'player_name': 'Test Star', 'sport': 'Baseball', 'sales_volume': 1},
+        ]
+        from backend.discover_players import hot_player_names_for_pipeline
+
+        names = hot_player_names_for_pipeline(limit=1, sport='Baseball', days=7)
+        assert names == ['Test Star']
+        mock_discover.assert_called_once_with(days=7, limit=1, sport='Baseball')
+
+
 def test_get_hot_players_never_returns_empty_with_seed_players():
     """If eBay returns volume for any seed player, we must get results."""
     with patch('backend.discover_players.discover_top_players') as mock_discover:
@@ -52,4 +64,6 @@ def test_get_hot_players_does_not_import_database_models():
     assert 'SessionLocal' not in source, "get_hot_players must not use SessionLocal (DB dependency)"
     assert 'Card' not in source, "get_hot_players must not query Card model"
     assert 'Sale' not in source, "get_hot_players must not query Sale model"
-    assert 'discover_top_players' in source, "get_hot_players must use discover_top_players"
+    assert (
+        'hot_player_names_for_pipeline' in source or 'discover_top_players' in source
+    ), "get_hot_players must delegate to eBay volume discovery (not DB)"

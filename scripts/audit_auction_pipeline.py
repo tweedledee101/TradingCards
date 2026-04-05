@@ -187,6 +187,12 @@ def main():
                 )
             elif vpp is not None:
                 print(f"    vision_post_pipeline_queue_sample: (unexpected type {type(vpp).__name__})")
+            sq = s.get("step1_query_stats")
+            if isinstance(sq, list) and sq:
+                print(
+                    f"    step1_query_stats: {len(sq)} Browse queries — "
+                    f"python3 scripts/diagnose_auction_query_efficiency.py --job-id {r['id']}"
+                )
             print()
 
         if args.compare and len(parsed_pair) >= 2:

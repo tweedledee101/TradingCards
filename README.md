@@ -115,6 +115,7 @@ See [ROADMAP.md](./docs/ROADMAP.md) for full feature roadmap with milestones.
 
 ## Documentation
 
+- [CONTRIBUTING.md](./CONTRIBUTING.md) - Branching and PR expectations (avoid risky changes only on `main`)
 - [STATUS.md](./STATUS.md) - Current project status (start here)
 - [ROADMAP.md](./docs/ROADMAP.md) - Feature roadmap and milestones
 - [PIPELINE-OPS.md](./PIPELINE-OPS.md) - Pipeline operations guide

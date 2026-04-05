@@ -28,7 +28,7 @@ Deep dives: [docs/architecture/system-architecture.md](./docs/architecture/syste
 | DB schema + migrations | `backend/models/schema.sql`, `backend/models/migration_*.sql`, ORM in `backend/models/__init__.py` |
 | Config | `backend/config/settings.py`, `config/targets.yaml` |
 | Frontend | `frontend/src/` — API client `frontend/src/api/client.js`; pages in `frontend/src/pages/` |
-| Pipelines (repo root) | `find_opportunities.py`, `find_auction_opportunities.py`, `worm_130point.py`, `daily_report.py`, `migrate.py` — vision is **post-pipeline** only: `job_runs.results_summary.vision_post_pipeline_queue_sample`, `scripts/vision_retry_scp_from_images.py` |
+| Pipelines (repo root) | `find_opportunities.py`, `find_auction_opportunities.py`, `worm_130point.py`, `daily_report.py`, `migrate.py` — vision is **post-pipeline** only: `job_runs.results_summary.vision_post_pipeline_queue_sample`, `scripts/vision_retry_scp_from_images.py`; auction Browse efficiency: `scripts/diagnose_auction_query_efficiency.py` (`step1_query_stats` on `job_runs`) |
 | GitHub Actions summary (CLI) | `scripts/summarize_github_actions.py` — recent run conclusions + failed steps (`gh auth login` or `GITHUB_TOKEN`); see `PIPELINE-OPS.md` |
 | Auction funnel audit (RDS) | `scripts/audit_auction_pipeline.py` (`--compare` = delta vs prior run); `scripts/cleanup_stale_auction_opportunities.py` — see `PIPELINE-OPS.md` |
 | Nova Act (dev / vision) | `scripts/dev/nova_act_smoke_gym.py` (headed demo), `nova_act_listing_card_extract.py` (eBay images → JSON), `nova_act_listing_visual_probe.py`, `run_nova_act_probe_cases.py`; CI gym smoke `.github/workflows/nova-act-smoke.yml` — see `PIPELINE-OPS.md` |

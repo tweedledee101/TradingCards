@@ -282,13 +282,15 @@ class TestSearchAuctionsEndingSoon:
     def test_success_200_parses_auction(self, mock_get, _sleep, scraper):
         ok = Mock()
         ok.status_code = 200
-        ok.json.return_value = {"itemSummaries": [_AUCTION_ITEM]}
+        ok.json.return_value = {"itemSummaries": [_AUCTION_ITEM], "total": 5421}
         ok.raise_for_status.return_value = None
         mock_get.return_value = ok
 
-        rows = scraper.search_auctions_ending_soon("baseball test", hours=48)
+        meta = {}
+        rows = scraper.search_auctions_ending_soon("baseball test", hours=48, meta_out=meta)
 
         assert len(rows) == 1
+        assert meta.get("ebay_total") == 5421
         assert rows[0]["ebay_item_id"] == "v1|123|0"
         assert rows[0]["listing_type"] == "auction"
         assert rows[0]["price"] == 25.0

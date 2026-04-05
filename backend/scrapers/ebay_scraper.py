@@ -866,7 +866,14 @@ class EbayScraper:
             print(f"Error fetching BIN comps for '{query}': {e}")
             return []
 
-    def search_auctions_ending_soon(self, query: str, hours: int = 48, offset: int = 0, category_id: str = '261328') -> List[Dict]:
+    def search_auctions_ending_soon(
+        self,
+        query: str,
+        hours: int = 48,
+        offset: int = 0,
+        category_id: str = '261328',
+        meta_out: Optional[dict] = None,
+    ) -> List[Dict]:
         """
         Search for auction-only listings ending within `hours`.
 
@@ -940,6 +947,14 @@ class EbayScraper:
             time.sleep(0.5)
 
             data = response.json()
+            if meta_out is not None and offset == 0:
+                t = data.get('total')
+                if t is not None:
+                    try:
+                        meta_out['ebay_total'] = int(t)
+                    except (TypeError, ValueError):
+                        meta_out['ebay_total'] = t
+
             items = []
 
             for item in data.get('itemSummaries', []):

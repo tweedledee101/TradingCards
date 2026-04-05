@@ -898,72 +898,109 @@ if __name__ == '__main__':
     parser.add_argument('--years', type=str, default='2023,2024,2025,2026', help='Years to search (default: 2023,2024,2025,2026)')
     parser.add_argument('--sport', type=str, default='baseball', help='Sport to search (default: baseball)')
     parser.add_argument('--dry-run', action='store_true', help='Show results without storing in DB')
+    parser.add_argument('--top-players', type=int, default=40, help='Hot player count for player queries (default: 40, same as BIN)')
+    parser.add_argument('--days', type=int, default=7, help='eBay volume lookback for player discovery (default: 7, same as BIN)')
+    parser.add_argument('--players', type=str, default=None, help='Comma-separated names; skips eBay discovery for the player-query arm')
+    parser.add_argument(
+        '--no-product-line-queries',
+        action='store_true',
+        help='Skip high-volume product-line strings (e.g. "2025 Topps Chrome baseball")',
+    )
+    parser.add_argument(
+        '--product-line-year-cap',
+        type=int,
+        default=3,
+        help='Use latest N years from --years for product-line expansion (0 = all years)',
+    )
+    parser.add_argument(
+        '--sold-comp-seed-queries',
+        type=int,
+        default=25,
+        help='Extra Browse q strings from recent sold_comps (130point); 0 disables',
+    )
+    parser.add_argument(
+        '--sold-comp-seed-days',
+        type=int,
+        default=7,
+        help='Lookback days when ranking sold_comp SKUs for seed queries',
+    )
     args = parser.parse_args()
 
     years = [int(y.strip()) for y in args.years.split(',')]
 
-    # Build search queries -- broad value-focused searches instead of 101 set-specific ones
-    # Category 261328 (Trading Card Singles) does the filtering for us
-    VALUE_QUERIES = [
-        # Numbered parallels -- the bread and butter of card flipping
-        'baseball card /25',
-        'baseball card /50',
-        'baseball card /75',
-        'baseball card /99',
-        'baseball card /150',
-        'baseball card /199',
-        'baseball card /250',
-        'baseball card /299',
-        # Autographs
-        'baseball card autograph numbered',
-        'baseball card auto rookie',
-        'baseball card on card auto',
-        # Premium parallels
-        'baseball card refractor numbered',
-        'baseball card gold refractor',
-        'baseball card sapphire',
-        'baseball card superfractor',
-        # Rookie cards with value signals
-        'baseball rookie card auto',
-        'baseball 1st bowman chrome auto',
-        'baseball bowman chrome refractor',
-        # Relics / patches
-        'baseball card patch relic numbered',
-        'baseball card game used auto',
-        # Premium products (always have value)
-        'topps tier one baseball',
-        'topps tribute baseball',
-        'topps museum collection baseball',
-        'topps luminaries baseball',
-        'topps inception baseball auto',
-        'bowman sterling baseball auto',
-        'topps gold label baseball',
-        # High-end Panini (older but still trades)
-        'panini national treasures baseball',
-        'panini immaculate baseball',
-        'panini flawless baseball',
-    ]
+    from backend.config.auction_queries import BASEBALL_VALUE_QUERIES_CORE, build_baseball_value_queries
 
-    # Also add player-specific searches for our top targets
-    # These find cards across ALL sets -- exactly how a dealer searches
+    sport_lc = (args.sport or 'baseball').strip().lower()
+    if sport_lc == 'baseball':
+        cap = None if args.product_line_year_cap == 0 else args.product_line_year_cap
+        VALUE_QUERIES, value_query_meta = build_baseball_value_queries(
+            years,
+            include_product_lines=not args.no_product_line_queries,
+            product_line_year_cap=cap,
+        )
+    else:
+        VALUE_QUERIES = list(BASEBALL_VALUE_QUERIES_CORE)
+        value_query_meta = {
+            'product_lines': False,
+            'note': f'sport={sport_lc!r}: product-line pack is baseball-only; using core parallel queries',
+            'parallel_queries': len(VALUE_QUERIES),
+            'total_value_queries': len(VALUE_QUERIES),
+        }
+
+    sold_seed_queries: list = []
+    if args.sold_comp_seed_queries > 0:
+        from backend.services.auction_sold_comp_seeds import sold_comp_search_seeds
+
+        with closing(SessionLocal()) as db_seed:
+            sold_seed_queries = sold_comp_search_seeds(
+                db_seed,
+                days=args.sold_comp_seed_days,
+                limit=args.sold_comp_seed_queries,
+                sport_token=args.sport,
+            )
+        if sold_seed_queries:
+            print(
+                f"Sold-comp seed queries: {len(sold_seed_queries)} "
+                f"(top SKUs by 130point rows, last {args.sold_comp_seed_days}d)"
+            )
+
+    # Player-specific searches: same ranked list as BIN (eBay volume), not DB card counts
+    from backend.config.sets import HIGH_VALUE_SETS, get_set_queries
+    from backend.discover_players import hot_player_names_for_pipeline
+
+    sport_key = (args.sport or 'baseball').strip().title()
     PLAYER_QUERIES = []
-    db_temp = SessionLocal()
-    try:
-        from backend.config.sets import HIGH_VALUE_SETS, get_set_queries
+    if args.players:
+        player_names = [p.strip() for p in args.players.split(',') if p.strip()]
+        print(f"Using --players ({len(player_names)} names); skipping eBay discovery for player queries.")
+    else:
+        print(
+            f"Finding hot players by sales volume (BIN parity: days={args.days}, limit={args.top_players})..."
+        )
+        player_names = hot_player_names_for_pipeline(
+            limit=args.top_players, sport=sport_key, days=args.days)
+        if not player_names:
+            print(
+                "WARNING: discover_top_players returned no players; "
+                "falling back to DB Card.name counts (no BIN parity)."
+            )
+            with closing(SessionLocal()) as db_temp:
+                rows = (
+                    db_temp.query(Card.player_name, func.count(Card.id).label('cnt'))
+                    .group_by(Card.player_name)
+                    .order_by(func.count(Card.id).desc())
+                    .limit(args.top_players)
+                    .all()
+                )
+            player_names = [r[0] for r in rows]
 
-        top_players = db_temp.query(Card.player_name, func.count(Card.id).label('cnt')
-            ).group_by(Card.player_name).order_by(func.count(Card.id).desc()).limit(40).all()
-        sport_key = (args.sport or 'baseball').strip().title()
-        for idx, p in enumerate(top_players):
-            PLAYER_QUERIES.append(f"{p[0]} auto numbered")
-            PLAYER_QUERIES.append(f"{p[0]} refractor")
-            # Narrow set-specific queries (BIN pipeline pattern) — top 15 names only to cap API volume
-            if sport_key in HIGH_VALUE_SETS and idx < 15:
-                PLAYER_QUERIES.extend(get_set_queries(p[0], sport_key))
-    finally:
-        db_temp.close()
+    for idx, name in enumerate(player_names):
+        PLAYER_QUERIES.append(f"{name} auto numbered")
+        PLAYER_QUERIES.append(f"{name} refractor")
+        if sport_key in HIGH_VALUE_SETS and idx < 15:
+            PLAYER_QUERIES.extend(get_set_queries(name, sport_key))
 
-    queries = VALUE_QUERIES + PLAYER_QUERIES
+    queries = VALUE_QUERIES + sold_seed_queries + PLAYER_QUERIES
 
     print("=" * 80)
     print("EBAY-FIRST AUCTION OPPORTUNITY PIPELINE")
@@ -971,7 +1008,15 @@ if __name__ == '__main__':
     print(f"\nAuctions ending within: {args.hours}h")
     print(f"Budget: ${args.max_budget:.0f} max | Min Profit: ${args.min_profit:.0f}")
     print(f"Sport: {args.sport}")
-    print(f"Search queries: {len(queries)} ({len(VALUE_QUERIES)} value + {len(PLAYER_QUERIES)} player)")
+    print(
+        f"Search queries: {len(queries)} "
+        f"({len(VALUE_QUERIES)} value + {len(sold_seed_queries)} sold-seed + {len(PLAYER_QUERIES)} player)"
+    )
+    if value_query_meta.get('product_lines'):
+        print(
+            f"  Product-line years: {value_query_meta.get('product_line_years_used')} "
+            f"(cap={args.product_line_year_cap or 'all'})"
+        )
 
     known_players = load_known_players(years=years, sport=args.sport.lower())
     print(f"Known players: {len(known_players)} (MLB rosters + DB)")
@@ -983,7 +1028,11 @@ if __name__ == '__main__':
         parameters={
             'hours': args.hours, 'min_profit': args.min_profit,
             'max_budget': args.max_budget, 'sport': args.sport,
-            'years': years, 'query_count': len(queries)
+            'years': years, 'query_count': len(queries),
+            'top_players': args.top_players, 'discovery_days': args.days,
+            'players_override': bool(args.players),
+            'value_query_meta': value_query_meta,
+            'sold_comp_seed_queries': len(sold_seed_queries),
         }
     )
 
@@ -995,6 +1044,7 @@ if __name__ == '__main__':
         scraper = EbayScraper()
         all_auctions = []
         seen_ids = set()
+        step1_query_stats: list = []
 
         for i, query in enumerate(queries, 1):
             print(f"\n[{i}/{len(queries)}] \"{query}\"")
@@ -1002,8 +1052,16 @@ if __name__ == '__main__':
             offset = 0
             query_total = 0
             query_new = 0
+            pages = 0
+            ebay_total_hint = None
             while True:
-                auctions = scraper.search_auctions_ending_soon(query, hours=args.hours, offset=offset)
+                page_meta: dict = {}
+                auctions = scraper.search_auctions_ending_soon(
+                    query, hours=args.hours, offset=offset, meta_out=page_meta,
+                )
+                if offset == 0 and page_meta.get('ebay_total') is not None:
+                    ebay_total_hint = page_meta.get('ebay_total')
+                pages += 1  # one Browse search GET per iteration
                 if not auctions:
                     break
                 for a in auctions:
@@ -1018,7 +1076,19 @@ if __name__ == '__main__':
                 offset += 200
                 if offset >= 1000:  # Safety cap: 5 pages max per query
                     break
-            print(f"  {query_total} auctions found, {query_new} new (deduped)")
+            hint = (
+                f" | eBay total≈{ebay_total_hint} (first page; we fetch ≤1000)"
+                if ebay_total_hint is not None
+                else ''
+            )
+            print(f"  {query_total} rows, {query_new} new after dedupe{hint}")
+            step1_query_stats.append({
+                'query': query[:200],
+                'pages': pages,
+                'items_returned': query_total,
+                'new_after_dedupe': query_new,
+                'ebay_total_hint': ebay_total_hint,
+            })
             tracker.update(processed=i)
             time.sleep(1.0)  # reduce Browse API burst 429s between queries
 
@@ -1215,6 +1285,9 @@ if __name__ == '__main__':
                 )
             tracker.complete(summary={
                 'auctions_searched': len(all_auctions),
+                'step1_query_stats': step1_query_stats,
+                'value_query_meta': value_query_meta,
+                'sold_comp_seed_query_count': len(sold_seed_queries),
                 'qualified': 0,
                 'opportunities_found': 0,
                 'step2_skip_reasons': skip_reasons,
@@ -1595,6 +1668,9 @@ if __name__ == '__main__':
         # job_runs rows that omit vision_post_pipeline_queue_sample entirely.
         summary = {
             'auctions_searched': len(all_auctions),
+            'step1_query_stats': step1_query_stats,
+            'value_query_meta': value_query_meta,
+            'sold_comp_seed_query_count': len(sold_seed_queries),
             'qualified': len(qualified),
             'step2_skip_reasons': skip_reasons,
             'detail_lookups': detail_lookups,
@@ -1620,6 +1696,8 @@ if __name__ == '__main__':
                 'max_budget': args.max_budget,
                 'sport': args.sport,
                 'years': years,
+                'value_query_meta': value_query_meta,
+                'sold_comp_seed_queries': len(sold_seed_queries),
             },
         }
         log.info('Auction pipeline complete', context=summary)

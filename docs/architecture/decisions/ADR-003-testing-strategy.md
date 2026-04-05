@@ -224,6 +224,10 @@ Track these metrics:
 - [ ] Set up test coverage tracking (Codecov)
 - [ ] Add visual regression tests for frontend
 
+## Supplement (2026): Outcome-oriented testing
+
+Correctness tests remain the default. **Product-fit** checks (pipeline funnel health, identity-trust sampling, coverage vs goals) are documented in [docs/testing/strategy.md](../../testing/strategy.md). Pytest marker **`outcome`** flags tests that encode those baselines.
+
 ## Related Decisions
 
 - ADR-001: PostgreSQL database (affects integration tests)

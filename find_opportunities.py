@@ -351,11 +351,10 @@ def find_ebay_opportunities(
     return query, opportunities
 
 
-def get_hot_players(limit=40, sport='Baseball'):
-    """Discover top players by eBay sales volume (live API query every run)"""
-    from backend.discover_players import discover_top_players
-    discovered = discover_top_players(days=7, limit=limit, sport=sport)
-    return [p['player_name'] for p in discovered]
+def get_hot_players(limit=40, sport='Baseball', days=7):
+    """Discover top players by eBay sales volume (live API query every run)."""
+    from backend.discover_players import hot_player_names_for_pipeline
+    return hot_player_names_for_pipeline(limit=limit, sport=sport, days=days)
 
 
 if __name__ == '__main__':
@@ -367,6 +366,7 @@ if __name__ == '__main__':
     parser.add_argument('--max-scp-price', type=float, default=1000, help='Max SCP price (default: $1000)')
     parser.add_argument('--players', type=str, default=None, help='Comma-separated player names')
     parser.add_argument('--top-players', type=int, default=40, help='Number of hot players (default: 40)')
+    parser.add_argument('--days', type=int, default=7, help='eBay volume lookback days for discovery (default: 7)')
     args = parser.parse_args()
 
     print("=" * 80)
@@ -380,7 +380,7 @@ if __name__ == '__main__':
         players = [p.strip() for p in args.players.split(',')]
     else:
         print("Finding hot players by sales volume...")
-        players = get_hot_players(limit=args.top_players)
+        players = get_hot_players(limit=args.top_players, days=args.days)
 
     print(f"Players: {', '.join(players)}\n")
 

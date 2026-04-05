@@ -453,6 +453,16 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
     return results[:limit]
 
 
+def hot_player_names_for_pipeline(
+    limit: int = 40,
+    sport: str = 'Baseball',
+    days: int = 7,
+) -> List[str]:
+    """Ranked player names for BIN and auction pipelines (eBay volume, not DB card counts)."""
+    rows = discover_top_players(days=days, limit=limit, sport=sport)
+    return [p['player_name'] for p in rows]
+
+
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser(description='Discover top players by eBay sales volume')
