@@ -1,6 +1,8 @@
 # Trading Card Platform - Current Status
 **Last Updated:** 2026-03-27
 
+Session 69: **Operator map** — **[AGENTS.md](./AGENTS.md)** *Follow the money*: linear BIN path (discover → SCP → eBay → API → UI), auction caveat + “nothing buyable” = thresholds / verification / stale / pipeline shape, not API excuses.
+
 Session 68: **Canonical opportunity intent** — **[docs/OPPORTUNITY-FINDER.md](./docs/OPPORTUNITY-FINDER.md)** *Canonical pipeline intent*: liquidity ranking → SCP $5–$1k universe → catalog-driven listing discovery → SCP + comps + CE validation; notes BIN vs auction alignment gap. **[docs/README.md](./docs/README.md)** index line updated.
 
 **Trust / roadmap §2.0 (in progress):** **`migration_025`–`026`**: verification fields; **`opportunities.sport`** + **`pipeline_listing_skips`**; **sales-driven discovery** merges DB `sales` hot players with anchor seeds daily; **`--sport` / BIN Browse pagination ≤1000**; API + Opportunities UI **sport filter**; post-ingest **`scripts/verify_bin_opportunities.py`** (130point vs SCP) + **`scripts/audit_pipeline_skips.py`**. CE photo flow remains Playwright (`collectors_edge_photo_run`). See **[docs/testing/strategy.md](./docs/testing/strategy.md)**.

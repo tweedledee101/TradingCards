@@ -17,6 +17,23 @@ Data-driven **trading card arbitrage** platform: SCP-first BIN pipeline + eBay-f
 
 Deep dives: [docs/architecture/system-architecture.md](./docs/architecture/system-architecture.md), [database-design.md](./docs/architecture/database-design.md), [diagrams/data-flow.md](./docs/architecture/diagrams/data-flow.md), [docs/setup/installation.md](./docs/setup/installation.md).
 
+## Follow the money (why a row shows on Ragnarok)
+
+The repo is huge; **this is the only path you need** to trace “who got picked and why.” Product intent (what we *mean* to do) is spelled in **[docs/OPPORTUNITY-FINDER.md](./docs/OPPORTUNITY-FINDER.md)** → *Canonical pipeline intent*.
+
+**BIN opportunities (`listing_type` buy_it_now / null)**
+
+1. **Who:** `backend/discover_players.py` → `hot_player_names_for_pipeline()` (volume-ranked names; optional `sales` merge). Entry: `find_opportunities.py` → `get_hot_players()`.
+2. **Which cards:** Same script → `get_scp_catalog()` (Selenium SCP) → filter **`--min-scp-price` / `--max-scp-price`**, volume text, etc.
+3. **Live listing:** `find_ebay_opportunities()` → `EbayScraper.get_active_listings()` + title/price rules in `find_opportunities.py`.
+4. **Stored:** `opportunities` rows; **shown in UI:** `frontend/src/pages/Opportunities.jsx` via `GET /api/opportunities` → `backend/api/routes/opportunities.py`.
+
+**Auction opportunities**
+
+5. **Different shape today:** `find_auction_opportunities.py` is still **more eBay-query-driven** before SCP; same table + **`GET /api/auctions`**. Ended listings can appear via **fallback** (see `opportunities.py` `ended_fallback`).
+
+**If “nothing here is buyable”** — that is a **product / filter / verification** problem, not an excuse. Check in order: **economic thresholds** (`--min-profit`, `--min-roi`, `--max-budget`, SCP band), **flagged** vs clean BIN split in the UI, **`verification_status`** (often still `pending`), **stale or ended** auction rows, and whether the **auction** job is feeding noise because it is not yet **catalog-first** like BIN. Fixing bad picks means **changing those gates or the pipeline shape** — not re-explaining API limits.
+
 ## Where code lives
 
 | Area | Path |
