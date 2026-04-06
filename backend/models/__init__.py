@@ -194,6 +194,10 @@ class Inventory(Base):
     storage_location = Column(String(100))
     notes = Column(Text)
     status = Column(String(20), default='owned')
+    ebay_item_id = Column(String(50))
+    ebay_listing_url = Column(Text)
+    listing_ask_price = Column(DECIMAL(10, 2))
+    listed_at = Column(Date)
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
     

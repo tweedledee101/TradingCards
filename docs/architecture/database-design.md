@@ -57,6 +57,7 @@ PostgreSQL database storing trading card data, sales, market rates, opportunitie
 - card_id (FK), purchase_date, purchase_price, purchase_source
 - quantity, graded, grade_company, grade_value
 - storage_location, status (owned/listed/sold), notes
+- **ebay_item_id**, **ebay_listing_url**, **listing_ask_price**, **listed_at** (migration 027) — link desk/listing rows to live eBay offers; seller OAuth sync not implemented yet
 
 **inventory_sales** -- Sales from inventory
 - inventory_id (FK), sale_date, sale_price

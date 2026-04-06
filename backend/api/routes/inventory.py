@@ -7,7 +7,7 @@ from datetime import date
 from typing import Optional, List
 
 from fastapi import APIRouter, HTTPException, Query, Depends, File, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import desc, func
 from backend.utils.auth import require_auth
 from backend.utils.database import SessionLocal
@@ -30,6 +30,21 @@ class InventoryCreate(BaseModel):
     grade_value: Optional[float] = None
     storage_location: Optional[str] = None
     notes: Optional[str] = None
+    status: Optional[str] = Field(default=None, description="owned | listed | sold (default owned; listed if eBay fields set)")
+    ebay_item_id: Optional[str] = None
+    ebay_listing_url: Optional[str] = None
+    listing_ask_price: Optional[float] = None
+    listed_at: Optional[date] = None
+
+
+class InventoryListingPatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ebay_item_id: Optional[str] = None
+    ebay_listing_url: Optional[str] = None
+    listing_ask_price: Optional[float] = None
+    listed_at: Optional[date] = None
+    status: Optional[str] = None
 
 
 class InventorySaleCreate(BaseModel):
@@ -77,6 +92,15 @@ def _resolve_card_id_from_row(db, row: dict) -> Optional[int]:
     return c.id if c else None
 
 
+def _normalize_inv_status(raw: Optional[str], has_ebay: bool) -> str:
+    st = (raw or "").strip().lower()
+    if st in ("owned", "listed", "sold"):
+        return st
+    if has_ebay:
+        return "listed"
+    return "owned"
+
+
 @router.post("/inventory")
 def add_to_inventory(item: InventoryCreate, user: User = Depends(require_auth)):
     """Add a card to inventory"""
@@ -85,6 +109,9 @@ def add_to_inventory(item: InventoryCreate, user: User = Depends(require_auth)):
         card = db.query(Card).filter(Card.id == item.card_id).first()
         if not card:
             raise HTTPException(status_code=404, detail="Card not found")
+
+        has_ebay = bool((item.ebay_item_id or "").strip() or (item.ebay_listing_url or "").strip())
+        st = _normalize_inv_status(item.status, has_ebay)
 
         inventory_item = Inventory(
             account_id=user.account_id,
@@ -99,13 +126,57 @@ def add_to_inventory(item: InventoryCreate, user: User = Depends(require_auth)):
             grade_value=item.grade_value,
             storage_location=item.storage_location,
             notes=item.notes,
-            status='owned'
+            status=st,
+            ebay_item_id=(item.ebay_item_id or "").strip() or None,
+            ebay_listing_url=(item.ebay_listing_url or "").strip() or None,
+            listing_ask_price=item.listing_ask_price,
+            listed_at=item.listed_at,
         )
         db.add(inventory_item)
         db.commit()
         db.refresh(inventory_item)
 
         return {"id": inventory_item.id, "message": "Added to inventory"}
+    finally:
+        db.close()
+
+
+@router.patch("/inventory/{inventory_id}")
+def patch_inventory_item(
+    inventory_id: int,
+    body: InventoryListingPatch,
+    user: User = Depends(require_auth),
+):
+    """Update eBay listing fields and/or status (e.g. after listing desk inventory)."""
+    db = SessionLocal()
+    try:
+        inv = db.query(Inventory).filter(
+            Inventory.id == inventory_id,
+            Inventory.account_id == user.account_id,
+        ).first()
+        if not inv:
+            raise HTTPException(status_code=404, detail="Inventory item not found")
+
+        data = body.model_dump(exclude_unset=True)
+        if "status" in data and data["status"] is not None:
+            st = str(data["status"]).strip().lower()
+            if st not in ("owned", "listed", "sold"):
+                raise HTTPException(status_code=400, detail="status must be owned, listed, or sold")
+            inv.status = st
+        if "ebay_item_id" in data:
+            v = data["ebay_item_id"]
+            inv.ebay_item_id = (v or "").strip() or None
+        if "ebay_listing_url" in data:
+            v = data["ebay_listing_url"]
+            inv.ebay_listing_url = (v or "").strip() or None
+        if "listing_ask_price" in data:
+            inv.listing_ask_price = data["listing_ask_price"]
+        if "listed_at" in data:
+            inv.listed_at = data["listed_at"]
+
+        db.commit()
+        db.refresh(inv)
+        return {"id": inv.id, "message": "Updated"}
     finally:
         db.close()
 
@@ -121,7 +192,8 @@ async def bulk_import_inventory(
     Required: purchase_date, purchase_price
     Identity: card_id **or** player_name + card_year [+ card_set + card_number]
 
-    Optional: quantity, condition, notes, status (owned|listed), purchase_source
+    Optional: quantity, condition, notes, status (owned|listed), purchase_source,
+    ebay_item_id, ebay_listing_url, listing_ask_price, listed_at (YYYY-MM-DD)
     """
     raw = await file.read()
     if not raw:
@@ -186,9 +258,25 @@ async def bulk_import_inventory(
             except ValueError:
                 qty = 1
 
-            st = (merged.get("status") or "owned").strip().lower()
-            if st not in ("owned", "listed"):
-                st = "owned"
+            eid = (merged.get("ebay_item_id") or merged.get("ebay_item") or "").strip() or None
+            eurl = (merged.get("ebay_listing_url") or merged.get("listing_url") or "").strip() or None
+            has_ebay = bool(eid or eurl)
+
+            lap = None
+            if merged.get("listing_ask_price") not in (None, ""):
+                try:
+                    lap = float(str(merged.get("listing_ask_price")).replace("$", "").replace(",", "").strip())
+                except ValueError:
+                    lap = None
+
+            lat = None
+            if merged.get("listed_at") not in (None, ""):
+                try:
+                    lat = date.fromisoformat(str(merged.get("listed_at")).strip()[:10])
+                except ValueError:
+                    lat = None
+
+            st = _normalize_inv_status(merged.get("status"), has_ebay)
 
             inv = Inventory(
                 account_id=user.account_id,
@@ -200,6 +288,10 @@ async def bulk_import_inventory(
                 condition=merged.get("condition"),
                 notes=merged.get("notes"),
                 status=st,
+                ebay_item_id=eid,
+                ebay_listing_url=eurl,
+                listing_ask_price=lap,
+                listed_at=lat,
             )
             db.add(inv)
             created += 1
@@ -216,13 +308,24 @@ async def bulk_import_inventory(
 
 @router.get("/inventory")
 def get_inventory(
-    status: Optional[str] = Query(default="owned", description="Filter by status"),
+    status: str = Query(
+        default="owned",
+        description="owned | listed | sold | active (owned+listed, working capital)",
+    ),
     limit: int = Query(default=50, le=200),
     user: User = Depends(require_auth),
 ):
     """Get user's inventory"""
     db = SessionLocal()
     try:
+        st = (status or "owned").strip().lower()
+        if st == "active":
+            status_filter = Inventory.status.in_(("owned", "listed"))
+        elif st in ("owned", "listed", "sold"):
+            status_filter = Inventory.status == st
+        else:
+            raise HTTPException(status_code=400, detail="status must be owned, listed, sold, or active")
+
         latest_trends = db.query(
             PriceTrend.card_id,
             func.max(PriceTrend.trend_date).label('max_date')
@@ -236,7 +339,7 @@ def get_inventory(
             PriceTrend,
             (PriceTrend.card_id == Card.id) & (PriceTrend.trend_date == latest_trends.c.max_date)
         ).filter(
-            Inventory.status == status,
+            status_filter,
             Inventory.account_id == user.account_id,
         ).order_by(desc(Inventory.purchase_date)).limit(limit).all()
 
@@ -266,6 +369,10 @@ def get_inventory(
                 "grade_value": float(inv.grade_value) if inv.grade_value else None,
                 "storage_location": inv.storage_location,
                 "status": inv.status,
+                "ebay_item_id": inv.ebay_item_id,
+                "ebay_listing_url": inv.ebay_listing_url,
+                "listing_ask_price": float(inv.listing_ask_price) if inv.listing_ask_price is not None else None,
+                "listed_at": inv.listed_at.isoformat() if inv.listed_at else None,
                 "current_value": current_value,
                 "unrealized_profit": round(unrealized_profit, 2) if unrealized_profit else None,
                 "roi_percentage": round(roi, 2) if roi else None
@@ -290,6 +397,7 @@ def record_sale(sale: InventorySaleCreate, user: User = Depends(require_auth)):
 
         net_profit = sale.sale_price - sale.fees - sale.shipping_cost - float(inventory_item.purchase_price)
         roi = (net_profit / float(inventory_item.purchase_price)) * 100
+        days_held = (sale.sale_date - inventory_item.purchase_date).days
 
         inventory_sale = InventorySale(
             account_id=user.account_id,
@@ -314,7 +422,8 @@ def record_sale(sale: InventorySaleCreate, user: User = Depends(require_auth)):
             "id": inventory_sale.id,
             "net_profit": round(float(net_profit), 2),
             "roi_percentage": round(float(roi), 2),
-            "message": "Sale recorded"
+            "days_held": days_held,
+            "message": "Sale recorded",
         }
     finally:
         db.close()
@@ -325,14 +434,16 @@ def get_inventory_stats(user: User = Depends(require_auth)):
     """Get portfolio statistics"""
     db = SessionLocal()
     try:
-        total_invested = db.query(func.sum(Inventory.purchase_price * Inventory.quantity)).filter(
-            Inventory.status == 'owned',
+        _active_inv = (
+            Inventory.status.in_(("owned", "listed")),
             Inventory.account_id == user.account_id,
+        )
+        total_invested = db.query(func.sum(Inventory.purchase_price * Inventory.quantity)).filter(
+            *_active_inv,
         ).scalar() or 0
 
         total_cards = db.query(func.sum(Inventory.quantity)).filter(
-            Inventory.status == 'owned',
-            Inventory.account_id == user.account_id,
+            *_active_inv,
         ).scalar() or 0
 
         realized_profit = db.query(func.sum(InventorySale.net_profit)).filter(
@@ -352,7 +463,7 @@ def get_inventory_stats(user: User = Depends(require_auth)):
             PriceTrend,
             (PriceTrend.card_id == Card.id) & (PriceTrend.trend_date == latest_trends.c.max_date)
         ).filter(
-            Inventory.status == 'owned',
+            Inventory.status.in_(("owned", "listed")),
             Inventory.account_id == user.account_id,
         ).all()
 
@@ -413,6 +524,10 @@ def get_inventory_item(inventory_id: int, user: User = Depends(require_auth)):
             "storage_location": inv.storage_location,
             "notes": inv.notes,
             "status": inv.status,
+            "ebay_item_id": inv.ebay_item_id,
+            "ebay_listing_url": inv.ebay_listing_url,
+            "listing_ask_price": float(inv.listing_ask_price) if inv.listing_ask_price is not None else None,
+            "listed_at": inv.listed_at.isoformat() if inv.listed_at else None,
             "sales_history": [
                 {
                     "sale_date": sale.sale_date.isoformat(),

@@ -18,6 +18,21 @@ GitHub Actions workflows run with network and repo secrets; local parity require
 
 **Outcome / trust (not just green tests):** See [docs/testing/strategy.md](./docs/testing/strategy.md) — pipeline funnel audits (`job_runs`, `scripts/audit_auction_pipeline.py`, `scripts/diagnose_auction_query_efficiency.py`) and future **identity-verification** metrics for Ragnarok opportunities. Pytest marker **`outcome`** for goal-aligned tests.
 
+## Inventory, eBay listings, and hold time (working capital)
+
+The API **`/api/inventory`** stack tracks **your** cards: purchase date/price, **`status`** (`owned` = desk, `listed` = live listing, `sold` after **`POST /api/inventory/sales`**).
+
+**Migration 027** adds **`ebay_item_id`**, **`ebay_listing_url`**, **`listing_ask_price`**, **`listed_at`** on **`inventory`**. Use them so the DB knows which rows match **your** eBay listings (manual, CSV, or a future seller sync — there is **no** OAuth seller pull wired yet).
+
+- **`POST /api/inventory`** — optional eBay fields; if **`ebay_item_id`** or **`ebay_listing_url`** is set, **`status`** defaults to **`listed`** unless you pass **`status`**.
+- **`PATCH /api/inventory/{id}`** — update listing fields after you list a card.
+- **`POST /api/inventory/bulk-import`** — CSV columns **`ebay_item_id`**, **`ebay_listing_url`**, **`listing_ask_price`**, **`listed_at`** (plus existing identity columns).
+- **`GET /api/inventory?status=active`** — **`owned` + `listed`** (capital still tied up). **`status=listed`** — only live listings.
+- **`GET /api/inventory/stats`** — **invested / counts** include **`owned` + `listed`** (not only desk).
+- **`POST /api/inventory/sales`** — response includes **`days_held`** = **`sale_date − purchase_date`** for flip tracking.
+
+Apply schema: **`python3 migrate.py --both`** (or **`--rds`**).
+
 ## Player discovery observability (eBay Browse)
 
 When discovery returns **0 players**, the run is not “silent”: **`backend/discover_players.py`** prints a **`DISCOVER_SUMMARY`** JSON line (stdout) and writes **`error_log`** rows when all seeds are zero or when Browse returns HTTP/API errors.

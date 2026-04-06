@@ -1,6 +1,8 @@
 # Trading Card Platform - Current Status
 **Last Updated:** 2026-03-27
 
+Session 72: **Inventory ↔ eBay** — **`migration_027`**: **`inventory.ebay_item_id`**, **`ebay_listing_url`**, **`listing_ask_price`**, **`listed_at`**. API: **`POST /api/inventory`** + **`PATCH /api/inventory/{id}`**, bulk CSV columns, **`GET /api/inventory?status=active`**, stats count **owned+listed**, **`POST /api/inventory/sales`** returns **`days_held`**. **`PIPELINE-OPS`**, **`database-design`**. Run **`migrate.py`**.
+
 Session 71: **Working capital rule in docs** — **[docs/OPPORTUNITY-FINDER.md](./docs/OPPORTUNITY-FINDER.md)** velocity bullet: ~2wk buy→sell + $1k capital; pipeline approximates via **`sold_comps`/`sales`** cadence until inventory flip timestamps exist.
 
 Session 70: **Target architecture** — **[docs/OPPORTUNITY-FINDER.md](./docs/OPPORTUNITY-FINDER.md)** *Target evolution*: 130point/`sold_comps`-led player ranking (~100), velocity/sell-through, $5–$1k, CE+SCP before narrow eBay; success metrics table + gap vs current Browse-led discover. **[docs/ROADMAP.md](./docs/ROADMAP.md)** §2.0a pointer.
