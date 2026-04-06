@@ -22,6 +22,9 @@
 - [ADR-002](./architecture/decisions/ADR-002-ebay-primary-source.md) - Why eBay as primary source
 - [ADR-003](./architecture/decisions/ADR-003-testing-strategy.md) - Testing strategy (pytest)
 - [ADR-004](./architecture/decisions/ADR-004-demand-driven-refresh.md) - Demand-driven refresh (GitHub Actions schedule is ops-level; no in-app clock SCP crons)
+- [ADR-005](./architecture/decisions/ADR-005-user-model.md) - User model, personalization, opportunity scoping
+- [ADR-006](./architecture/decisions/ADR-006-business-planner.md) - Business Operating System / planner
+- [ADR-007](./architecture/decisions/ADR-007-public-surfaces-vs-admin-and-commerce.md) - Public storefront vs admin-only tooling; future Stripe/Plaid, breaks, calendar
 
 ## Setup
 - [installation.md](./setup/installation.md) - Development environment setup

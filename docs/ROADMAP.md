@@ -1,6 +1,29 @@
 # Feature Roadmap
 
-**Last Updated:** 2026-03-27
+**Last Updated:** 2026-04-05
+
+## Milestone 3 -- "Public Ragnarok + Store" (backlog)
+
+**Product split (see [ADR-007](./architecture/decisions/ADR-007-public-surfaces-vs-admin-and-commerce.md)):**
+
+- **Admin only (you):** Opportunities, Business dashboard, internal inventory ops, arbitrage/tooling — **not** offered as a public product; keeps logic private.
+- **Public:** Landing page (marketing + screenshots/walkthroughs of **safe** surfaces), **storefront** (browse what you sell — sync from eBay listings / inventory), no access to ops tools.
+- **Future:** On-site **checkout** (**Stripe**); **Plaid** (or similar) if bank-link / payout flows need it; **breaks**; **livestreams**; **dynamic calendar** (whether customers need accounts TBD).
+
+### 3.1 Public landing + IA
+- Replace “trending as home” for visitors with a real **landing**; move trending to **`/market`** or keep admin-only.
+- Public routes **unauthenticated**; admin app behind login + **admin gate**.
+
+### 3.2 Storefront v1 (no checkout)
+- Read-only catalog mirroring **your live eBay listings** (or DB sync); messaging: buy direct / fee narrative; CTA to eBay or contact until checkout exists.
+
+### 3.3 Checkout + payments
+- Stripe Checkout or Payment Element; orders tied to inventory/listings; taxes/shipping rules TBD.
+
+### 3.4 Events
+- Breaks + livestream links + calendar (access model TBD).
+
+---
 
 ## Milestone 1 -- "Make Money From the UI"
 
@@ -20,16 +43,18 @@ Data gathering must run in a separate process from the core app.
 
 ## Milestone 2 -- "Trust the Data"
 
-### 2.0 Listing identity verification (eBay ↔ SCP ↔ Collectors Edge) — IN PROGRESS / REQUIRED
+### 2.0 Listing identity verification (eBay ↔ SCP ↔ Collectors Edge ↔ 130point) — IN PROGRESS / REQUIRED
 
-**Problem:** Opportunities sometimes show an eBay listing whose **visual card** does not match the **SCP catalog row** (wrong parallel, wrong year, wrong variation). That is unacceptable for trading decisions.
+**Problem:** Opportunities sometimes show an eBay listing whose **visual card** does not match the **SCP catalog row** (wrong parallel, wrong year, wrong variation). That is unacceptable for trading decisions. With multiple independent sources (eBay, SCP art, CE, **130point `sold_comps`**), **persistent discrepancy after validation = ineffectiveness in process or code** — not something the operator should “just know to ignore.”
 
 **Target behavior:**
 
-- For rows that surface on **RagnarokGamez**, treat **identity as unverified** until a defined verification pass succeeds.
-- **Inputs:** eBay listing images (Browse CDN), **SCP product image** from the matched SCP URL, and **Collectors Edge** photo/result where used for research.
-- **Method:** Visual + structured compare (existing Nova vision queue, `collectors_edge_photo_run`, `ce_pipeline_analysis`, `scp_lookup_from_ce_json`); evolve toward **mandatory** gates or clear **UI badges** (`verified` / `unverified` / `mismatch flagged`).
-- **Process:** Documented in [PIPELINE-OPS.md](../PIPELINE-OPS.md) and [KNOWN-ISSUES.md](./KNOWN-ISSUES.md); outcome metrics in [docs/testing/strategy.md](./testing/strategy.md).
+- For rows that surface on **RagnarokGamez**, treat **identity as unverified** until a defined verification pass succeeds (or explicitly **`conflict`** if sources disagree).
+- **Inputs:** eBay listing images (Browse CDN), **SCP product image** from the matched SCP URL, **Collectors Edge** photo/result, and **sold history** for the resolved SKU via **`sold_comps` / 130point** where available.
+- **Method:** Visual + structured compare (Nova vision queue, `collectors_edge_photo_run`, `ce_pipeline_analysis`, `scp_lookup_from_ce_json`); evolve toward **mandatory** gates or clear **UI badges** (`verified` / `pending` / `conflict`).
+- **UI (admin Opportunities):** Trust callout + badge legend; per-row **`verification_status`** / **`verification_detail`** from API; modal explains pending vs verified vs conflict. Flipping status from pipeline/QA jobs remains **in progress**.
+- **Measurement:** Disagreement rates and funnel metrics live in [docs/testing/strategy.md](./testing/strategy.md) (Layer B + C); goal is **no philosophical debate** — daily data shows whether each stage meets expectations.
+- **Process:** [PIPELINE-OPS.md](../PIPELINE-OPS.md), [KNOWN-ISSUES.md](./KNOWN-ISSUES.md).
 
 ### 2.1 Sold Price Validation (Recent Comps)
 Before buying a $7 card that SCP says is worth $92, show recent eBay sold data for that exact variation.

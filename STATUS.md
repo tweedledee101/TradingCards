@@ -1,5 +1,11 @@
 # Trading Card Platform - Current Status
-**Last Updated:** 2026-03-27 (Session 56)
+**Last Updated:** 2026-04-05
+
+**Trust / roadmap §2.0 (in progress):** **`migration_025`**: `verification_status`, `verification_detail` (JSONB); ORM + opportunities API; BIN / auction / vision-retry writers set `pending` + pipeline metadata; Opportunities UI (verification badges, modal banner, conflict callouts, on-page trust explainer). Measurement framing: **[docs/testing/strategy.md](./docs/testing/strategy.md)**; identity chain **eBay → SCP → CE → 130point** (automated `verified` / `conflict` from jobs still to wire).
+
+Session 58: **Resilient opportunity CI + BIN telemetry** — **`find_opportunities.py`**: `--skip-auction-chain`; **`ebay_variation_stats`** + aggregates on **`job_runs`** (`opportunity_finder`). **`.github/workflows/pipeline.yml`**: jobs **BIN** (90m) + **Auction** (120m, `if: always()`), artifacts per job; dispatch **`run_auction`**. **`scripts/diagnose_bin_ebay_variation_stats.py`**. **`PIPELINE-OPS.md`**, **`docs/testing/strategy.md`**, **`AGENTS.md`**.
+
+Session 57: **Product surfaces** — **[ADR-007](./docs/architecture/decisions/ADR-007-public-surfaces-vs-admin-and-commerce.md)**: single **admin** ops plane (Opportunities, Business, tooling private) vs **public** landing + storefront + future **Stripe** checkout / **Plaid**-class bank flows, **breaks**, **livestreams**, **calendar** (customer access TBD). **ROADMAP** Milestone 3 backlog.
 
 Session 56: **Git workflow + testing intent** — **[CONTRIBUTING.md](./CONTRIBUTING.md)** (feature branches, PRs for risky changes). **[docs/testing/strategy.md](./docs/testing/strategy.md)** (correctness vs funnel health vs outcome/trust); **`pytest` marker `outcome`**. **ROADMAP 2.0** — mandatory **eBay ↔ SCP ↔ CE** identity verification path for trusted opportunities. **ADR-003** supplement link.
 

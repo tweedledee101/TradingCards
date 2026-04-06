@@ -464,6 +464,8 @@ def _auction_to_dict(o: Opportunity) -> dict:
         "price_source": o.price_source or 'scp',
         "qa_status": o.qa_status or 'pending',
         "qa_flags": o.qa_flags or [],
+        "verification_status": (o.verification_status or "pending"),
+        "verification_detail": o.verification_detail,
     }
 
 
@@ -502,4 +504,6 @@ def _opp_to_dict(o: Opportunity) -> dict:
         "price_source": o.price_source or 'scp',
         "qa_status": o.qa_status or 'pending',
         "qa_flags": o.qa_flags or [],
+        "verification_status": (o.verification_status or "pending"),
+        "verification_detail": o.verification_detail,
     }

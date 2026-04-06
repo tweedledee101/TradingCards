@@ -44,6 +44,8 @@ PostgreSQL database storing trading card data, sales, market rates, opportunitie
 - qa_status ('pending'/'clean'/'flagged'/'critical')
 - qa_flags (JSONB array of triggered QA rules)
 - qa_reviewed_at (timestamp)
+- verification_status (`pending` / `verified` / `conflict` / `skipped`) — cross-source listing check
+- verification_detail (JSONB, nullable) — pipeline id, schema version, check results
 - scan_id, created_at
 
 ### Portfolio

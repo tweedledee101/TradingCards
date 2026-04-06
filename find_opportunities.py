@@ -173,13 +173,16 @@ def find_ebay_opportunities(
     query = build_ebay_query(variation)
     scp_price = variation['price']
 
+    meta = {'listings_fetched': 0, 'query': query}
     try:
         listings = scraper.get_active_listings(query)
+        meta['listings_fetched'] = len(listings or [])
     except Exception as e:
         log.error(f'eBay search failed: {e}', category='ebay_api_error', context={
             'player': variation['player'], 'query': query
         })
-        return query, []
+        meta['ebay_error'] = True
+        return query, [], meta
 
     JUNK_PATTERNS = ['you pick', 'pick your', 'complete your set', 'pick a card',
                      'choose your', 'pick em', "pick 'em", 'buy 3 get',
@@ -348,7 +351,8 @@ def find_ebay_opportunities(
         except (ValueError, TypeError):
             continue
 
-    return query, opportunities
+    meta['opportunities_raw'] = len(opportunities)
+    return query, opportunities, meta
 
 
 def get_hot_players(limit=40, sport='Baseball', days=7):
@@ -367,6 +371,11 @@ if __name__ == '__main__':
     parser.add_argument('--players', type=str, default=None, help='Comma-separated player names')
     parser.add_argument('--top-players', type=int, default=40, help='Number of hot players (default: 40)')
     parser.add_argument('--days', type=int, default=7, help='eBay volume lookback days for discovery (default: 7)')
+    parser.add_argument(
+        '--skip-auction-chain',
+        action='store_true',
+        help='Do not run find_auction_opportunities after BIN (use separate job/workflow for auctions)',
+    )
     args = parser.parse_args()
 
     print("=" * 80)
@@ -393,8 +402,13 @@ if __name__ == '__main__':
     tracker = JobTracker('opportunity_finder')
     tracker.start(
         total=len(players),
-        parameters={'max_budget': args.max_budget, 'min_profit': args.min_profit,
-                    'min_roi': args.min_roi, 'players': players}
+        parameters={
+            'max_budget': args.max_budget,
+            'min_profit': args.min_profit,
+            'min_roi': args.min_roi,
+            'players': players,
+            'skip_auction_chain': bool(args.skip_auction_chain),
+        }
     )
 
     if not players:
@@ -482,6 +496,7 @@ if __name__ == '__main__':
         # Step 4: Search eBay for each variation
         scraper = EbayScraper()
         all_opportunities = []
+        ebay_variation_stats: list = []
         vision_post_pipeline_queue: list = []
         _VISION_Q_MAX = 50
 
@@ -490,7 +505,7 @@ if __name__ == '__main__':
             print(f"[eBay {i}/{len(all_variations)}] {label}")
             print(f"  SCP: ${var['price']:.2f}")
 
-            query, opps = find_ebay_opportunities(
+            query, opps, ebay_meta = find_ebay_opportunities(
                 scraper,
                 var,
                 max_budget=args.max_budget,
@@ -541,6 +556,17 @@ if __name__ == '__main__':
                     })
             else:
                 print(f"  No opportunities")
+
+            ebay_variation_stats.append({
+                'idx': i,
+                'card_label': label[:200],
+                'query': (query or '')[:240],
+                'scp_price': float(var['price']),
+                'listings_fetched': int(ebay_meta.get('listings_fetched') or 0),
+                'opportunities_raw': int(ebay_meta.get('opportunities_raw') or 0),
+                'passed_profit_roi': len(good_opps),
+                'ebay_error': bool(ebay_meta.get('ebay_error')),
+            })
 
             print()
             time.sleep(2)
@@ -636,6 +662,8 @@ if __name__ == '__main__':
                     listing_image_urls=opp.get('listing_image_urls') or None,
                     listing_type=opp.get('listing_type', 'buy_it_now'),
                     flagged=opp.get('flagged', False),
+                    verification_status='pending',
+                    verification_detail={'schema': 1, 'pipeline': 'bin'},
                     price_source='scp',
                     scan_id=tracker.run_id
                 )
@@ -651,12 +679,18 @@ if __name__ == '__main__':
         finally:
             db.close()
 
+        total_listings = sum(s['listings_fetched'] for s in ebay_variation_stats)
+        variations_with_hits = sum(1 for s in ebay_variation_stats if s['passed_profit_roi'] > 0)
         summary = {
             'players': len(players),
             'variations_checked': len(all_variations),
             'opportunities_found': len(all_opportunities),
             'flagged_suspicious': flagged_count,
             'vision_post_pipeline_queue_sample': vision_post_pipeline_queue,
+            'ebay_listings_fetched_total': total_listings,
+            'variations_with_opportunities': variations_with_hits,
+            'ebay_variation_stats': ebay_variation_stats,
+            'skip_auction_chain': bool(args.skip_auction_chain),
         }
         log.info('Pipeline complete', context=summary)
         tracker.complete(summary=summary)
@@ -664,20 +698,23 @@ if __name__ == '__main__':
         # Self-pruning: clean stale data if it's been >24h
         run_if_stale()
 
-        # Run auction pipeline automatically
-        print("\n" + "=" * 80)
-        print("STARTING AUCTION PIPELINE...")
-        print("=" * 80 + "\n")
-        import os
-        import subprocess
-        repo_root = os.path.dirname(os.path.abspath(__file__))
-        auction_cmd = [
-            'python3', 'find_auction_opportunities.py',
-            '--hours', '48',
-            '--min-profit', str(args.min_profit),
-            '--max-budget', str(args.max_budget),
-        ]
-        subprocess.run(auction_cmd, cwd=repo_root, check=False)
+        # Run auction pipeline automatically (optional separate CI job: --skip-auction-chain)
+        if args.skip_auction_chain:
+            print("\n[--skip-auction-chain] Skipping find_auction_opportunities.py (run auction workflow separately).\n")
+        else:
+            print("\n" + "=" * 80)
+            print("STARTING AUCTION PIPELINE...")
+            print("=" * 80 + "\n")
+            import os
+            import subprocess
+            repo_root = os.path.dirname(os.path.abspath(__file__))
+            auction_cmd = [
+                'python3', 'find_auction_opportunities.py',
+                '--hours', '48',
+                '--min-profit', str(args.min_profit),
+                '--max-budget', str(args.max_budget),
+            ]
+            subprocess.run(auction_cmd, cwd=repo_root, check=False)
 
     except Exception as e:
         log.error(f'Pipeline failed: {e}', category='pipeline_crash', context={

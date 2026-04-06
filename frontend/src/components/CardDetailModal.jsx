@@ -113,6 +113,29 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
     ebay_comps: { label: 'Market Comps', cls: 'bg-amber-500/15 text-amber-400 border-amber-500/20' },
   }[priceSource] || { label: 'SCP Verified', cls: 'bg-gain/15 text-gain border-gain/20' };
 
+  const verStatus = opportunity.verification_status || 'pending';
+  const verificationBanner = {
+    verified: {
+      text: 'Listing verification: automated cross-check passed.',
+      cls: 'bg-gain/10 text-gain border-gain/25',
+    },
+    conflict: {
+      text: 'Listing verification: conflict — open eBay and SCP and confirm the card before acting.',
+      cls: 'bg-loss/10 text-loss border-loss/25',
+    },
+    skipped: {
+      text: 'Listing verification was skipped for this row.',
+      cls: 'bg-surface-raised text-frost-dim border-surface-border',
+    },
+    pending: {
+      text: 'Listing verification is pending — always confirm the listing matches the catalog card.',
+      cls: 'bg-amber-500/10 text-amber-400 border-amber-500/25',
+    },
+  }[verStatus] || {
+    text: 'Listing verification is pending — always confirm the listing matches the catalog card.',
+    cls: 'bg-amber-500/10 text-amber-400 border-amber-500/25',
+  };
+
   // Capital efficiency calc
   const totalCost = (buyPrice || 0) + (shipping || 0);
   const sellThrough = stats?.sell_through || [];
@@ -172,6 +195,21 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
                 {sourceBadge.label}
               </span>
             </div>
+
+            <div className={`text-[10px] px-2.5 py-1.5 rounded-lg border mb-2 ${verificationBanner.cls}`}>
+              {verificationBanner.text}
+            </div>
+            {(() => {
+              const vd = opportunity.verification_detail;
+              if (!vd || typeof vd !== 'object') return null;
+              const parts = [];
+              if (vd.pipeline != null) parts.push(`Pipeline: ${vd.pipeline}`);
+              if (vd.schema != null) parts.push(`Schema v${vd.schema}`);
+              if (parts.length === 0) return null;
+              return (
+                <p className="text-[9px] font-mono text-frost-dim/90 mb-3">{parts.join(' · ')}</p>
+              );
+            })()}
 
             {/* Key numbers row */}
             <div className="flex flex-wrap items-end gap-3 sm:gap-4 mb-3">

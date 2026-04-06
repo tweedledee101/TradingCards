@@ -1648,6 +1648,8 @@ if __name__ == '__main__':
                         end_time=opp.get('end_time'),
                         listing_type='auction',
                         flagged=opp.get('is_flagged', False),
+                        verification_status='pending',
+                        verification_detail={'schema': 1, 'pipeline': 'auction'},
                         price_source=opp.get('price_source', 'scp'),
                         scan_id=tracker.run_id,
                     )

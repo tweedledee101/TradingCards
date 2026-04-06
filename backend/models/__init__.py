@@ -283,6 +283,8 @@ class Opportunity(Base):
     qa_status = Column(String(20), default='pending')
     qa_flags = Column(JSONB, default=[])
     qa_reviewed_at = Column(TIMESTAMP)
+    verification_status = Column(String(32), nullable=False, default='pending')
+    verification_detail = Column(JSONB)
     price_source = Column(String(20), default='scp')
     scan_id = Column(Integer, ForeignKey('job_runs.id'))
     created_at = Column(TIMESTAMP, server_default=func.now())

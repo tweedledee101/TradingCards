@@ -479,19 +479,25 @@ Backend: `backend/api/routes/trending.py`. A card appears only if **all** of the
 **Operational fix:** Merge the workflow with **daily cron**, or **Run workflow** once on **Card Data Pipeline** for immediate `sales`. Local: `python3 -m backend.run_pipeline_full --sport Baseball --top 20 --skip-scp`.
 
 ### Available Workflows
-- **Opportunity Pipeline** (`.github/workflows/pipeline.yml`) -- BIN pipeline (`find_opportunities.py`); **scheduled**
+- **Opportunity Pipeline** (`.github/workflows/pipeline.yml`) -- **Two jobs:** (1) **BIN** `find_opportunities.py` with `--skip-auction-chain` (90m timeout), (2) **Auction** `find_auction_opportunities.py` (120m), `needs` + `if: always()` so auction still runs if BIN fails or times out. Artifacts: `opportunity-bin-logs`, `opportunity-auction-logs`. Manual dispatch: **`run_auction`** checkbox to run BIN only. *Still scheduled:* **Auction Pipeline** (`auction-pipeline.yml`) — you may disable one schedule if you want a single auction cadence.
 - **Auction Pipeline** (`.github/workflows/auction-pipeline.yml`) -- Auction-first pipeline; **scheduled**
 - **Card Data Pipeline** (`.github/workflows/card-data-pipeline.yml`) -- `backend.run_pipeline_full` (imports **`sales`**, active listings, trends); **daily cron + manual**
 - **Daily Report** (`.github/workflows/daily-report.yml`) -- Operations report
 - **QA Pipeline** (`.github/workflows/qa.yml`) -- 167 tests (unit + integration + QA + frontend build)
 
-### Workflow Inputs
-- `players`: comma-separated (default: top 40 by volume)
-- `max_budget`: default 200
-- `min_profit`: default 5
-- `min_roi`: default 20
-- `min_scp_price`: default 20
-- `max_scp_price`: default 1000
+### Workflow Inputs (Opportunity Pipeline)
+- `players`, `max_budget`, `min_profit`, `min_roi`, `min_scp_price`, `max_scp_price` (same as `find_opportunities.py`)
+- `run_auction` (boolean, default **true**): uncheck to run **BIN job only** (no auction job)
+- `auction_hours`, `auction_years`, `auction_sport`: passed to `find_auction_opportunities.py` when auction job runs
+
+**BIN per-variation telemetry:** completed `opportunity_finder` runs include **`results_summary.ebay_variation_stats`** (per SCP variation: `query`, `listings_fetched`, `opportunities_raw`, `passed_profit_roi`). Assess which eBay queries pull volume vs dead ends:
+
+```bash
+python3 scripts/diagnose_bin_ebay_variation_stats.py
+python3 scripts/diagnose_bin_ebay_variation_stats.py --job-id <id>
+```
+
+**Local:** `python3 find_opportunities.py --skip-auction-chain` then `python3 find_auction_opportunities.py` — same separation as CI.
 
 ### Inspect recent Actions runs (no UI scraping)
 
@@ -634,6 +640,9 @@ CALCULATE -- SCP price - buy price - 13% fees = profit
     |
     v
 STORE -- opportunities table (listing_type: buy_it_now or auction)
+    |
+    v
+(optional) separate run: find_auction_opportunities.py  [when using --skip-auction-chain or CI job 2]
     |
     v
 API --> Ragnarok Gaming UI

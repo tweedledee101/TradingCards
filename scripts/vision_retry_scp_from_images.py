@@ -205,6 +205,8 @@ def _try_insert_vision_opportunity(
         flagged=True,
         qa_status="pending",
         qa_flags=qa,
+        verification_status="pending",
+        verification_detail={"schema": 1, "pipeline": "vision_retry"},
         price_source="scp",
         scan_id=None,
     )
