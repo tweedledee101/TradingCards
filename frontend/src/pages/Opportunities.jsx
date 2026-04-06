@@ -46,7 +46,9 @@ const Opportunities = () => {
     setLoading(true);
     setError(null);
     try {
-      const sportParams = sportFilter === 'all' ? {} : { sport: sportFilter };
+      // API default limit is 100; we want the full stored set (cap 500 on the API).
+      const sportParams =
+        sportFilter === 'all' ? { limit: 500 } : { sport: sportFilter, limit: 500 };
       const [auctionRes, binRes, bidsRes] = await Promise.allSettled([
         getAuctions(sportParams),
         getOpportunities(sportParams),
