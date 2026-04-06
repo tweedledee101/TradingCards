@@ -84,6 +84,29 @@ def test_discover_429_backoff_short_retry_after():
 
 @patch('backend.discover_players.time.sleep', return_value=None)
 @patch('backend.discover_players.requests.get')
+def test_browse_get_logs_ratelimit_when_context(mock_get, _sleep, scraper, capsys):
+    r200 = MagicMock()
+    r200.status_code = 200
+    r200.content = b'{"total": 1}'
+    r200.json.return_value = {'total': 1}
+    r200.headers = {
+        'X-EBAY-C-RATELIMIT-LIMIT': '5000',
+        'X-EBAY-C-RATELIMIT-REMAINING': '4999',
+    }
+    mock_get.return_value = r200
+    ctx = {'seed_index': 1, 'player': 'Test Player', 'sport': 'Baseball', 'phase': 'primary'}
+    r = _browse_item_summary_get(
+        scraper, {'q': 'x', 'limit': 1}, stats={}, rate_log_context=ctx,
+    )
+    assert r.status_code == 200
+    out = capsys.readouterr().out
+    assert 'DISCOVER_BROWSE_RATELIMIT' in out
+    assert '4999' in out
+    assert 'Test Player' in out
+
+
+@patch('backend.discover_players.time.sleep', return_value=None)
+@patch('backend.discover_players.requests.get')
 def test_browse_get_401_refreshes_then_200(mock_get, _sleep, scraper):
     r401 = MagicMock()
     r401.status_code = 401

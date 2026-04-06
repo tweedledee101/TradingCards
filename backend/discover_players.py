@@ -5,7 +5,8 @@ Queries eBay Buy Browse (active listing ``total`` per seed) and ranks players.
 Runs on every opportunity pipeline when ``--players`` is not set.
 
 Operational visibility:
-- Right before per-seed Browse calls, one **Analytics** line when available: ``BROWSE_APP_QUOTA {...}`` (app-level Buy/Browse **remaining** / **limit**).
+- Right before per-seed Browse calls, one **Analytics** line when available: ``BROWSE_APP_QUOTA {...}`` (app-level Buy/Browse **remaining** / **limit**). **Note:** that counter is not the same as Browse **burst** throttling — HTTP 429 on the first seed is common if discovery runs immediately after token refresh + Analytics. Mitigations: ``EBAY_SKIP_ANALYTICS_QUOTA=1``, ``EBAY_DISCOVER_STARTUP_COOLDOWN_SECONDS`` (default **2**), ``EBAY_DISCOVER_SEED_PACE_SECONDS`` (default **1.5**) between every seed.
+- Each Browse response during seed discovery prints ``DISCOVER_BROWSE_RATELIMIT {...}`` with **HTTP status**, **X-EBAY-C-RATELIMIT-*** (when eBay sends them), **Retry-After** (when present), **seed_index**, **player**, **phase** (primary / fallback / after_token_refresh). This is **observed per response**, not a claim about total calls remaining. Disable with ``EBAY_DISCOVER_LOG_BROWSE_RATELIMIT=0``.
 - Every run prints one machine-readable line: ``DISCOVER_SUMMARY {...}`` (grep in CI logs; includes **ebay_quota_analytics**, **ebay_ratelimit_last** when present).
 - Failures (zero players returned) persist one ``error_log`` row:
   ``category=discover_all_seeds_zero``, ``source=discover_players``.
@@ -220,12 +221,44 @@ def _discover_429_backoff_seconds(attempt: int, retry_after_header: Optional[str
     return float(base)
 
 
+def _discover_browse_ratelimit_log_enabled() -> bool:
+    v = (os.environ.get('EBAY_DISCOVER_LOG_BROWSE_RATELIMIT') or '1').strip().lower()
+    return v not in ('0', 'false', 'no', 'off')
+
+
+def _log_discover_browse_ratelimit(
+    response: requests.Response,
+    context: Optional[Dict[str, Any]],
+    attempt: int,
+    lane: str,
+) -> None:
+    """One grep-friendly line per Browse response when discovery passes ``rate_log_context``."""
+    if context is None or not _discover_browse_ratelimit_log_enabled():
+        return
+    h = parse_ratelimit_headers(response)
+    row: Dict[str, Any] = {
+        **context,
+        'http': response.status_code,
+        'browse_attempt': attempt,
+        'lane': lane,
+    }
+    if h:
+        row['x_ebay_ratelimit_limit'] = h.get('limit')
+        row['x_ebay_ratelimit_remaining'] = h.get('remaining')
+        row['x_ebay_ratelimit_reset'] = h.get('reset')
+    ra = response.headers.get('Retry-After')
+    if ra is not None:
+        row['retry_after'] = ra
+    print(f"DISCOVER_BROWSE_RATELIMIT {json.dumps(row, default=str)}", flush=True)
+
+
 def _browse_item_summary_get(
     scraper: EbayScraper,
     params: dict,
     *,
     timeout: int = 30,
     stats: Optional[Dict[str, Any]] = None,
+    rate_log_context: Optional[Dict[str, Any]] = None,
 ) -> requests.Response:
     """
     GET ``/item_summary/search`` with 401 refresh and 429 ``Retry-After`` backoff.
@@ -250,6 +283,7 @@ def _browse_item_summary_get(
             if h:
                 stats['ebay_ratelimit_last'] = {k: v for k, v in h.items() if k != 'source'}
                 stats['ebay_ratelimit_last_source'] = 'response_headers'
+        _log_discover_browse_ratelimit(r, rate_log_context, attempt, 'primary')
         if r.status_code == 401:
             scraper.token_manager._refresh_token()
             scraper.headers['Authorization'] = f'Bearer {scraper.token_manager.get_token()}'
@@ -265,6 +299,7 @@ def _browse_item_summary_get(
                 if h:
                     stats['ebay_ratelimit_last'] = {k: v for k, v in h.items() if k != 'source'}
                     stats['ebay_ratelimit_last_source'] = 'response_headers'
+            _log_discover_browse_ratelimit(r, rate_log_context, attempt, 'after_token_refresh')
 
         if r.status_code == 429:
             if stats is not None:
@@ -411,7 +446,18 @@ def discover_top_players(
 
         try:
             params = _discovery_params(player_name, player_sport)
-            r = _browse_item_summary_get(scraper, params, timeout=30, stats=stats)
+            r = _browse_item_summary_get(
+                scraper,
+                params,
+                timeout=30,
+                stats=stats,
+                rate_log_context={
+                    'seed_index': i,
+                    'player': player_name,
+                    'sport': str(player_sport),
+                    'phase': 'primary',
+                },
+            )
 
             data = r.json() if r.content else {}
             if r.status_code != 200:
@@ -467,7 +513,18 @@ def discover_top_players(
                 fb_params = {'q': f'{player_name} card', 'limit': 1}
                 if player_sport == 'Baseball':
                     fb_params['category_ids'] = '261328'
-                r2 = _browse_item_summary_get(scraper, fb_params, timeout=30, stats=stats)
+                r2 = _browse_item_summary_get(
+                    scraper,
+                    fb_params,
+                    timeout=30,
+                    stats=stats,
+                    rate_log_context={
+                        'seed_index': i,
+                        'player': player_name,
+                        'sport': str(player_sport),
+                        'phase': 'fallback',
+                    },
+                )
                 if r2.status_code == 200:
                     d2 = r2.json()
                     t2 = d2.get('total', 0)

@@ -37,6 +37,8 @@ LIMIT 50;
 
 **Quota visibility (discovery start):** One **Analytics** `getRateLimits` call (`Buy` / `browse`) prints **`BROWSE_APP_QUOTA {...}`** with **remaining** / **limit** / **reset** when the API returns data (same **client-credentials** scope as the token manager). Skip that extra call with **`EBAY_SKIP_ANALYTICS_QUOTA=1`**. Browse responses may also include **`X-EBAY-C-RATELIMIT-*`** headers; the last seen values are copied into **`DISCOVER_SUMMARY`** as **`ebay_ratelimit_last`**.
 
+**Per Browse response (discovery seeds):** grep **`DISCOVER_BROWSE_RATELIMIT`** — one JSON object per **`item_summary/search`** response (including 429 retries and token-refresh replays), with **`x_ebay_ratelimit_*`** and **`retry_after`** when headers exist. That is **what eBay returned on that call**, not a derived “calls remaining” total. Turn off with **`EBAY_DISCOVER_LOG_BROWSE_RATELIMIT=0`**.
+
 **Am I throttled / what’s left?**
 
 ```bash
