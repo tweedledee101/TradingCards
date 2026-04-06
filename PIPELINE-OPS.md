@@ -105,7 +105,7 @@ python3 find_auction_opportunities.py --years 2025,2026
 python3 find_auction_opportunities.py --dry-run
 ```
 
-**HTTP 429 on Browse `item_summary/search`:** eBay is rate-limiting (daily cap or burst). Wait (often **hours** or until the next **UTC/Pacific** day), check usage in [eBay Developers](https://developer.ebay.com/) → your keyset → **Analytics**. The scraper **retries 429** using `Retry-After` and waits **1s between queries**; if every call still 429s, only time or a higher Browse limit fixes it.
+**HTTP 429 on Browse `item_summary/search`:** eBay is rate-limiting (daily cap or burst). Wait (often **hours** or until the next **UTC/Pacific** day), check usage in [eBay Developers](https://developer.ebay.com/) → your keyset → **Analytics**. The scraper **retries 429** using `Retry-After` and waits **1s between queries**; if every call still 429s, only time or a higher Browse limit fixes it. **Long 429 backoff** can exceed **RDS idle** on a single DB session — **`JobTracker`** now opens a **new session per progress write**, and the SQLAlchemy engine uses **`pool_pre_ping`** / **`pool_recycle`** so pipelines do not die with **SSL SYSCALL EOF** mid-run.
 
 ### Auction Finder Flags
 ```bash
