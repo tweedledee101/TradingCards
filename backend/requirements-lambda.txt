@@ -7,6 +7,7 @@ ebaysdk==2.2.0
 beautifulsoup4==4.12.2
 # numpy/pandas are not imported by the API package; omitting them speeds Lambda Init (avoids ~10s Init timeout on cold start).
 fastapi==0.104.1
+python-multipart>=0.0.9
 pydantic==2.5.0
 python-dateutil==2.8.2
 python-jose[cryptography]==3.3.0

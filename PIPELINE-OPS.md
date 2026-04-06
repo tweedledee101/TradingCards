@@ -473,11 +473,16 @@ curl http://localhost:8000/api/opportunities-stats
 
 1. **Where data is stored:** `find_opportunities.py` and `find_auction_opportunities.py` **INSERT/UPDATE** the PostgreSQL table **`opportunities`** on whatever database **`DATABASE_URL`** points to (local `trading_cards` or **RDS** in production).
 2. **What the UI calls:** The React app (signed in) requests **`GET https://api.ragnarokgamez.com/api/opportunities`** (BIN) and **`GET .../api/auctions`** (auctions). The FastAPI Lambda reads the **same** `opportunities` table via **`DATABASE_URL`** on the API container.
-3. **Therefore:** Production UI only shows rows if **(a)** scanners have run against **RDS** (not only your laptop DB), and **(b)** the **API Lambda** `DATABASE_URL` matches that RDS. Mismatch (API on RDS, pipelines never run on RDS) → empty page with HTTP 200.
-4. **BIN list:** Written by **`find_opportunities.py`** (`listing_type` `buy_it_now` or null). Run via **Opportunity Pipeline** job **BIN**, or locally: `python3 find_opportunities.py` with RDS URL in env.
-5. **Auction list:** Written by **`find_auction_opportunities.py`** (`listing_type` `auction`). The API hides **ended** auctions by default; if every row has `end_time` in the past, you either see **`ended_fallback`** rows (after API update) or nothing until you run the auction job again.
-6. **Fastest way to populate production:** GitHub → **Actions** → **Opportunity Pipeline** → **Run workflow** (ensure secrets include production **`DATABASE_URL`**). Optionally **Auction Pipeline** for auction-only cadence. Wait for the job to finish (up to 90–120 minutes), then refresh the Opportunities page.
-7. **Verify without the UI:** `curl -H "Authorization: Bearer <token>" https://api.ragnarokgamez.com/api/opportunities` and `/api/auctions`, or `psql` against RDS: `SELECT listing_type, COUNT(*) FROM opportunities GROUP BY 1;`
+3. **API import failures → empty UI + errors:** If **`GET /api/opportunities`** returns **500** and CloudWatch shows **`python-multipart`** / **`Form data requires`**, the app **fails while importing routes** (e.g. **`UploadFile`** on **`/inventory/bulk-import`**). **`GET /health`** can still return **200** (`database: connected`) because it bypasses full FastAPI load. Fix: ensure **`python-multipart`** is in **`backend/requirements-lambda.txt`** (and **`requirements.txt`** for local parity), rebuild the **Lambda image**, **redeploy** (`./aws/deploy-api-lambda.sh`).
+4. **Therefore:** Production UI only shows rows if **(a)** scanners have run against **RDS** (not only your laptop DB), and **(b)** the **API Lambda** `DATABASE_URL` matches that RDS. Mismatch (API on RDS, pipelines never run on RDS) → empty page with HTTP 200.
+5. **BIN list:** Written by **`find_opportunities.py`** (`listing_type` `buy_it_now` or null). Run via **Opportunity Pipeline** job **BIN**, or locally: `python3 find_opportunities.py` with RDS URL in env.
+6. **Auction list:** Written by **`find_auction_opportunities.py`** (`listing_type` `auction`). The API hides **ended** auctions by default; if every row has `end_time` in the past, you either see **`ended_fallback`** rows (after API update) or nothing until you run the auction job again.
+7. **Fastest way to populate production:** GitHub → **Actions** → **Opportunity Pipeline** → **Run workflow** (ensure secrets include production **`DATABASE_URL`**). Optionally **Auction Pipeline** for auction-only cadence. Wait for the job to finish (up to 90–120 minutes), then refresh the Opportunities page.
+8. **Verify without the UI:** `curl -H "Authorization: Bearer <token>" https://api.ragnarokgamez.com/api/opportunities` and `/api/auctions`, or `psql` against RDS: `SELECT listing_type, COUNT(*) FROM opportunities GROUP BY 1;`
+
+**BIN job cancel / timeout:** `find_opportunities.py` only **commits** `opportunities` rows **after** the full eBay variation loop finishes. If Actions **cancels** or **hits the job timeout** mid-loop, **no new BIN rows** are written for that run (previous BIN rows stay as they were). **`pipeline_listing_skips`** may still have partial commits (flushed in batches). eBay Browse calls already made are **not refunded**.
+
+**Controls (CI):** BIN work runs as **eight parallel matrix jobs** (~**75 minutes** each, **`max-parallel: 4`**), each processing **`--players`** from a shard file and **`--bin-replace-scope shard_players`** so only that shard’s players have BIN rows replaced. Wall-clock stays well under a single mega-job timeout; tune **`--shards`** in **`bin-plan`** and **`matrix.shard`** together if you change shard count. Optional dispatch **`ebay_variation_cap`** → **`--max-ebay-variations`**. **Orphan BIN rows:** names that **drop out** of the discovered top-N are **not** deleted until a run with **`--bin-replace-scope all`** (e.g. occasional full local/ops run) or manual SQL—documented so sharded CI does not silently leave stale BIN rows forever.
 
 ## Running on GitHub Actions (Off-Laptop)
 
@@ -517,16 +522,19 @@ Backend: `backend/api/routes/trending.py`. A card appears only if **all** of the
 **Operational fix:** Merge the workflow with **daily cron**, or **Run workflow** once on **Card Data Pipeline** for immediate `sales`. Local: `python3 -m backend.run_pipeline_full --sport Baseball --top 20 --skip-scp`.
 
 ### Available Workflows
-- **Opportunity Pipeline** (`.github/workflows/pipeline.yml`) -- **Two jobs:** (1) **BIN** `find_opportunities.py` with `--skip-auction-chain` (90m timeout), (2) **Auction** `find_auction_opportunities.py` (120m), `needs` + `if: always()` so auction still runs if BIN fails or times out. Artifacts: `opportunity-bin-logs`, `opportunity-auction-logs`. Manual dispatch: **`run_auction`** checkbox to run BIN only. *Still scheduled:* **Auction Pipeline** (`auction-pipeline.yml`) — you may disable one schedule if you want a single auction cadence.
+- **Opportunity Pipeline** (`.github/workflows/pipeline.yml`) — **BIN:** **`bin-plan`** (~15m) runs **`migrate.py --rds`**, then **`scripts/write_bin_player_shards.py`** (default **8** shards) → artifact **`bin-shards`**. **`opportunity-bin`** is a **matrix** over shards **0–7** (**75m** each, **`fail-fast: false`**, **`max-parallel: 4`**); each leg runs **`find_opportunities.py --skip-auction-chain --bin-replace-scope shard_players --players "$(cat shard-N.txt)"`**. Empty shard files **exit 0** (no Selenium). Logs: **`opportunity-bin-logs-shard-N`**. **Auction:** **`opportunity-auction`** **`needs: [opportunity-bin]`** with **`if: always()`** (120m), same as before. Manual dispatch: **`run_auction`** to skip auction. *Still scheduled:* **Auction Pipeline** (`auction-pipeline.yml`) — disable one cadence if you want a single auction schedule.
 - **Auction Pipeline** (`.github/workflows/auction-pipeline.yml`) -- Auction-first pipeline; **scheduled**
 - **Card Data Pipeline** (`.github/workflows/card-data-pipeline.yml`) -- `backend.run_pipeline_full` (imports **`sales`**, active listings, trends); **daily cron + manual**
 - **Daily Report** (`.github/workflows/daily-report.yml`) -- Operations report
 - **QA Pipeline** (`.github/workflows/qa.yml`) -- 167 tests (unit + integration + QA + frontend build)
 
 ### Workflow Inputs (Opportunity Pipeline)
-- `players`, `max_budget`, `min_profit`, `min_roi`, `min_scp_price`, `max_scp_price` (same as `find_opportunities.py`)
-- `run_auction` (boolean, default **true**): uncheck to run **BIN job only** (no auction job)
+- `players`, `top_players`, `sport`, `dynamic_seed_limit`, `dynamic_seed_days`, `max_discovery_candidates` (discovery + shard writer; blank `players` → DB/volume-ranked set)
+- `max_budget`, `min_profit`, `min_roi`, `min_scp_price`, `max_scp_price`, `ebay_variation_cap` → `find_opportunities.py`
+- `run_auction` (boolean, default **true**): uncheck to run **BIN shards only** (no auction job)
 - `auction_hours`, `auction_years`, `auction_sport`: passed to `find_auction_opportunities.py` when auction job runs
+
+**Local sharded BIN (optional):** `python3 scripts/write_bin_player_shards.py --shards 8 --out-dir bin_shards/` (add `--players` or rely on `DATABASE_URL` for discovery), then run **`find_opportunities.py`** once per **`bin_shards/shard-*.txt`** with **`--bin-replace-scope shard_players --players "$(cat …)"`**. Default local single run remains **`--bin-replace-scope all`**.
 
 **BIN per-variation telemetry:** completed `opportunity_finder` runs include **`results_summary.ebay_variation_stats`** (per SCP variation: `query`, `listings_fetched`, `opportunities_raw`, `passed_profit_roi`). Assess which eBay queries pull volume vs dead ends:
 

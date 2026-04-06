@@ -508,13 +508,38 @@ if __name__ == '__main__':
         default=100,
         help='Max Browse discovery calls before ranking (default: 100)',
     )
+    parser.add_argument(
+        '--max-ebay-variations',
+        type=int,
+        default=0,
+        help='Cap how many SCP variations get an eBay search (0=no cap). Use in CI to finish before job timeout.',
+    )
+    parser.add_argument(
+        '--bin-replace-scope',
+        type=str,
+        choices=('all', 'shard_players'),
+        default='all',
+        help=(
+            'all=delete all BIN rows then insert (single runner). '
+            'shard_players=delete BIN rows only for --players in this run (parallel shards).'
+        ),
+    )
     args = parser.parse_args()
+
+    if args.bin_replace_scope == 'shard_players':
+        if not args.players or not str(args.players).strip():
+            print(
+                'error: --bin-replace-scope shard_players requires --players (comma-separated)',
+                file=sys.stderr,
+            )
+            sys.exit(2)
 
     print("=" * 80)
     print("SCP-TO-EBAY OPPORTUNITY PIPELINE")
     print("=" * 80)
     print(f"\nBudget: ${args.max_budget:.0f} max buy | Min Profit: ${args.min_profit:.0f} | Min ROI: {args.min_roi:.0f}%")
     print(f"SCP Price Range: ${args.min_scp_price:.0f}-${args.max_scp_price:.0f}\n")
+    print(f"BIN DB replace scope: {args.bin_replace_scope}\n")
 
     dyn_limit = 0 if args.no_dynamic_seeds else max(0, args.dynamic_seed_limit)
 
@@ -562,6 +587,8 @@ if __name__ == '__main__':
             'dynamic_seed_limit': dyn_limit,
             'dynamic_seed_days': args.dynamic_seed_days,
             'skip_auction_chain': bool(args.skip_auction_chain),
+            'max_ebay_variations': args.max_ebay_variations or None,
+            'bin_replace_scope': args.bin_replace_scope,
         }
     )
 
@@ -648,6 +675,12 @@ if __name__ == '__main__':
         driver.quit()
         print(f"\n{'=' * 80}")
         print(f"Total variations to check on eBay: {len(all_variations)}")
+        if args.max_ebay_variations and len(all_variations) > args.max_ebay_variations:
+            print(
+                f"  (capped to {args.max_ebay_variations} via --max-ebay-variations — "
+                f"full list had {len(all_variations)})"
+            )
+            all_variations = all_variations[: args.max_ebay_variations]
         print(f"{'=' * 80}\n")
 
         if not all_variations:
@@ -777,14 +810,20 @@ if __name__ == '__main__':
 
         _flush_listing_skips()
 
-        # Store in database
+        # Store in database (single transaction: cancel/kill before commit leaves old BIN rows intact)
         db = SessionLocal()
         try:
-            # Clear previous BIN scan results only -- preserve auction results
-            db.query(Opportunity).filter(
-                (Opportunity.listing_type == 'buy_it_now') | (Opportunity.listing_type.is_(None))
-            ).delete(synchronize_session=False)
-            db.commit()
+            bin_type_filter = (Opportunity.listing_type == 'buy_it_now') | (Opportunity.listing_type.is_(None))
+            if args.bin_replace_scope == 'shard_players':
+                shard_names = [p.strip() for p in args.players.split(',') if p.strip()]
+                n_del = (
+                    db.query(Opportunity)
+                    .filter(bin_type_filter, Opportunity.player_name.in_(shard_names))
+                    .delete(synchronize_session=False)
+                )
+                print(f"\nBIN replace scope=shard_players: removed {n_del} prior row(s) for {len(shard_names)} player(s).")
+            else:
+                db.query(Opportunity).filter(bin_type_filter).delete(synchronize_session=False)
 
             for opp in all_opportunities:
                 # Parse card label: "Player Year Set #Number [Parallel]"
@@ -874,6 +913,8 @@ if __name__ == '__main__':
             'skip_auction_chain': bool(args.skip_auction_chain),
             'sport': args.sport,
             'dynamic_seed_limit': dyn_limit,
+            'max_ebay_variations_cap': args.max_ebay_variations or None,
+            'bin_replace_scope': args.bin_replace_scope,
         }
         log.info('Pipeline complete', context=summary)
         tracker.complete(summary=summary)

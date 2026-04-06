@@ -1,7 +1,8 @@
 name: Opportunity Pipeline
 
-# Two jobs: BIN (SCP + eBay) then auction — each gets its own timeout and log artifact.
-# Avoids one 120m monolith; auction still runs if BIN fails or times out (if: always).
+# BIN: discover players → shard files → matrix of parallel runners (default 8 shards, max 4 concurrent).
+# Each shard replaces BIN rows only for its players (--bin-replace-scope shard_players), so wall-clock
+# stays bounded. Auction job still runs after all BIN shards finish (if: always).
 
 on:
   schedule:
@@ -9,9 +10,13 @@ on:
   workflow_dispatch:
     inputs:
       players:
-        description: 'Comma-separated player names (blank = top 40 by volume)'
+        description: 'Comma-separated player names (blank = discover top N by volume)'
         required: false
         default: ''
+      top_players:
+        description: 'Hot player count when players blank (discovery)'
+        required: false
+        default: '40'
       max_budget:
         description: 'Max buy price'
         required: false
@@ -65,15 +70,75 @@ on:
         description: 'Auction sport'
         required: false
         default: 'baseball'
+      ebay_variation_cap:
+        description: 'Max SCP lines to search on eBay (blank = no cap). Example 400 for a shorter run.'
+        required: false
+        default: ''
 
 jobs:
-  opportunity-bin:
-    name: BIN (SCP + eBay)
+  # Keep --shards 8 in sync with matrix.shard list below.
+  bin-plan:
+    name: BIN plan (shard players)
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Apply database migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python3 migrate.py --rds
+
+      - name: Write player shard files
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          ARGS=(python3 scripts/write_bin_player_shards.py --shards 8 --out-dir bin_shards/)
+          ARGS+=(--sport "${{ inputs.sport || 'Baseball' }}")
+          ARGS+=(--top-players "${{ inputs.top_players || '40' }}")
+          ARGS+=(--dynamic-seed-limit "${{ inputs.dynamic_seed_limit || '50' }}")
+          ARGS+=(--dynamic-seed-days "${{ inputs.dynamic_seed_days || '30' }}")
+          ARGS+=(--max-discovery-candidates "${{ inputs.max_discovery_candidates || '100' }}")
+          if [ -n "${{ inputs.players }}" ]; then
+            ARGS+=(--players "${{ inputs.players }}")
+          fi
+          "${ARGS[@]}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-shards
+          path: bin_shards/
+          retention-days: 2
+
+  opportunity-bin:
+    name: BIN shard ${{ matrix.shard }}
+    needs: [bin-plan]
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Download shard list
+        uses: actions/download-artifact@v4
+        with:
+          name: bin-shards
+          path: bin_shards
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -105,7 +170,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python3 migrate.py --rds
 
-      - name: Run BIN opportunity pipeline
+      - name: Run BIN pipeline (this shard only)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
@@ -113,32 +178,44 @@ jobs:
           EBAY_APP_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CERT_ID: ${{ secrets.EBAY_CLIENT_SECRET }}
         run: |
-          set -o pipefail
-          LOG=/tmp/opportunity_bin.log
+          set -euo pipefail
+          SHARD_FILE="bin_shards/shard-${{ matrix.shard }}.txt"
+          if [ ! -f "$SHARD_FILE" ]; then
+            echo "missing $SHARD_FILE"; exit 1
+          fi
+          PLAYERS=$(cat "$SHARD_FILE")
+          if [ -z "$PLAYERS" ]; then
+            echo "empty shard ${{ matrix.shard }} — skipping Selenium"
+            exit 0
+          fi
+          LOG=/tmp/opportunity_bin_shard_${{ matrix.shard }}.log
           ARGS=(
             python3 find_opportunities.py
             --skip-auction-chain
+            --bin-replace-scope shard_players
+            --players "$PLAYERS"
             --max-budget "${{ inputs.max_budget || '200' }}"
             --min-profit "${{ inputs.min_profit || '10' }}"
             --min-roi "${{ inputs.min_roi || '20' }}"
             --min-scp-price "${{ inputs.min_scp_price || '5' }}"
             --max-scp-price "${{ inputs.max_scp_price || '1000' }}"
+            --sport "${{ inputs.sport || 'Baseball' }}"
+            --top-players "${{ inputs.top_players || '40' }}"
+            --dynamic-seed-limit "${{ inputs.dynamic_seed_limit || '50' }}"
+            --dynamic-seed-days "${{ inputs.dynamic_seed_days || '30' }}"
+            --max-discovery-candidates "${{ inputs.max_discovery_candidates || '100' }}"
           )
-          if [ -n "${{ inputs.players }}" ]; then
-            ARGS+=(--players "${{ inputs.players }}")
+          if [ -n "${{ inputs.ebay_variation_cap }}" ]; then
+            ARGS+=(--max-ebay-variations "${{ inputs.ebay_variation_cap }}")
           fi
-          ARGS+=(--sport "${{ inputs.sport || 'Baseball' }}")
-          ARGS+=(--dynamic-seed-limit "${{ inputs.dynamic_seed_limit || '50' }}")
-          ARGS+=(--dynamic-seed-days "${{ inputs.dynamic_seed_days || '30' }}")
-          ARGS+=(--max-discovery-candidates "${{ inputs.max_discovery_candidates || '100' }}")
           "${ARGS[@]}" 2>&1 | tee "$LOG"
 
-      - name: Upload BIN logs
+      - name: Upload BIN shard log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: opportunity-bin-logs
-          path: /tmp/opportunity_bin.log
+          name: opportunity-bin-logs-shard-${{ matrix.shard }}
+          path: /tmp/opportunity_bin_shard_${{ matrix.shard }}.log
           if-no-files-found: ignore
           retention-days: 7
 

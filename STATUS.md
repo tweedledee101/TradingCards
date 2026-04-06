@@ -3,6 +3,12 @@
 
 **Trust / roadmap §2.0 (in progress):** **`migration_025`–`026`**: verification fields; **`opportunities.sport`** + **`pipeline_listing_skips`**; **sales-driven discovery** merges DB `sales` hot players with anchor seeds daily; **`--sport` / BIN Browse pagination ≤1000**; API + Opportunities UI **sport filter**; post-ingest **`scripts/verify_bin_opportunities.py`** (130point vs SCP) + **`scripts/audit_pipeline_skips.py`**. CE photo flow remains Playwright (`collectors_edge_photo_run`). See **[docs/testing/strategy.md](./docs/testing/strategy.md)**.
 
+Session 65: **Production API 500 on all FastAPI routes** — **`POST /inventory/bulk-import`** uses **`UploadFile`**; missing **`python-multipart`** caused **import-time RuntimeError** in Lambda, so **`/api/opportunities`** etc. never loaded (while **`/health`** still OK). Fix: **`python-multipart`** in **`backend/requirements.txt`** and **`backend/requirements-lambda.txt`** (Docker image); **redeploy** API Lambda (`./aws/deploy-api-lambda.sh`).
+
+Session 64: **Resilient BIN CI** — **`scripts/write_bin_player_shards.py`**; **`find_opportunities.py`** **`--bin-replace-scope`** **`all`** | **`shard_players`** (shard mode requires **`--players`**). **`.github/workflows/pipeline.yml`**: **`bin-plan`** + **8-way matrix** **`opportunity-bin`** (**75m**/shard, **`max-parallel: 4`**), **`--bin-replace-scope shard_players`**; artifacts per shard; **`PIPELINE-OPS`** (orphan BIN note, keep shard count in sync).
+
+Session 63: **BIN reliability** — DB write is **one transaction** (delete old BIN + insert) so cancel mid-run no longer risks wiping BIN then dying; **`--max-ebay-variations`** + workflow **`ebay_variation_cap`**; **PIPELINE-OPS** cancel/eBay note.
+
 Session 62: **Opportunities data + landing** — API **`/api/auctions`**: if no **live** rows, **ended_fallback** returns recent ended auctions (UI banner). Opportunities page: GitHub **Run workflow** links, BIN empty state, filter empty state. **Landing**: Norse-hall line *Enter the hall.* **SiteFooter**: compact middot row. **`PIPELINE-OPS.md`**: subsection *From scanner run → rows on the Opportunities page*.
 
 Session 61: **UI polish** — minimal **Landing** (mobile-first, safe-area, no long copy); **SiteFooter** (Careers/Contact/Legal placeholders, ©); **Help** page with trust/verification docs; **Opportunities** drops banner for link to Help + empty-DB explainer; **TrustBadges** component.
