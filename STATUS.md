@@ -1,6 +1,8 @@
 # Trading Card Platform - Current Status
 **Last Updated:** 2026-03-27
 
+Session 70: **Target architecture** — **[docs/OPPORTUNITY-FINDER.md](./docs/OPPORTUNITY-FINDER.md)** *Target evolution*: 130point/`sold_comps`-led player ranking (~100), velocity/sell-through, $5–$1k, CE+SCP before narrow eBay; success metrics table + gap vs current Browse-led discover. **[docs/ROADMAP.md](./docs/ROADMAP.md)** §2.0a pointer.
+
 Session 69: **Operator map** — **[AGENTS.md](./AGENTS.md)** *Follow the money*: linear BIN path (discover → SCP → eBay → API → UI), auction caveat + “nothing buyable” = thresholds / verification / stale / pipeline shape, not API excuses.
 
 Session 68: **Canonical opportunity intent** — **[docs/OPPORTUNITY-FINDER.md](./docs/OPPORTUNITY-FINDER.md)** *Canonical pipeline intent*: liquidity ranking → SCP $5–$1k universe → catalog-driven listing discovery → SCP + comps + CE validation; notes BIN vs auction alignment gap. **[docs/README.md](./docs/README.md)** index line updated.

@@ -43,6 +43,10 @@ Data gathering must run in a separate process from the core app.
 
 ## Milestone 2 -- "Trust the Data"
 
+### 2.0a Velocity-first, 130point-led discovery (backlog / target architecture)
+
+**Problem:** eBay Browse–first **player** discovery burns quota and does not match “liquid players = those with real sold volume.” **Target:** rank **~top 100** players from **`sold_comps`** / **`sales`** aggregates; enforce **$5–$1000** + **fast sell-through** proxies; **CE + SCP** identity before **narrow** eBay listing pull. Spec: **[docs/OPPORTUNITY-FINDER.md](./OPPORTUNITY-FINDER.md)** → *Target evolution: 130point-led…* Success measured from DB/QA metrics, not anecdotal rows.
+
 ### 2.0 Listing identity verification (eBay ↔ SCP ↔ Collectors Edge ↔ 130point) — IN PROGRESS / REQUIRED
 
 **Problem:** Opportunities sometimes show an eBay listing whose **visual card** does not match the **SCP catalog row** (wrong parallel, wrong year, wrong variation). That is unacceptable for trading decisions. With multiple independent sources (eBay, SCP art, CE, **130point `sold_comps`**), **persistent discrepancy after validation = ineffectiveness in process or code** — not something the operator should “just know to ignore.”

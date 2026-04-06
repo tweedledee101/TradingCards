@@ -32,6 +32,40 @@ If this section is wrong, **edit this file** or say what to change — everythin
 
 ---
 
+## Target evolution: 130point-led players, velocity, then identity, then live listings
+
+**Intent:** **eBay-first discovery** (Browse seed totals) is treated as a **mistake to retire** for ranking “who is liquid.” Prefer signals built from **aggregated sold history** we already ingest or can ingest **without** eBay Browse player discovery.
+
+**Order of operations (flexible if validation outcomes are equivalent):**
+
+1. **Player universe (~top 100)** — Rank players by **observed sale activity** from **`sold_comps`** (130point worm / `back.130point.com` data path) and/or **`sales`**: count of sales, recency, optional $ volume. **Verifiable in DB** with SQL and audit jobs — not “trust me, Browse said so.”
+
+2. **Card universe per player** — All identities we care about for those players (**years / manufacturers / parallels** as data allows). Today **SCP player catalog** is the richest “all variations” source in the BIN path; **`sold_comps`** is **sale events**, not a full checklist — combining both (sales say *what moved*, SCP says *what exists in guide*) is the engineering problem.
+
+3. **Velocity / sell-through (e.g. sell within ~two weeks of post)** — Needs **operational definitions** stored and measurable: e.g. median days from list to sale for similar identities, or proxy from **`sold_comps.sale_date`** density + listing cadence. **`active_listings`** snapshots + **`sales`** can support sell-through metrics where we have **linked** `ebay_item_id` / card identity. **Not yet** a first-class “reject if expected hold > 14d” gate in pipeline code.
+
+4. **Capital band** — **$5–$1000** (and stricter **max cash at risk** per flip) as **hard filters** on guide or comp median, aligned with “every buy must resell quickly to fund the next.”
+
+5. **Images + Collectors Edge** — Persist **reference image** per candidate card; run **CE photo / identify** path so returned identity **matches** 130point/SCP structured fields. **Today:** CE tooling is **post-pipeline / dev / QA** (`collectors_edge_photo_run`, vision queue) — **not** the default gate **before** eBay listing search.
+
+6. **SCP cross-check** — Book price, URL, volume text vs comps.
+
+7. **eBay last** — **Only** for **live** BIN/auction: price, bid, end time, listing URL — **tight** queries per validated identity, not broad discovery.
+
+**How we know we are succeeding (no spoon-fed rows required):**
+
+| Metric | Where to measure |
+|--------|------------------|
+| Player rank source | % of runs using **`sold_comps`/`sales`-derived top-N vs Browse discovery |
+| Velocity | Distribution of “time to sell” / sales-per-week by `card_id` or identity key |
+| Identity QA | **`verification_status`**, **`qa_flags`**, CE/vision disagreement rate (see **ROADMAP §2.0**) |
+| Economic quality | Median **`profit`/`roi`** on stored opportunities; rejection funnel counts in **`job_runs.results_summary`** |
+| Browse cost | Browse calls per opportunity row (BIN + auction jobs) — should **fall** under 130point-led + tight eBay |
+
+**Honest gap (current code vs this target):** Browse-backed **`hot_player_names_for_pipeline`** is still **default**; **`worm_130point.py`** fills **`sold_comps`** but does not yet **drive** player ranking; **two-week flip** is not a enforced pipeline filter; **CE-before-eBay** is not wired as the main path. Closing the gap is **product/engineering work**, not documentation.
+
+---
+
 ## Philosophy
 
 Professional card dealers don't chase "hot" cards - they find **arbitrage opportunities** where they can buy below market rate and flip for profit. Momentum signals (price trends, sales velocity) provide **confidence**, not the primary decision.
