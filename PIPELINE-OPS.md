@@ -383,6 +383,12 @@ python3 find_opportunities.py --max-budget 500 --min-scp-price 50 --max-scp-pric
 
 # Higher budget scan
 python3 find_opportunities.py --max-budget 1000 --min-profit 20 --min-roi 15 --top-players 40
+
+# Multi-sport discovery + sales-driven seed merge (default: dynamic top 50 from sales, 30d)
+python3 find_opportunities.py --sport all --dynamic-seed-limit 60 --dynamic-seed-days 30
+
+# Anchor seeds only (no sales merge)
+python3 find_opportunities.py --no-dynamic-seeds
 ```
 
 ### Opportunity Finder Flags
@@ -394,14 +400,33 @@ python3 find_opportunities.py --max-budget 1000 --min-profit 20 --min-roi 15 --t
 --max-scp-price 1000 # Max SCP price (default: $1000)
 --players "A,B"      # Comma-separated player names (overrides --top-players)
 --top-players 40     # Number of hot players by volume (default: 40)
+--sport Baseball     # Baseball | Basketball | Football | all (default: Baseball)
+--dynamic-seed-limit 50   # Merge top N (player,sport) from recent sales (0=off; default 50)
+--dynamic-seed-days 30    # Sales lookback for dynamic merge
+--no-dynamic-seeds        # Only anchor SEED_PLAYERS for Browse candidates
+--max-discovery-candidates 100  # Cap Browse calls before ranking (default 100)
+```
+
+### Post-ingest BIN verification (130point vs SCP)
+
+Runs headless against RDS/local DB; does **not** call Collectors Edge (use `scripts/dev/collectors_edge_photo_run.py` for Playwright CE).
+
+```bash
+python3 scripts/verify_bin_opportunities.py --limit 300 --only-pending
+```
+
+### Pipeline skip audit (false junk sampling)
+
+```bash
+python3 scripts/audit_pipeline_skips.py --limit 200
 ```
 
 ### What The Opportunity Finder Does
 
-1. Gets player list (from DB volume ranking or --players flag)
+1. Builds player list: **eBay Browse ranking** over candidates = **anchor `SEED_PLAYERS`** plus **top sellers from your `sales`×`cards` table** (dynamic merge, refreshed every run when DB is available), unless `--no-dynamic-seeds` or `--players`
 2. Scrapes SCP for each player's full catalog (Selenium/Firefox)
 3. Filters by SCP price range and volume (rejects "rare", "1 sale/year", "2 sales/year")
-4. Searches eBay for each variation (BIN + Auctions)
+4. Searches eBay for each variation (BIN + Auctions); BIN active Browse is paginated (200/page, up to 1000 listings per variation query — same depth cap style as auction)
 5. Validates: player + year + card# + parallel in title
 6. Filters: junk listings, factory sets, reprints, wrong sets
 7. BIN price floor: below 30% of SCP = hard reject (different product)

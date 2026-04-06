@@ -25,9 +25,10 @@ const Opportunities = () => {
   const [myBids, setMyBids] = useState([]);
   const [contextStrip, setContextStrip] = useState(null);
   const [showListingsPulse, setShowListingsPulse] = useState(false);
+  const [sportFilter, setSportFilter] = useState('all');
   const [trustExplainerOpen, setTrustExplainerOpen] = useState(false);
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => { fetchAll(); }, [sportFilter]);
 
   useEffect(() => {
     getOpportunitiesContextStrip()
@@ -39,9 +40,10 @@ const Opportunities = () => {
     setLoading(true);
     setError(null);
     try {
+      const sportParams = sportFilter === 'all' ? {} : { sport: sportFilter };
       const [auctionRes, binRes, bidsRes] = await Promise.allSettled([
-        getAuctions(),
-        getOpportunities(),
+        getAuctions(sportParams),
+        getOpportunities(sportParams),
         getScheduledBids(),
       ]);
 
@@ -133,6 +135,23 @@ const Opportunities = () => {
         <p className="text-sm text-frost-dim">
           BIN deals below SCP market rates{scannedAt && ` -- scanned ${new Date(scannedAt).toLocaleString()}`}
         </p>
+        <div className="flex flex-wrap items-center gap-2 mt-3">
+          <span className="text-xs text-frost-dim">Sport</span>
+          {['all', 'Baseball', 'Basketball', 'Football'].map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => setSportFilter(s)}
+              className={`text-xs font-medium px-2.5 py-1 rounded-lg border transition-colors ${
+                sportFilter === s
+                  ? 'bg-ember/25 text-ember-light border-ember/40'
+                  : 'bg-surface-raised text-frost-dim border-surface-border hover:text-frost-light'
+              }`}
+            >
+              {s === 'all' ? 'All sports' : s}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="card-surface mb-6 border border-surface-border overflow-hidden">
@@ -488,6 +507,7 @@ const AuctionCard = ({ auction: a, rank, isExpanded, onToggle, onDrillIn, isFlag
             <span className="text-sm font-semibold text-frost-light truncate max-w-full">{a.player_name}</span>
             <ConfidenceBadge source={a.price_source} />
             <VerificationBadge status={a.verification_status} />
+            {a.sport && <span className="text-[9px] text-frost-dim border border-surface-border rounded px-1 py-0.5 shrink-0">{a.sport}</span>}
             {a.parallel && a.parallel !== 'Base' && <span className="badge-neutral text-[10px] shrink-0">{a.parallel}</span>}
             {a.is_rookie && <span className="badge-ember text-[10px] shrink-0">RC</span>}
             {a.grade_company && <span className="badge-neutral text-[10px] shrink-0">{a.grade_company} {a.grade_value}</span>}
@@ -621,6 +641,7 @@ const BinCard = ({ opp, rank, isExpanded, onToggle, onDrillIn }) => {
             <span className="text-sm font-semibold text-frost-light truncate max-w-full">{opp.player_name}</span>
             <ConfidenceBadge source={opp.price_source} />
             <VerificationBadge status={opp.verification_status} />
+            {opp.sport && <span className="text-[9px] text-frost-dim border border-surface-border rounded px-1 py-0.5 shrink-0">{opp.sport}</span>}
             {opp.parallel && opp.parallel !== 'Base' && <span className="badge-neutral text-[10px] shrink-0">{opp.parallel}</span>}
             {opp.is_rookie && <span className="badge-ember text-[10px] shrink-0">RC</span>}
           </div>

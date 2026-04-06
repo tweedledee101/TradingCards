@@ -1,7 +1,11 @@
 # Trading Card Platform - Current Status
-**Last Updated:** 2026-04-05
+**Last Updated:** 2026-03-27
 
-**Trust / roadmap §2.0 (in progress):** **`migration_025`**: `verification_status`, `verification_detail` (JSONB); ORM + opportunities API; BIN / auction / vision-retry writers set `pending` + pipeline metadata; Opportunities UI (verification badges, modal banner, conflict callouts, on-page trust explainer). Measurement framing: **[docs/testing/strategy.md](./docs/testing/strategy.md)**; identity chain **eBay → SCP → CE → 130point** (automated `verified` / `conflict` from jobs still to wire).
+**Trust / roadmap §2.0 (in progress):** **`migration_025`–`026`**: verification fields; **`opportunities.sport`** + **`pipeline_listing_skips`**; **sales-driven discovery** merges DB `sales` hot players with anchor seeds daily; **`--sport` / BIN Browse pagination ≤1000**; API + Opportunities UI **sport filter**; post-ingest **`scripts/verify_bin_opportunities.py`** (130point vs SCP) + **`scripts/audit_pipeline_skips.py`**. CE photo flow remains Playwright (`collectors_edge_photo_run`). See **[docs/testing/strategy.md](./docs/testing/strategy.md)**.
+
+Session 60: **Public landing vs trending** — **`/`** → **`Landing.jsx`** (public); trending **`Home`** at **`/market`**; nav **Market**; **`CardDetail`** back link → **`/market`**; auth still **`PrivateLayout`** except landing + callback. **`docs/ROADMAP.md`** M3.1 note.
+
+Session 59: **Discovery QA + UI sport chips + auction parity** — **`get_hot_players`** / **`hot_player_names_for_pipeline`** only pass sales-merge kwargs when DB session or positive dynamic limit; **`tests/qa/test_player_discovery`** expects **`player_name`** dict rows. **Opportunities** list + **CardDetailModal** show **`sport`**. **`find_auction_opportunities`**: **`--dynamic-seed-*`**, **`--max-discovery-candidates`**, **`--no-dynamic-seeds`**; **`.github/workflows`**: **`pipeline.yml`** + **`auction-pipeline.yml`** pass **`dynamic_seed_days`** / **`max_discovery_candidates`**. **`PIPELINE-OPS.md`**: BIN Browse pagination note.
 
 Session 58: **Resilient opportunity CI + BIN telemetry** — **`find_opportunities.py`**: `--skip-auction-chain`; **`ebay_variation_stats`** + aggregates on **`job_runs`** (`opportunity_finder`). **`.github/workflows/pipeline.yml`**: jobs **BIN** (90m) + **Auction** (120m, `if: always()`), artifacts per job; dispatch **`run_auction`**. **`scripts/diagnose_bin_ebay_variation_stats.py`**. **`PIPELINE-OPS.md`**, **`docs/testing/strategy.md`**, **`AGENTS.md`**.
 

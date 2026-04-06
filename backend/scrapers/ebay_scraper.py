@@ -739,67 +739,69 @@ class EbayScraper:
         
         return all_results
     
-    def get_active_listings(self, query: str) -> List[Dict]:
+    def get_active_listings(self, query: str, max_total: int = 1000) -> List[Dict]:
         """
-        Get current active listings (for velocity calculation)
-        
-        Args:
-            query: Search term
-            
-        Returns:
-            List of active listings with prices
-            
-        Note:
-            Uses different endpoint than sold listings
+        Get current active listings (BIN + auction) for a query.
+
+        Paginates with ``offset`` (200 per page) up to ``max_total`` (default 1000),
+        matching auction pipeline depth for opportunity coverage.
         """
-        params = {
-            "q": query,
-            "filter": "buyingOptions:{AUCTION|FIXED_PRICE}",
-            "limit": 200
-        }
-        
+        all_items: List[Dict] = []
+        seen_ids: set = set()
+        offset = 0
+
         try:
-            # Refresh token if needed
-            self.headers["Authorization"] = f"Bearer {self.token_manager.get_token()}"
-            
-            response = requests.get(
-                f"{self.base_url}/item_summary/search",
-                headers=self.headers,
-                params=params,
-                timeout=30
-            )
-            
-            # If 401, force token refresh and retry once
-            if response.status_code == 401:
-                self.token_manager._refresh_token()  # Force refresh
+            while offset < max_total:
+                params = {
+                    "q": query,
+                    "filter": "buyingOptions:{AUCTION|FIXED_PRICE}",
+                    "limit": 200,
+                    "offset": offset,
+                }
                 self.headers["Authorization"] = f"Bearer {self.token_manager.get_token()}"
                 response = requests.get(
                     f"{self.base_url}/item_summary/search",
                     headers=self.headers,
                     params=params,
-                    timeout=30
+                    timeout=30,
                 )
-            
-            response.raise_for_status()
-            
-            time.sleep(0.5)  # Rate limiting: 0.5 second delay between calls
-            
-            items = []
-            for item in response.json().get('itemSummaries', []):
-                card_info = self._extract_card_info(item.get('title', ''), item.get('condition'))
-                image_urls = collect_browse_item_image_urls(item)
-                image_url = image_urls[0] if image_urls else None
-                items.append({
-                    'ebay_item_id': item.get('itemId'),
-                    'title': item.get('title'),
-                    'price': float(item.get('price', {}).get('value', 0)),
-                    'listing_type': 'auction' if 'AUCTION' in item.get('buyingOptions', []) else 'buy_it_now',
-                    'card_info': card_info,
-                    'image_url': image_url,
-                    'image_urls': image_urls,
-                })
-            
-            return items
+                if response.status_code == 401:
+                    self.token_manager._refresh_token()
+                    self.headers["Authorization"] = f"Bearer {self.token_manager.get_token()}"
+                    response = requests.get(
+                        f"{self.base_url}/item_summary/search",
+                        headers=self.headers,
+                        params=params,
+                        timeout=30,
+                    )
+                response.raise_for_status()
+                time.sleep(0.5)
+
+                page = response.json().get("itemSummaries", []) or []
+                for item in page:
+                    iid = item.get("itemId")
+                    if not iid or iid in seen_ids:
+                        continue
+                    seen_ids.add(iid)
+                    card_info = self._extract_card_info(item.get("title", ""), item.get("condition"))
+                    image_urls = collect_browse_item_image_urls(item)
+                    image_url = image_urls[0] if image_urls else None
+                    all_items.append({
+                        "ebay_item_id": iid,
+                        "title": item.get("title"),
+                        "price": float(item.get("price", {}).get("value", 0)),
+                        "listing_type": (
+                            "auction" if "AUCTION" in item.get("buyingOptions", []) else "buy_it_now"
+                        ),
+                        "card_info": card_info,
+                        "image_url": image_url,
+                        "image_urls": image_urls,
+                    })
+                if len(page) < 200:
+                    break
+                offset += 200
+
+            return all_items
         except requests.exceptions.RequestException as e:
             print(f"Error fetching active listings: {e}")
             return []

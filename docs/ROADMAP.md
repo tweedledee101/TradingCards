@@ -11,7 +11,7 @@
 - **Future:** On-site **checkout** (**Stripe**); **Plaid** (or similar) if bank-link / payout flows need it; **breaks**; **livestreams**; **dynamic calendar** (whether customers need accounts TBD).
 
 ### 3.1 Public landing + IA
-- Replace “trending as home” for visitors with a real **landing**; move trending to **`/market`** or keep admin-only.
+- **Done (frontend):** **`/`** is a public **landing** (marketing / brand / storefront-coming); **Market movers** (trending) moved to **`/market`** (private shell). Signed-in users hitting **`/`** redirect to **`/market`**. **Admin gate** (Cognito group / API enforcement) still TBD.
 - Public routes **unauthenticated**; admin app behind login + **admin gate**.
 
 ### 3.2 Storefront v1 (no checkout)

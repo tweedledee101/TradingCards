@@ -902,6 +902,29 @@ if __name__ == '__main__':
     parser.add_argument('--days', type=int, default=7, help='eBay volume lookback for player discovery (default: 7, same as BIN)')
     parser.add_argument('--players', type=str, default=None, help='Comma-separated names; skips eBay discovery for the player-query arm')
     parser.add_argument(
+        '--dynamic-seed-limit',
+        type=int,
+        default=50,
+        help='Merge top N (player,sport) from recent DB sales into discovery (0=off; default: 50)',
+    )
+    parser.add_argument(
+        '--dynamic-seed-days',
+        type=int,
+        default=30,
+        help='Lookback days when ranking players from sales table (default: 30)',
+    )
+    parser.add_argument(
+        '--max-discovery-candidates',
+        type=int,
+        default=100,
+        help='Max Browse discovery calls before ranking (default: 100)',
+    )
+    parser.add_argument(
+        '--no-dynamic-seeds',
+        action='store_true',
+        help='Anchor SEED_PLAYERS only (no sales-driven candidate merge)',
+    )
+    parser.add_argument(
         '--no-product-line-queries',
         action='store_true',
         help='Skip high-volume product-line strings (e.g. "2025 Topps Chrome baseball")',
@@ -925,6 +948,8 @@ if __name__ == '__main__':
         help='Lookback days when ranking sold_comp SKUs for seed queries',
     )
     args = parser.parse_args()
+
+    dyn_limit = 0 if args.no_dynamic_seeds else max(0, args.dynamic_seed_limit)
 
     years = [int(y.strip()) for y in args.years.split(',')]
 
@@ -966,6 +991,7 @@ if __name__ == '__main__':
 
     # Player-specific searches: same ranked list as BIN (eBay volume), not DB card counts
     from backend.config.sets import HIGH_VALUE_SETS, get_set_queries
+    from contextlib import closing
     from backend.discover_players import hot_player_names_for_pipeline
 
     sport_key = (args.sport or 'baseball').strip().title()
@@ -977,8 +1003,16 @@ if __name__ == '__main__':
         print(
             f"Finding hot players by sales volume (BIN parity: days={args.days}, limit={args.top_players})..."
         )
-        player_names = hot_player_names_for_pipeline(
-            limit=args.top_players, sport=sport_key, days=args.days)
+        with closing(SessionLocal()) as _db:
+            player_names = hot_player_names_for_pipeline(
+                limit=args.top_players,
+                sport=sport_key,
+                days=args.days,
+                db_session=_db,
+                dynamic_sales_player_limit=dyn_limit,
+                dynamic_sales_lookback_days=args.dynamic_seed_days,
+                max_discovery_candidates=args.max_discovery_candidates,
+            )
         if not player_names:
             print(
                 "WARNING: discover_top_players returned no players; "
@@ -1007,7 +1041,7 @@ if __name__ == '__main__':
     print("=" * 80)
     print(f"\nAuctions ending within: {args.hours}h")
     print(f"Budget: ${args.max_budget:.0f} max | Min Profit: ${args.min_profit:.0f}")
-    print(f"Sport: {args.sport}")
+    print(f"Sport: {args.sport} | dynamic_seed_limit={dyn_limit} | dynamic_seed_days={args.dynamic_seed_days}")
     print(
         f"Search queries: {len(queries)} "
         f"({len(VALUE_QUERIES)} value + {len(sold_seed_queries)} sold-seed + {len(PLAYER_QUERIES)} player)"
@@ -1650,6 +1684,7 @@ if __name__ == '__main__':
                         flagged=opp.get('is_flagged', False),
                         verification_status='pending',
                         verification_detail={'schema': 1, 'pipeline': 'auction'},
+                        sport=sport_key,
                         price_source=opp.get('price_source', 'scp'),
                         scan_id=tracker.run_id,
                     )

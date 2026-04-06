@@ -22,6 +22,7 @@ def get_opportunities(
     min_profit: Optional[float] = Query(default=None),
     min_roi: Optional[float] = Query(default=None),
     listing_type: Optional[str] = Query(default=None),
+    sport: Optional[str] = Query(default=None, description="Baseball, Basketball, Football; omit or 'all' for any"),
     hide_flagged: bool = Query(default=False),
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db)
@@ -50,6 +51,8 @@ def get_opportunities(
         query = query.filter(Opportunity.roi >= min_roi)
     if hide_flagged:
         query = query.filter(Opportunity.flagged == False)
+    if sport and str(sport).strip().lower() not in ("all", "", "any"):
+        query = query.filter(Opportunity.sport == str(sport).strip().title())
 
     opps = query.order_by(Opportunity.profit.desc()).limit(limit).all()
 
@@ -183,6 +186,7 @@ def get_auctions(
     min_profit: Optional[float] = Query(default=None),
     max_budget: Optional[float] = Query(default=None),
     include_ended: bool = Query(default=False),
+    sport: Optional[str] = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db)
 ):
@@ -198,6 +202,8 @@ def get_auctions(
         query = query.filter(Opportunity.profit >= min_profit)
     if max_budget:
         query = query.filter(Opportunity.buy_price <= max_budget)
+    if sport and str(sport).strip().lower() not in ("all", "", "any"):
+        query = query.filter(Opportunity.sport == str(sport).strip().title())
     opps = query.order_by(Opportunity.profit.desc()).limit(limit).all()
     return {"success": True, "count": len(opps), "auctions": [_auction_to_dict(o) for o in opps]}
 
@@ -466,6 +472,7 @@ def _auction_to_dict(o: Opportunity) -> dict:
         "qa_flags": o.qa_flags or [],
         "verification_status": (o.verification_status or "pending"),
         "verification_detail": o.verification_detail,
+        "sport": getattr(o, "sport", None) or "Baseball",
     }
 
 
@@ -506,4 +513,5 @@ def _opp_to_dict(o: Opportunity) -> dict:
         "qa_flags": o.qa_flags or [],
         "verification_status": (o.verification_status or "pending"),
         "verification_detail": o.verification_detail,
+        "sport": getattr(o, "sport", None) or "Baseball",
     }

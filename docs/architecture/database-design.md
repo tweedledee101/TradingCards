@@ -46,7 +46,10 @@ PostgreSQL database storing trading card data, sales, market rates, opportunitie
 - qa_reviewed_at (timestamp)
 - verification_status (`pending` / `verified` / `conflict` / `skipped`) — cross-source listing check
 - verification_detail (JSONB, nullable) — pipeline id, schema version, check results
+- sport (VARCHAR) — pipeline context: Baseball / Basketball / Football (UI + API filter)
 - scan_id, created_at
+
+**pipeline_listing_skips** — High-signal BIN filter rejects (factory set, price floor, reprint, wrong set, economics) for audits; optional `audit_result` after `scripts/audit_pipeline_skips.py`.
 
 ### Portfolio
 

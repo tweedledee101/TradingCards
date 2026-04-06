@@ -6,6 +6,7 @@ import argparse
 import sys
 import time
 import re
+from contextlib import closing
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.firefox.options import Options
@@ -15,7 +16,7 @@ from backend.utils.job_tracker import JobTracker
 from backend.utils.logger import get_logger
 from backend.utils.retention import run_if_stale
 from backend.utils.database import SessionLocal
-from backend.models import Opportunity
+from backend.models import Opportunity, PipelineListingSkip
 
 log = get_logger('opportunity_finder')
 
@@ -156,6 +157,42 @@ def _ebay_numeric_id(listing: dict) -> str | None:
     return raw.strip() or None
 
 
+def _record_bin_listing_skip(
+    sink: list | None,
+    reason: str,
+    *,
+    pipeline: str,
+    sport: str,
+    search_query: str,
+    pipeline_card_label: str,
+    listing: dict | None,
+    scp_price,
+    job_run_id: int | None,
+    ratio: float | None = None,
+    extra: dict | None = None,
+) -> None:
+    if sink is None:
+        return
+    try:
+        price = float(listing.get("price", 0) or 0) if listing else None
+    except (TypeError, ValueError):
+        price = None
+    sink.append({
+        "pipeline": pipeline,
+        "skip_reason": reason,
+        "ebay_item_id": _ebay_numeric_id(listing) if listing else None,
+        "sport": sport,
+        "search_query": search_query[:2000] if search_query else None,
+        "pipeline_card_label": pipeline_card_label[:2000] if pipeline_card_label else None,
+        "ebay_title": ((listing.get("title") or "")[:500] if listing else None),
+        "buy_price": price,
+        "scp_price": float(scp_price) if scp_price is not None else None,
+        "ratio": ratio,
+        "extra": extra,
+        "job_run_id": job_run_id,
+    })
+
+
 def find_ebay_opportunities(
     scraper,
     variation,
@@ -163,6 +200,11 @@ def find_ebay_opportunities(
     *,
     vision_post_pipeline_queue: list | None = None,
     vision_queue_max: int = 0,
+    sport: str = "Baseball",
+    listing_skip_sink: list | None = None,
+    search_query: str = "",
+    pipeline_card_label: str = "",
+    job_run_id: int | None = None,
 ):
     """Search eBay for listings below SCP price.
 
@@ -172,6 +214,13 @@ def find_ebay_opportunities(
     """
     query = build_ebay_query(variation)
     scp_price = variation['price']
+    if not pipeline_card_label:
+        pipeline_card_label = (
+            f"{variation['player']} {variation['year']} {variation['set_name']} "
+            f"#{variation.get('card_number')} [{variation.get('parallel', 'Base')}]"
+        )
+    if not search_query:
+        search_query = query
 
     meta = {'listings_fetched': 0, 'query': query}
     try:
@@ -235,12 +284,24 @@ def find_ebay_opportunities(
                     'ebay_title': title, 'buy_price': float(listing.get('price', 0)),
                     'scp_price': scp_price
                 })
+                _record_bin_listing_skip(
+                    listing_skip_sink, "factory_set_mismatch",
+                    pipeline="opportunity_finder", sport=sport, search_query=search_query,
+                    pipeline_card_label=pipeline_card_label, listing=listing, scp_price=scp_price,
+                    job_run_id=job_run_id,
+                )
                 continue
 
             parallel = variation.get('parallel', 'Base')
             if parallel != 'Base':
                 parallel_keywords = parallel.lower().split()
                 if not any(kw in title_lower for kw in parallel_keywords):
+                    _record_bin_listing_skip(
+                        listing_skip_sink, "parallel_mismatch",
+                        pipeline="opportunity_finder", sport=sport, search_query=search_query,
+                        pipeline_card_label=pipeline_card_label, listing=listing, scp_price=scp_price,
+                        job_run_id=job_run_id, extra={"parallel": parallel},
+                    )
                     continue
 
             is_auction = listing.get('listing_type') == 'auction'
@@ -279,6 +340,12 @@ def find_ebay_opportunities(
                             "image_urls": vu[:15],
                         }
                     )
+                _record_bin_listing_skip(
+                    listing_skip_sink, "price_floor",
+                    pipeline="opportunity_finder", sport=sport, search_query=search_query,
+                    pipeline_card_label=pipeline_card_label, listing=listing, scp_price=scp_price,
+                    job_run_id=job_run_id, ratio=round(price / scp_price, 4) if scp_price else None,
+                )
                 continue
 
             # Reprint / replica detection
@@ -287,6 +354,12 @@ def find_ebay_opportunities(
                     'scp_card': f"{variation['player']} {variation['set_name']} #{card_number} [{variation.get('parallel', 'Base')}]",
                     'ebay_title': title, 'buy_price': price, 'scp_price': scp_price
                 })
+                _record_bin_listing_skip(
+                    listing_skip_sink, "reprint_match",
+                    pipeline="opportunity_finder", sport=sport, search_query=search_query,
+                    pipeline_card_label=pipeline_card_label, listing=listing, scp_price=scp_price,
+                    job_run_id=job_run_id,
+                )
                 continue
 
             # Wrong set detection -- eBay title has a different set name
@@ -306,12 +379,24 @@ def find_ebay_opportunities(
                     wrong_set = True
                     break
             if wrong_set:
+                _record_bin_listing_skip(
+                    listing_skip_sink, "wrong_set_heuristic",
+                    pipeline="opportunity_finder", sport=sport, search_query=search_query,
+                    pipeline_card_label=pipeline_card_label, listing=listing, scp_price=scp_price,
+                    job_run_id=job_run_id,
+                )
                 continue
 
             profit = scp_price - price - (price * FEE_RATE)
             roi = (profit / price) * 100
 
             if profit <= 0 or roi <= 0:
+                _record_bin_listing_skip(
+                    listing_skip_sink, "economics_below_threshold",
+                    pipeline="opportunity_finder", sport=sport, search_query=search_query,
+                    pipeline_card_label=pipeline_card_label, listing=listing, scp_price=scp_price,
+                    job_run_id=job_run_id, extra={"profit": float(profit), "roi": float(roi)},
+                )
                 continue
 
             item_id = listing.get('ebay_item_id', '')
@@ -355,10 +440,28 @@ def find_ebay_opportunities(
     return query, opportunities, meta
 
 
-def get_hot_players(limit=40, sport='Baseball', days=7):
-    """Discover top players by eBay sales volume (live API query every run)."""
-    from backend.discover_players import hot_player_names_for_pipeline
-    return hot_player_names_for_pipeline(limit=limit, sport=sport, days=days)
+def get_hot_players(
+    limit=40,
+    sport='Baseball',
+    days=7,
+    db_session=None,
+    dynamic_sales_player_limit: int = 0,
+    dynamic_sales_lookback_days: int = 30,
+    max_discovery_candidates: int = 100,
+):
+    """Discover top players by eBay Browse totals; optional sales-driven candidate merge."""
+    from backend.discover_players import discover_top_players
+
+    kw = {'days': days, 'limit': limit, 'sport': sport}
+    if db_session is not None or dynamic_sales_player_limit > 0:
+        kw.update(
+            db_session=db_session,
+            dynamic_sales_lookback_days=dynamic_sales_lookback_days,
+            dynamic_sales_player_limit=dynamic_sales_player_limit,
+            max_discovery_candidates=max_discovery_candidates,
+        )
+    rows = discover_top_players(**kw)
+    return rows
 
 
 if __name__ == '__main__':
@@ -376,6 +479,35 @@ if __name__ == '__main__':
         action='store_true',
         help='Do not run find_auction_opportunities after BIN (use separate job/workflow for auctions)',
     )
+    parser.add_argument(
+        '--sport',
+        type=str,
+        default='Baseball',
+        help='Discovery sport: Baseball, Basketball, Football, or all (default: Baseball)',
+    )
+    parser.add_argument(
+        '--dynamic-seed-limit',
+        type=int,
+        default=50,
+        help='Merge top N (player,sport) from recent DB sales into discovery candidates (0=off)',
+    )
+    parser.add_argument(
+        '--dynamic-seed-days',
+        type=int,
+        default=30,
+        help='Lookback days when ranking players from sales table (default: 30)',
+    )
+    parser.add_argument(
+        '--no-dynamic-seeds',
+        action='store_true',
+        help='Anchor SEED_PLAYERS only (no sales-driven candidate merge)',
+    )
+    parser.add_argument(
+        '--max-discovery-candidates',
+        type=int,
+        default=100,
+        help='Max Browse discovery calls before ranking (default: 100)',
+    )
     args = parser.parse_args()
 
     print("=" * 80)
@@ -384,18 +516,37 @@ if __name__ == '__main__':
     print(f"\nBudget: ${args.max_budget:.0f} max buy | Min Profit: ${args.min_profit:.0f} | Min ROI: {args.min_roi:.0f}%")
     print(f"SCP Price Range: ${args.min_scp_price:.0f}-${args.max_scp_price:.0f}\n")
 
-    # Step 1: Get players
-    if args.players:
-        players = [p.strip() for p in args.players.split(',')]
-    else:
-        print("Finding hot players by sales volume...")
-        players = get_hot_players(limit=args.top_players, days=args.days)
+    dyn_limit = 0 if args.no_dynamic_seeds else max(0, args.dynamic_seed_limit)
 
-    print(f"Players: {', '.join(players)}\n")
+    player_rows = []
+    players = []
+    # Step 1: ranked players (list of dicts player_name + sport)
+    if args.players:
+        sport_default = 'Baseball' if str(args.sport).strip().lower() == 'all' else str(args.sport).strip().title()
+        player_rows = [
+            {'player_name': p.strip(), 'sport': sport_default}
+            for p in args.players.split(',') if p.strip()
+        ]
+    else:
+        print("Finding hot players (Browse ranking; optional sales-driven candidate merge)...")
+        with closing(SessionLocal()) as db_disc:
+            player_rows = get_hot_players(
+                limit=args.top_players,
+                sport=args.sport,
+                days=args.days,
+                db_session=db_disc,
+                dynamic_sales_player_limit=dyn_limit,
+                dynamic_sales_lookback_days=args.dynamic_seed_days,
+                max_discovery_candidates=args.max_discovery_candidates,
+            )
+
+    players = [r['player_name'] for r in player_rows]
+    print(f"Players ({len(players)}): {', '.join(players[:12])}{'…' if len(players) > 12 else ''}\n")
 
     log.info('Pipeline starting', context={
         'players': len(players), 'max_budget': args.max_budget,
-        'min_profit': args.min_profit, 'min_roi': args.min_roi
+        'min_profit': args.min_profit, 'min_roi': args.min_roi,
+        'sport': args.sport, 'dynamic_seed_limit': dyn_limit,
     })
 
     # Job tracking
@@ -407,6 +558,9 @@ if __name__ == '__main__':
             'min_profit': args.min_profit,
             'min_roi': args.min_roi,
             'players': players,
+            'sport': args.sport,
+            'dynamic_seed_limit': dyn_limit,
+            'dynamic_seed_days': args.dynamic_seed_days,
             'skip_auction_chain': bool(args.skip_auction_chain),
         }
     )
@@ -422,6 +576,20 @@ if __name__ == '__main__':
         tracker.fail(msg)
         sys.exit(1)
 
+    listing_skip_buffer: list = []
+    skip_db = SessionLocal()
+
+    def _flush_listing_skips() -> None:
+        if not listing_skip_buffer:
+            return
+        try:
+            skip_db.bulk_insert_mappings(PipelineListingSkip, listing_skip_buffer)
+            skip_db.commit()
+            listing_skip_buffer.clear()
+        except Exception as ex:
+            skip_db.rollback()
+            log.error(f'Persist listing skips failed: {ex}', category='skip_persist_error')
+
     try:
         # Step 2: Start Selenium for SCP
         print("Starting browser for SportsCardsPro...")
@@ -436,10 +604,12 @@ if __name__ == '__main__':
         service = Service(executable_path=shutil.which('geckodriver') or '/usr/local/bin/geckodriver')
         driver = webdriver.Firefox(options=opts, service=service)
 
-        # Step 3: Get SCP catalogs
+        # Step 3: Get SCP catalogs (tag each variation with pipeline sport for DB/UI)
         all_variations = []
-        for i, player in enumerate(players, 1):
-            print(f"\n[SCP {i}/{len(players)}] {player}")
+        for i, prow in enumerate(player_rows, 1):
+            player = prow['player_name']
+            ply_sport = prow.get('sport') or 'Baseball'
+            print(f"\n[SCP {i}/{len(player_rows)}] {player} ({ply_sport})")
             catalog = get_scp_catalog(driver, player)
             print(f"  {len(catalog)} total variations found")
 
@@ -469,6 +639,7 @@ if __name__ == '__main__':
             for v in affordable:
                 vol_tag = f" [{v['volume']}]" if v.get('volume') else ''
                 print(f"    ${v['price']:>8.2f} | {v['title'][:50]} | {v['set_name']}{vol_tag}")
+                v['_pipeline_sport'] = ply_sport
 
             all_variations.extend(affordable)
             tracker.update(processed=i)
@@ -505,14 +676,20 @@ if __name__ == '__main__':
             print(f"[eBay {i}/{len(all_variations)}] {label}")
             print(f"  SCP: ${var['price']:.2f}")
 
+            ply_sport = var.get('_pipeline_sport') or 'Baseball'
             query, opps, ebay_meta = find_ebay_opportunities(
                 scraper,
                 var,
                 max_budget=args.max_budget,
                 vision_post_pipeline_queue=vision_post_pipeline_queue,
                 vision_queue_max=_VISION_Q_MAX,
+                sport=ply_sport,
+                listing_skip_sink=listing_skip_buffer,
+                job_run_id=tracker.run_id,
             )
             print(f"  Query: {query}")
+            if len(listing_skip_buffer) >= 200:
+                _flush_listing_skips()
 
             good_opps = [o for o in opps if o['profit'] >= args.min_profit and o['roi'] >= args.min_roi]
 
@@ -552,6 +729,7 @@ if __name__ == '__main__':
                         'scp_url': var.get('scp_url'),
                         'grade_9': var.get('grade_9'),
                         'psa_10': var.get('psa_10'),
+                        '_pipeline_sport': ply_sport,
                         **opp
                     })
             else:
@@ -596,6 +774,8 @@ if __name__ == '__main__':
                 print(f"   {opp['url']}")
 
         flagged_count = sum(1 for o in all_opportunities if o.get('flagged'))
+
+        _flush_listing_skips()
 
         # Store in database
         db = SessionLocal()
@@ -664,6 +844,7 @@ if __name__ == '__main__':
                     flagged=opp.get('flagged', False),
                     verification_status='pending',
                     verification_detail={'schema': 1, 'pipeline': 'bin'},
+                    sport=(opp.get('_pipeline_sport') or 'Baseball'),
                     price_source='scp',
                     scan_id=tracker.run_id
                 )
@@ -691,6 +872,8 @@ if __name__ == '__main__':
             'variations_with_opportunities': variations_with_hits,
             'ebay_variation_stats': ebay_variation_stats,
             'skip_auction_chain': bool(args.skip_auction_chain),
+            'sport': args.sport,
+            'dynamic_seed_limit': dyn_limit,
         }
         log.info('Pipeline complete', context=summary)
         tracker.complete(summary=summary)
@@ -713,12 +896,22 @@ if __name__ == '__main__':
                 '--hours', '48',
                 '--min-profit', str(args.min_profit),
                 '--max-budget', str(args.max_budget),
+                '--sport', str(args.sport).lower() if str(args.sport).lower() != 'all' else 'baseball',
             ]
             subprocess.run(auction_cmd, cwd=repo_root, check=False)
 
     except Exception as e:
         log.error(f'Pipeline failed: {e}', category='pipeline_crash', context={
-            'players_attempted': len(players)
+            'players_attempted': len(players) if players else len(player_rows),
         })
         tracker.fail(str(e))
         raise
+    finally:
+        try:
+            _flush_listing_skips()
+        except Exception:
+            pass
+        try:
+            skip_db.close()
+        except Exception:
+            pass

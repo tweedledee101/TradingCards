@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import Landing from './pages/Landing';
 import Home from './pages/Home';
 import CardDetail from './pages/CardDetail';
 import Inventory from './pages/Inventory';
@@ -14,8 +15,9 @@ function App() {
     <Router>
       <Routes>
         <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/" element={<Landing />} />
         <Route element={<PrivateLayout />}>
-          <Route path="/" element={<Home />} />
+          <Route path="/market" element={<Home />} />
           <Route path="/opportunities" element={<Opportunities />} />
           <Route path="/card/:id" element={<CardDetail />} />
           <Route path="/inventory" element={<Inventory />} />

@@ -285,8 +285,31 @@ class Opportunity(Base):
     qa_reviewed_at = Column(TIMESTAMP)
     verification_status = Column(String(32), nullable=False, default='pending')
     verification_detail = Column(JSONB)
+    sport = Column(String(50), nullable=False, default='Baseball')
     price_source = Column(String(20), default='scp')
     scan_id = Column(Integer, ForeignKey('job_runs.id'))
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class PipelineListingSkip(Base):
+    """Listings excluded during opportunity scans (for audits and false-junk metrics)."""
+    __tablename__ = 'pipeline_listing_skips'
+
+    id = Column(Integer, primary_key=True)
+    pipeline = Column(String(32), nullable=False)
+    skip_reason = Column(String(64), nullable=False)
+    ebay_item_id = Column(String(50))
+    sport = Column(String(50))
+    search_query = Column(Text)
+    pipeline_card_label = Column(Text)
+    ebay_title = Column(Text)
+    buy_price = Column(DECIMAL(10, 2))
+    scp_price = Column(DECIMAL(10, 2))
+    ratio = Column(DECIMAL(10, 4))
+    extra = Column(JSONB)
+    job_run_id = Column(Integer, ForeignKey('job_runs.id'))
+    audited_at = Column(TIMESTAMP)
+    audit_result = Column(JSONB)
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 

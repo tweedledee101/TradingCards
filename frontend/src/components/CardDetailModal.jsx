@@ -189,6 +189,7 @@ const CardDetailModal = ({ opportunity, type, onClose }) => {
                 <div className="text-xs text-frost-dim mt-0.5">
                   {cardYear} {cardSet}{cardNumber ? ` #${cardNumber}` : ''}
                   {parallel && parallel !== 'Base' ? ` - ${parallel}` : ''}
+                  {opportunity.sport ? ` · ${opportunity.sport}` : ''}
                 </div>
               </div>
               <span className={`text-[9px] font-semibold px-2 py-0.5 rounded border shrink-0 ${sourceBadge.cls}`}>

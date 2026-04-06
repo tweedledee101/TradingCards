@@ -24,8 +24,8 @@ def test_get_hot_players_calls_ebay_not_database():
 
         mock_discover.assert_called_once_with(days=7, limit=2, sport='Baseball')
         assert len(players) == 2
-        assert players[0] == 'Shohei Ohtani'
-        assert players[1] == 'Aaron Judge'
+        assert players[0]['player_name'] == 'Shohei Ohtani'
+        assert players[1]['player_name'] == 'Aaron Judge'
 
 
 def test_hot_player_names_for_pipeline_wraps_discover():
@@ -64,6 +64,7 @@ def test_get_hot_players_does_not_import_database_models():
     assert 'SessionLocal' not in source, "get_hot_players must not use SessionLocal (DB dependency)"
     assert 'Card' not in source, "get_hot_players must not query Card model"
     assert 'Sale' not in source, "get_hot_players must not query Sale model"
+    assert 'fetch_hot_players_from_sales' not in source, "sales merge lives in discover_players, not get_hot_players"
     assert (
         'hot_player_names_for_pipeline' in source or 'discover_top_players' in source
     ), "get_hot_players must delegate to eBay volume discovery (not DB)"

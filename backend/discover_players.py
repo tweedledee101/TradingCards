@@ -20,8 +20,8 @@ import json
 import sys
 import os
 import time
-from datetime import datetime
-from typing import List, Dict, Optional, Any
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional, Any, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -114,6 +114,80 @@ SEED_PLAYERS = [
     ("Travis Kelce", "Football"),
     ("Tom Brady", "Football"),
 ]
+
+# Discovery / UI sport scope (anchors + sales-driven expansion use this set)
+SPORTS_FOR_PIPELINE: Tuple[str, ...] = ('Baseball', 'Basketball', 'Football')
+
+
+def fetch_hot_players_from_sales(
+    db,
+    target_sports: List[str],
+    sale_lookback_days: int,
+    limit: int,
+) -> List[Tuple[str, str]]:
+    """Rank players by count of linked ``sales`` rows in the lookback window.
+
+    Refreshes the *candidate universe* each run so discovery is not only re-ranking
+    the same fixed names — hot sellers from your DB enter the Browse pass.
+    """
+    from sqlalchemy import func
+    from backend.models import Sale, Card
+
+    cutoff = datetime.utcnow() - timedelta(days=sale_lookback_days)
+    sports_norm = [s.title() for s in target_sports]
+    sport_expr = func.coalesce(Card.sport, 'Baseball')
+    rows = (
+        db.query(Card.player_name, Card.sport, func.count(Sale.id).label('cnt'))
+        .join(Sale, Sale.card_id == Card.id)
+        .filter(Sale.sale_date >= cutoff)
+        .filter(sport_expr.in_(sports_norm))
+        .group_by(Card.player_name, Card.sport)
+        .order_by(func.count(Sale.id).desc())
+        .limit(limit)
+        .all()
+    )
+    out: List[Tuple[str, str]] = []
+    for player_name, sp, _ in rows:
+        spt = (sp or 'Baseball').title()
+        if spt not in sports_norm:
+            spt = 'Baseball' if 'Baseball' in sports_norm else sports_norm[0]
+        out.append((player_name, spt))
+    return out
+
+
+def build_merged_discovery_candidates(
+    sport_key: str,
+    db,
+    dynamic_sales_lookback_days: int,
+    dynamic_sales_player_limit: int,
+    max_discovery_candidates: int,
+) -> List[Tuple[str, str]]:
+    """Merge sales-hot players (DB) with anchor ``SEED_PLAYERS``; cap total candidates."""
+    if sport_key.lower() == 'all':
+        target_sports = list(SPORTS_FOR_PIPELINE)
+        anchors = [(n, s) for n, s in SEED_PLAYERS if s in SPORTS_FOR_PIPELINE]
+    else:
+        st = sport_key.title()
+        target_sports = [st]
+        anchors = [(n, s) for n, s in SEED_PLAYERS if s == st]
+
+    dyn: List[Tuple[str, str]] = []
+    if db is not None and dynamic_sales_player_limit > 0:
+        dyn = fetch_hot_players_from_sales(
+            db, target_sports, dynamic_sales_lookback_days, dynamic_sales_player_limit
+        )
+
+    seen: set = set()
+    out: List[Tuple[str, str]] = []
+    for pair in dyn + anchors:
+        key = (pair[0].strip().lower(), pair[1])
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(pair)
+        if len(out) >= max_discovery_candidates:
+            break
+    return out
 
 
 def _discover_429_backoff_seconds(attempt: int, retry_after_header: Optional[str]) -> float:
@@ -225,28 +299,65 @@ def _ebay_errors_summary(data: dict) -> Optional[List[Dict[str, Any]]]:
     return out or None
 
 
-def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None, sport: str = None) -> List[Dict]:
+def discover_top_players(
+    days: int = 7,
+    limit: int = 20,
+    max_queries: int = None,
+    sport: str = None,
+    db_session=None,
+    dynamic_sales_lookback_days: int = 30,
+    dynamic_sales_player_limit: int = 0,
+    max_discovery_candidates: int = 100,
+) -> List[Dict]:
     """
     Discover top players by eBay **active listing** volume (Browse search ``total``).
 
     ``days`` is kept for CLI compatibility; ranking uses current buyable inventory,
     not a past ``itemEndDate`` window (that filter yields 0 hits on active listings).
-    
+
+    When ``dynamic_sales_player_limit > 0`` and ``db_session`` is set, candidate names are
+    **merged from recent ``sales`` (by player)** plus anchor ``SEED_PLAYERS`` so the universe
+    changes with what your DB ingests, not only the static list order.
+
     Args:
-        days: Lookback period (default 7 days)
-        limit: Number of top players to return
-        max_queries: Limit number of players to search (for testing)
-        sport: Filter by sport (Baseball, Basketball, Football)
+        sport: ``Baseball``, ``Basketball``, ``Football``, or ``all`` (multi-sport seeds).
+               ``None`` defaults to **Baseball** (matches legacy BIN default).
+        dynamic_sales_player_limit: Max distinct (player, sport) rows to pull from sales.
+        max_discovery_candidates: Cap Browse API calls (anchors + sales merged).
     
     Returns:
-        List of players ranked by sales volume
+        List of dicts: player_name, sport, sales_volume (eBay total)
     """
     scraper = EbayScraper()
-    
-    players_to_search = SEED_PLAYERS[:max_queries] if max_queries else SEED_PLAYERS
-    if sport:
-        players_to_search = [(n, s) for n, s in players_to_search if s == sport]
-    
+
+    if sport is None or str(sport).strip() == '':
+        eff_sport = 'Baseball'
+    elif str(sport).strip().lower() == 'all':
+        eff_sport = 'all'
+    else:
+        eff_sport = str(sport).strip().title()
+
+    use_dynamic = dynamic_sales_player_limit > 0 and db_session is not None
+    if use_dynamic:
+        players_to_search = build_merged_discovery_candidates(
+            eff_sport,
+            db_session,
+            dynamic_sales_lookback_days,
+            dynamic_sales_player_limit,
+            max_discovery_candidates,
+        )
+        print(
+            f"Discovery candidates: {len(players_to_search)} "
+            f"(anchors + sales lookback {dynamic_sales_lookback_days}d, limit {dynamic_sales_player_limit})"
+        )
+    elif eff_sport.lower() == 'all':
+        players_to_search = list(SEED_PLAYERS)
+    else:
+        players_to_search = [(n, s) for n, s in SEED_PLAYERS if s == eff_sport]
+
+    if max_queries:
+        players_to_search = players_to_search[:max_queries]
+
     print(f"Discovering top players from {len(players_to_search)} seed players (active eBay Browse matches)...")
     print(f"API calls needed: {len(players_to_search)} (1 per player, limit=1)")
     print("=" * 70)
@@ -254,7 +365,7 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
     results: List[Dict] = []
     stats: Dict[str, Any] = {
         'seeds_queried': len(players_to_search),
-        'sport_filter': sport,
+        'sport_filter': eff_sport,
         'http_not_200': 0,
         'json_errors_in_200': 0,
         'exceptions': 0,
@@ -292,14 +403,14 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
             p['category_ids'] = '261328'  # Trading Card Singles (URI param per Buy Browse docs)
         return p
 
-    for i, (player_name, sport) in enumerate(players_to_search, 1):
+    for i, (player_name, player_sport) in enumerate(players_to_search, 1):
         print(f"  [{i}/{len(players_to_search)}] {player_name}...", end=" ", flush=True)
         # Pace Browse calls — burst discovery after token refresh triggers 429 for every seed.
         if i > 1:
             time.sleep(0.5)
 
         try:
-            params = _discovery_params(player_name, sport)
+            params = _discovery_params(player_name, player_sport)
             r = _browse_item_summary_get(scraper, params, timeout=30, stats=stats)
 
             data = r.json() if r.content else {}
@@ -309,7 +420,7 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
                 snippet = str(err)[:400]
                 print(f"HTTP {r.status_code} {snippet[:200]}")
                 _sample({
-                    'player': player_name, 'sport': sport, 'phase': 'primary',
+                    'player': player_name, 'sport': player_sport, 'phase': 'primary',
                     'http_status': r.status_code, 'params': params,
                     'ebay_errors': _ebay_errors_summary(data) if isinstance(data, dict) else None,
                     'body_snippet': snippet,
@@ -319,7 +430,7 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
                         'eBay Browse discovery HTTP non-success',
                         category='ebay_browse_discover_http',
                         context={
-                            'player': player_name, 'sport': sport, 'http_status': r.status_code,
+                            'player': player_name, 'sport': player_sport, 'http_status': r.status_code,
                             'params': params, 'ebay_errors': _ebay_errors_summary(data) if isinstance(data, dict) else None,
                             'body_snippet': snippet,
                         },
@@ -332,14 +443,14 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
                 stats['json_errors_in_200'] += 1
                 print(f"errors: {str(data.get('errors'))[:200]}")
                 _sample({
-                    'player': player_name, 'sport': sport, 'phase': 'primary',
+                    'player': player_name, 'sport': player_sport, 'phase': 'primary',
                     'http_status': 200, 'params': params, 'ebay_errors': api_errs,
                 })
                 if json_err_warn_logged < 5:
                     log.warn(
                         'eBay Browse discovery returned errors[] with HTTP 200',
                         category='ebay_browse_discover_api_errors',
-                        context={'player': player_name, 'sport': sport, 'params': params, 'ebay_errors': api_errs},
+                        context={'player': player_name, 'sport': player_sport, 'params': params, 'ebay_errors': api_errs},
                     )
                     json_err_warn_logged += 1
             
@@ -354,7 +465,7 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
             # Fallback: BIN-default search without buyingOptions filter
             if total == 0:
                 fb_params = {'q': f'{player_name} card', 'limit': 1}
-                if sport == 'Baseball':
+                if player_sport == 'Baseball':
                     fb_params['category_ids'] = '261328'
                 r2 = _browse_item_summary_get(scraper, fb_params, timeout=30, stats=stats)
                 if r2.status_code == 200:
@@ -372,7 +483,7 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
             if total == 0:
                 stats['zero_total_after_fallback'] += 1
                 _sample({
-                    'player': player_name, 'sport': sport,
+                    'player': player_name, 'sport': player_sport,
                     'primary_params': params, 'fallback_params': fb_params,
                     'used_fallback': used_fallback, 'total': 0,
                 })
@@ -381,19 +492,19 @@ def discover_top_players(days: int = 7, limit: int = 20, max_queries: int = None
             stats['nonzero_seeds'] += 1
             results.append({
                 'player_name': player_name,
-                'sport': sport,
+                'sport': player_sport,
                 'sales_volume': total,
             })
             
         except Exception as e:
             stats['exceptions'] += 1
             print(f"ERROR: {e}")
-            _sample({'player': player_name, 'sport': sport, 'exception': str(e)[:400]})
+            _sample({'player': player_name, 'sport': player_sport, 'exception': str(e)[:400]})
             if exc_warn_logged < 5:
                 log.warn(
                     f'eBay Browse discovery exception: {e}',
                     category='ebay_browse_discover_exception',
-                    context={'player': player_name, 'sport': sport},
+                    context={'player': player_name, 'sport': player_sport},
                 )
                 exc_warn_logged += 1
             continue
@@ -457,9 +568,21 @@ def hot_player_names_for_pipeline(
     limit: int = 40,
     sport: str = 'Baseball',
     days: int = 7,
+    db_session=None,
+    dynamic_sales_player_limit: int = 0,
+    dynamic_sales_lookback_days: int = 30,
+    max_discovery_candidates: int = 100,
 ) -> List[str]:
-    """Ranked player names for BIN and auction pipelines (eBay volume, not DB card counts)."""
-    rows = discover_top_players(days=days, limit=limit, sport=sport)
+    """Ranked player names for BIN and auction pipelines (eBay volume + optional sales merge)."""
+    kw = {'days': days, 'limit': limit, 'sport': sport}
+    if db_session is not None or dynamic_sales_player_limit > 0:
+        kw.update(
+            db_session=db_session,
+            dynamic_sales_lookback_days=dynamic_sales_lookback_days,
+            dynamic_sales_player_limit=dynamic_sales_player_limit,
+            max_discovery_candidates=max_discovery_candidates,
+        )
+    rows = discover_top_players(**kw)
     return [p['player_name'] for p in rows]
 
 

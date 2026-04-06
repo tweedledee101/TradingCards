@@ -207,6 +207,7 @@ def _try_insert_vision_opportunity(
         qa_flags=qa,
         verification_status="pending",
         verification_detail={"schema": 1, "pipeline": "vision_retry"},
+        sport="Baseball",
         price_source="scp",
         scan_id=None,
     )

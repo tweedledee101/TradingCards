@@ -22,9 +22,21 @@ on:
         required: false
         default: '2023,2024,2025,2026'
       sport:
-        description: 'Sport to search'
+        description: 'Sport to search (baseball, basketball, football, all)'
         required: false
         default: 'baseball'
+      dynamic_seed_limit:
+        description: 'Merge top N players from DB sales into discovery (0=off)'
+        required: false
+        default: '50'
+      dynamic_seed_days:
+        description: 'Lookback days when ranking players from sales table'
+        required: false
+        default: '30'
+      max_discovery_candidates:
+        description: 'Max Browse discovery calls before ranking seeds'
+        required: false
+        default: '100'
 
 jobs:
   scan:
@@ -80,4 +92,7 @@ jobs:
             --max-budget "${{ inputs.max_budget || '200' }}" \
             --min-profit "${{ inputs.min_profit || '10' }}" \
             --years "${{ inputs.years || '2023,2024,2025,2026' }}" \
-            --sport "${{ inputs.sport || 'baseball' }}"
+            --sport "${{ inputs.sport || 'baseball' }}" \
+            --dynamic-seed-limit "${{ inputs.dynamic_seed_limit || '50' }}" \
+            --dynamic-seed-days "${{ inputs.dynamic_seed_days || '30' }}" \
+            --max-discovery-candidates "${{ inputs.max_discovery_candidates || '100' }}"

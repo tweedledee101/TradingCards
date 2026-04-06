@@ -81,7 +81,7 @@ const CardDetail = () => {
   return (
     <div className="max-w-5xl mx-auto px-6 py-8">
       {/* Back nav */}
-      <Link to="/" className="text-sm text-frost-dim hover:text-frost-light transition-colors mb-6 inline-flex items-center gap-1 focus:outline-none focus:ring-2 focus:ring-ember/40 rounded">
+      <Link to="/market" className="text-sm text-frost-dim hover:text-frost-light transition-colors mb-6 inline-flex items-center gap-1 focus:outline-none focus:ring-2 focus:ring-ember/40 rounded">
         <span aria-hidden="true">&larr;</span> Back to Market
       </Link>
 

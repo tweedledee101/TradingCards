@@ -32,6 +32,22 @@ on:
         description: 'Max SCP price'
         required: false
         default: '1000'
+      sport:
+        description: 'Discovery sport (Baseball, Basketball, Football, all)'
+        required: false
+        default: 'Baseball'
+      dynamic_seed_limit:
+        description: 'Merge top N players from DB sales into discovery (0=off)'
+        required: false
+        default: '50'
+      dynamic_seed_days:
+        description: 'Lookback days when ranking players from sales table'
+        required: false
+        default: '30'
+      max_discovery_candidates:
+        description: 'Max Browse discovery calls before ranking seeds'
+        required: false
+        default: '100'
       run_auction:
         description: 'Run auction job after BIN (uncheck = BIN only)'
         type: boolean
@@ -111,6 +127,10 @@ jobs:
           if [ -n "${{ inputs.players }}" ]; then
             ARGS+=(--players "${{ inputs.players }}")
           fi
+          ARGS+=(--sport "${{ inputs.sport || 'Baseball' }}")
+          ARGS+=(--dynamic-seed-limit "${{ inputs.dynamic_seed_limit || '50' }}")
+          ARGS+=(--dynamic-seed-days "${{ inputs.dynamic_seed_days || '30' }}")
+          ARGS+=(--max-discovery-candidates "${{ inputs.max_discovery_candidates || '100' }}")
           "${ARGS[@]}" 2>&1 | tee "$LOG"
 
       - name: Upload BIN logs
@@ -179,6 +199,9 @@ jobs:
             --min-profit "${{ inputs.min_profit || '10' }}" \
             --years "${{ inputs.auction_years || '2023,2024,2025,2026' }}" \
             --sport "${{ inputs.auction_sport || 'baseball' }}" \
+            --dynamic-seed-limit "${{ inputs.dynamic_seed_limit || '50' }}" \
+            --dynamic-seed-days "${{ inputs.dynamic_seed_days || '30' }}" \
+            --max-discovery-candidates "${{ inputs.max_discovery_candidates || '100' }}" \
             2>&1 | tee "$LOG"
 
       - name: Upload auction logs
