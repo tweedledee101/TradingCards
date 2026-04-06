@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { getOpportunities, getAuctions, getScheduledBids, cancelScheduledBid, getOpportunitiesContextStrip } from '../api/client';
 import CardDetailModal from '../components/CardDetailModal';
+import { VerificationBadge, ConfidenceBadge } from '../components/TrustBadges';
 
 /** Same cap as CardDetailModal: SCP after 13% fees minus $10 target profit and shipping */
 const estimateAuctionMaxSnipe = (scpSell, shipping = 0) => {
@@ -26,7 +27,6 @@ const Opportunities = () => {
   const [contextStrip, setContextStrip] = useState(null);
   const [showListingsPulse, setShowListingsPulse] = useState(false);
   const [sportFilter, setSportFilter] = useState('all');
-  const [trustExplainerOpen, setTrustExplainerOpen] = useState(false);
 
   useEffect(() => { fetchAll(); }, [sportFilter]);
 
@@ -152,67 +152,11 @@ const Opportunities = () => {
             </button>
           ))}
         </div>
-      </div>
-
-      <div className="card-surface mb-6 border border-surface-border overflow-hidden">
-        <button
-          type="button"
-          onClick={() => setTrustExplainerOpen((o) => !o)}
-          className="w-full text-left px-4 py-3 flex flex-wrap items-center gap-2 gap-y-1 hover:bg-surface-hover/60 transition-colors"
-        >
-          <span className="text-sm font-medium text-frost-light">Listing identity &amp; trust</span>
-          <span className="text-[10px] text-frost-dim uppercase tracking-wide">Roadmap 2.0</span>
-          <span className="text-xs text-frost-dim ml-auto sm:ml-0">
-            eBay → SCP → Collectors Edge → 130point sold comps
-          </span>
-          <span className="text-frost-dim text-xs w-full sm:w-auto sm:ml-auto">{trustExplainerOpen ? '▼' : '▶'}</span>
-        </button>
-        {trustExplainerOpen && (
-          <div className="px-4 pb-4 pt-0 border-t border-surface-border space-y-3 text-xs text-frost-dim leading-relaxed">
-            <p>
-              <span className="text-frost-light font-medium">Card identity</span> is treated as{' '}
-              <strong className="text-amber-400/90">unverified</strong> until automated cross-checks pass (or{' '}
-              <strong className="text-loss/90">conflict</strong> if sources disagree). Profit math alone does not prove the
-              photo matches the catalog row.
-            </p>
-            <p>
-              <span className="text-frost-light font-medium">Price source</span> (SCP vs sold comps vs market comps) describes
-              where the <em>reference price</em> came from — not the same as photo/title verification.
-            </p>
-            <div className="rounded-lg border border-surface-border bg-surface-raised/40 px-3 py-2.5 space-y-2">
-              <div className="text-[10px] uppercase tracking-wide text-frost-dim">Listing verification</div>
-              <div className="flex flex-wrap items-center gap-2">
-                <VerificationBadge status="pending" />
-                <span className="text-[10px]">Automated identity pass not recorded yet</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <VerificationBadge status="verified" />
-                <span className="text-[10px]">Cross-source check succeeded (when jobs set this)</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <VerificationBadge status="conflict" />
-                <span className="text-[10px]">Open listing + SCP before acting</span>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <VerificationBadge status="skipped" />
-                <span className="text-[10px]">No automated pass run for this row</span>
-              </div>
-            </div>
-            <div className="rounded-lg border border-surface-border bg-surface-raised/40 px-3 py-2.5 space-y-2">
-              <div className="text-[10px] uppercase tracking-wide text-frost-dim">Price reference</div>
-              <div className="flex flex-wrap items-center gap-2">
-                <ConfidenceBadge source="scp" />
-                <ConfidenceBadge source="sold_comps" />
-                <ConfidenceBadge source="ebay_comps" />
-              </div>
-            </div>
-            <p className="text-[10px] text-frost-dim/90">
-              Funnel and disagreement metrics: repo{' '}
-              <code className="text-frost-dim bg-surface-raised px-1 rounded">docs/testing/strategy.md</code>
-              {' '}(Layer B + C). Amber card borders = lower match confidence; still verify manually.
-            </p>
-          </div>
-        )}
+        <p className="text-xs text-frost-dim mt-3">
+          <Link to="/help" className="text-ember-light hover:underline">
+            How verification &amp; price badges work
+          </Link>
+        </p>
       </div>
 
       {contextStrip && (
@@ -362,6 +306,19 @@ const Opportunities = () => {
 
       {error && <div className="card-surface p-4 mb-6 text-loss text-sm">{error}</div>}
 
+      {!error && auctions.length === 0 && binDeals.length === 0 && (
+        <div className="card-surface p-4 sm:p-5 mb-6 border border-surface-border">
+          <p className="text-sm text-frost-light font-medium mb-2">No rows to show</p>
+          <p className="text-xs text-frost-dim leading-relaxed mb-3">
+            The app is working, but the database has no BIN or auction opportunities right now. That is normal if the scanners have not run against production lately, or tables were cleared after a deploy.
+          </p>
+          <p className="text-xs text-frost-dim leading-relaxed">
+            Next steps: run the <strong className="text-frost-light font-normal">Opportunity Pipeline</strong> / <strong className="text-frost-light font-normal">Auction Pipeline</strong> in GitHub Actions (or your usual RDS-backed jobs). If you still see zeros, check the browser Network tab: <code className="text-[10px] font-mono text-frost-light">/api/opportunities</code> and{' '}
+            <code className="text-[10px] font-mono text-frost-light">/api/auctions</code> should return <code className="text-[10px] font-mono">200</code> with empty arrays when the DB is empty — not a UI bug.
+          </p>
+        </div>
+      )}
+
       {/* MY BIDS STRIP */}
       {myBids.length > 0 && (
         <div className="mb-8">
@@ -380,7 +337,7 @@ const Opportunities = () => {
       {/* LIVE AUCTIONS — includes flagged at bottom of sort; amber border = verify listing vs SCP */}
       <SectionHeader
         title="Live Auctions"
-        subtitle="Ending soon — max snipe = SCP after fees − $10 profit − ship; confirm listing vs catalog (Roadmap 2.0)"
+        subtitle="Ending soon — verify listing vs SCP before bidding."
         count={filteredAuctions.length}
       />
 
@@ -400,7 +357,7 @@ const Opportunities = () => {
       {/* BIN DEALS */}
       {filteredBin.length > 0 && (
         <>
-          <SectionHeader title="Buy It Now" subtitle="BIN listings below SCP market rate — verify photos/title vs SCP before buying" count={filteredBin.length} />
+          <SectionHeader title="Buy It Now" subtitle="Below SCP reference — verify photos/title before buying." count={filteredBin.length} />
           <div className="space-y-2 mb-10">
             {filteredBin.map((opp, i) => (
               <BinCard key={opp.card_id || i} opp={opp} rank={i + 1}
@@ -799,51 +756,6 @@ const calcRemaining = (endTime) => {
   const end = new Date(endTime).getTime();
   return Math.max(0, Math.floor((end - Date.now()) / 1000));
 };
-
-
-const VerificationBadge = ({ status }) => {
-  const s = status || 'pending';
-  if (s === 'verified') {
-    return (
-      <span title="Cross-source checks passed" className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gain/15 text-gain border border-gain/25 shrink-0">
-        Verified
-      </span>
-    );
-  }
-  if (s === 'conflict') {
-    return (
-      <span title="Sources disagree — review manually" className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-loss/15 text-loss border border-loss/25 shrink-0">
-        Conflict
-      </span>
-    );
-  }
-  if (s === 'skipped') {
-    return (
-      <span title="Automated verification not applied" className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-surface-raised text-frost-dim border border-surface-border shrink-0">
-        Skipped
-      </span>
-    );
-  }
-  return (
-    <span title="Automated cross-check not complete" className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-frost-dim/10 text-frost-dim border border-surface-border/80 shrink-0">
-      Unverified
-    </span>
-  );
-};
-
-const ConfidenceBadge = ({ source }) => {
-  if (!source || source === 'scp') {
-    return <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gain/15 text-gain border border-gain/20">SCP</span>;
-  }
-  if (source === 'sold_comps') {
-    return <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/20">Sold Comps</span>;
-  }
-  if (source === 'ebay_comps') {
-    return <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20">Market Comps</span>;
-  }
-  return null;
-};
-
 
 const Stat = ({ label, value, gain }) => (
   <div className="bg-surface-card rounded-lg px-3 py-2">

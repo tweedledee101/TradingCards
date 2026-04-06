@@ -1,6 +1,7 @@
 import { Outlet, NavLink } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import LoginGate from './LoginGate';
+import SiteFooter from './SiteFooter';
 
 export default function PrivateLayout() {
   const { ready, authenticated, logout } = useAuth();
@@ -62,6 +63,9 @@ export default function PrivateLayout() {
             <NavLink to="/business" className={navLinkClass}>
               Business
             </NavLink>
+            <NavLink to="/help" className={navLinkClass}>
+              Help
+            </NavLink>
             <button
               type="button"
               onClick={() => logout()}
@@ -72,9 +76,10 @@ export default function PrivateLayout() {
           </div>
         </div>
       </nav>
-      <main>
+      <main className="flex-1 w-full min-w-0">
         <Outlet />
       </main>
+      <SiteFooter />
     </div>
   );
 }

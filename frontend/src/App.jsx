@@ -6,6 +6,7 @@ import Inventory from './pages/Inventory';
 import Watchlist from './pages/Watchlist';
 import Opportunities from './pages/Opportunities';
 import BusinessDashboard from './pages/BusinessDashboard';
+import Help from './pages/Help';
 import AuthCallback from './pages/AuthCallback';
 import PrivateLayout from './components/PrivateLayout';
 import './index.css';
@@ -23,6 +24,7 @@ function App() {
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/watchlist" element={<Watchlist />} />
           <Route path="/business" element={<BusinessDashboard />} />
+          <Route path="/help" element={<Help />} />
         </Route>
       </Routes>
     </Router>
