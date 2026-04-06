@@ -6,6 +6,32 @@
 
 ---
 
+## Canonical pipeline intent (what we are trying to accomplish)
+
+This section is the **operator agreement** for the opportunity system. Implementation may lag or split across jobs (BIN vs auction); this is the **north star**, not a claim that every path already matches it.
+
+1. **Liquidity / who to scan (the “top N” is not magic)**  
+   We only care about **players whose cards actually trade**. The number **N** (e.g. 40) is a **budget on how many player-level SCP crawls** we do per run, not the goal itself.  
+   **Goal:** rank players by **recent, verifiable trading activity** (week-over-week style signal). **Source is not fixed forever:** today we use eBay Browse discovery totals plus optional **DB `sales`** merge; tomorrow another feed could satisfy the same requirement if it is **factual, reliable, and auditable** (logs + DB + documented method).
+
+2. **Card universe (SCP is the catalog)**  
+   For each selected player, load **from SportsCardsPro** the set of card identities that **book between your capital band** (default **$5–$1000** configurable). That list is **the inventory of hypotheses**: “these are the cards we are willing to act on.”
+
+3. **Live sale / listing discovery**  
+   For each catalog row (or tight cluster), **find whether someone is currently offering that card** (BIN and/or auction depending on job). We need **price, fees context, link, images, end time** where applicable.  
+   **Important:** “Not eBay as chokepoint” means **not depending on eBay for steps 1–2**, and **not burning the API on huge unfocused query fan-out**. It does **not** mean “never use eBay”: for US resale, eBay is still the default **system of record for live public listings** until another venue is integrated with the same fields. The architecture goal is: **narrow, catalog-driven listing lookup**, not **eBay defines what cards exist**.
+
+4. **Validation / trust (multi-source)**  
+   **SCP** supplies guide price and product context. **Historical / comp reality** (e.g. **130point / `sold_comps`**) backs whether the economics make sense. **Collectors Edge** (and vision/QA flows in **[docs/ROADMAP.md](./ROADMAP.md)** §2.0) is an **additional identity check** so the **listing** matches the **expected card**. Persistent disagreement = **process or code gap**, not operator lore.
+
+5. **Where implementation still diverges**  
+   - **BIN pipeline (`find_opportunities.py`)** is largely **aligned** with steps 2→3→4 (SCP catalog per player, then targeted eBay active search per variation).  
+   - **Auction pipeline (`find_auction_opportunities.py`)** is still **more eBay-first** (broad query sets), which is why it **stresses Browse** more than the BIN path. **Closing that gap** means moving auctions toward the **same catalog-constrained** pattern as BIN.
+
+If this section is wrong, **edit this file** or say what to change — everything else (ADRs, ROADMAP §2.0, `PIPELINE-OPS.md`) should hang off this intent.
+
+---
+
 ## Philosophy
 
 Professional card dealers don't chase "hot" cards - they find **arbitrage opportunities** where they can buy below market rate and flip for profit. Momentum signals (price trends, sales velocity) provide **confidence**, not the primary decision.

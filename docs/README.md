@@ -8,7 +8,7 @@
 - [ROADMAP.md](./ROADMAP.md) - Milestones and backlog (including future brand/content ideas)
 
 ## How Things Work
-- [OPPORTUNITY-FINDER.md](./OPPORTUNITY-FINDER.md) - Product concept (see `PIPELINE-OPS` + live API for current behavior)
+- [OPPORTUNITY-FINDER.md](./OPPORTUNITY-FINDER.md) - Product concept; **canonical pipeline intent** (operator agreement) at top; see `PIPELINE-OPS` + live API for current behavior
 - [KNOWN-ISSUES.md](./KNOWN-ISSUES.md) - Documented false positive patterns and pipeline bugs
 - [research-and-practice-notes.md](./research-and-practice-notes.md) - Literature + flipper teachings → hypotheses, code mapping, experiments
 
