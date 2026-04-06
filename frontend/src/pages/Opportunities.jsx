@@ -12,6 +12,11 @@ const estimateAuctionMaxSnipe = (scpSell, shipping = 0) => {
   return Math.floor(raw * 100) / 100;
 };
 
+const GH_BIN_WORKFLOW =
+  'https://github.com/tweedledee101/TradingCards/actions/workflows/pipeline.yml';
+const GH_AUCTION_WORKFLOW =
+  'https://github.com/tweedledee101/TradingCards/actions/workflows/auction-pipeline.yml';
+
 const Opportunities = () => {
   const [auctions, setAuctions] = useState([]);
   const [binDeals, setBinDeals] = useState([]);
@@ -27,6 +32,7 @@ const Opportunities = () => {
   const [contextStrip, setContextStrip] = useState(null);
   const [showListingsPulse, setShowListingsPulse] = useState(false);
   const [sportFilter, setSportFilter] = useState('all');
+  const [auctionsEndedFallback, setAuctionsEndedFallback] = useState(false);
 
   useEffect(() => { fetchAll(); }, [sportFilter]);
 
@@ -48,9 +54,12 @@ const Opportunities = () => {
       ]);
 
       if (auctionRes.status === 'fulfilled') {
-        setAuctions(auctionRes.value.auctions || []);
+        const v = auctionRes.value;
+        setAuctions(v.auctions || []);
+        setAuctionsEndedFallback(Boolean(v.ended_fallback));
       } else {
         setAuctions([]);
+        setAuctionsEndedFallback(false);
       }
 
       if (binRes.status === 'fulfilled') {
@@ -308,14 +317,42 @@ const Opportunities = () => {
 
       {!error && auctions.length === 0 && binDeals.length === 0 && (
         <div className="card-surface p-4 sm:p-5 mb-6 border border-surface-border">
-          <p className="text-sm text-frost-light font-medium mb-2">No rows to show</p>
+          <p className="text-sm text-frost-light font-medium mb-2">Nothing in the database yet</p>
           <p className="text-xs text-frost-dim leading-relaxed mb-3">
-            The app is working, but the database has no BIN or auction opportunities right now. That is normal if the scanners have not run against production lately, or tables were cleared after a deploy.
+            The API is fine — there are simply no opportunity rows for BIN or auctions. Run the scanners against production RDS (GitHub Actions is easiest).
           </p>
-          <p className="text-xs text-frost-dim leading-relaxed">
-            Next steps: run the <strong className="text-frost-light font-normal">Opportunity Pipeline</strong> / <strong className="text-frost-light font-normal">Auction Pipeline</strong> in GitHub Actions (or your usual RDS-backed jobs). If you still see zeros, check the browser Network tab: <code className="text-[10px] font-mono text-frost-light">/api/opportunities</code> and{' '}
-            <code className="text-[10px] font-mono text-frost-light">/api/auctions</code> should return <code className="text-[10px] font-mono">200</code> with empty arrays when the DB is empty — not a UI bug.
+          <ul className="text-xs text-frost-dim space-y-2 mb-4 list-disc list-inside">
+            <li>
+              <strong className="text-frost-light font-normal">BIN + chained auction:</strong>{' '}
+              <a href={GH_BIN_WORKFLOW} target="_blank" rel="noopener noreferrer" className="text-ember-light hover:underline break-all">
+                Opportunity Pipeline
+              </a>
+              {' '}→ Run workflow (uses repo secrets + RDS).
+            </li>
+            <li>
+              <strong className="text-frost-light font-normal">Auction-only:</strong>{' '}
+              <a href={GH_AUCTION_WORKFLOW} target="_blank" rel="noopener noreferrer" className="text-ember-light hover:underline break-all">
+                Auction Pipeline
+              </a>
+              .
+            </li>
+          </ul>
+          <p className="text-[10px] text-frost-dim leading-relaxed">
+            CLI (with <code className="font-mono text-frost-light">DATABASE_URL</code>):{' '}
+            <code className="font-mono text-frost-light">python3 find_opportunities.py</code> /{' '}
+            <code className="font-mono text-frost-light">python3 find_auction_opportunities.py</code>
           </p>
+        </div>
+      )}
+
+      {auctionsEndedFallback && auctions.length > 0 && (
+        <div className="mb-4 rounded-lg border border-amber-500/35 bg-amber-500/5 px-3 py-2.5 text-xs text-frost-dim leading-relaxed">
+          <span className="text-amber-400/95 font-medium">No live auctions</span> matched the usual filter (end time in the future).
+          Showing <strong className="text-frost-light font-normal">recently ended</strong> rows instead so the page is not blank — run the{' '}
+          <a href={GH_AUCTION_WORKFLOW} target="_blank" rel="noopener noreferrer" className="text-ember-light hover:underline">
+            Auction Pipeline
+          </a>{' '}
+          to refresh live listings.
         </div>
       )}
 
@@ -336,13 +373,17 @@ const Opportunities = () => {
 
       {/* LIVE AUCTIONS — includes flagged at bottom of sort; amber border = verify listing vs SCP */}
       <SectionHeader
-        title="Live Auctions"
-        subtitle="Ending soon — verify listing vs SCP before bidding."
+        title={auctionsEndedFallback ? 'Auctions (ended)' : 'Live Auctions'}
+        subtitle={
+          auctionsEndedFallback
+            ? 'These listings have ended — refresh the auction scanner for live picks.'
+            : 'Ending soon — verify listing vs SCP before bidding.'
+        }
         count={filteredAuctions.length}
       />
 
       {filteredAuctions.length === 0 ? (
-        <EmptyState message="No profitable auctions found. Run the auction scanner to refresh." />
+        <EmptyState message="No auction rows in the database (or all filtered out). Run the Auction Pipeline or the auction leg of the Opportunity Pipeline." />
       ) : (
         <div className="space-y-2 mb-10">
           {filteredAuctions.map((a, i) => (
@@ -355,7 +396,7 @@ const Opportunities = () => {
       )}
 
       {/* BIN DEALS */}
-      {filteredBin.length > 0 && (
+      {filteredBin.length > 0 ? (
         <>
           <SectionHeader title="Buy It Now" subtitle="Below SCP reference — verify photos/title before buying." count={filteredBin.length} />
           <div className="space-y-2 mb-10">
@@ -366,6 +407,16 @@ const Opportunities = () => {
                 onDrillIn={() => setSelectedCard({ data: opp, type: 'bin' })} />
             ))}
           </div>
+        </>
+      ) : binDeals.length === 0 ? (
+        <>
+          <SectionHeader title="Buy It Now" subtitle="Below SCP reference — verify photos/title before buying." count={0} />
+          <EmptyState message="No BIN opportunities in the database. Run the Opportunity Pipeline (BIN job) against RDS." />
+        </>
+      ) : (
+        <>
+          <SectionHeader title="Buy It Now" subtitle="Below SCP reference — verify photos/title before buying." count={0} />
+          <EmptyState message="No BIN rows match your filters — try clearing min profit / ROI." />
         </>
       )}
 

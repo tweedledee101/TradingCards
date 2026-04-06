@@ -3,7 +3,7 @@ import { useAuth } from '../auth/AuthContext';
 import SiteFooter from '../components/SiteFooter';
 
 /**
- * Public entry (ADR-007). Minimal, mobile-first — no long product copy.
+ * Public entry (ADR-007). Minimal, mobile-first — Norse-hall tone without wall-of-text.
  */
 export default function Landing() {
   const { ready, authenticated, login } = useAuth();
@@ -42,11 +42,10 @@ export default function Landing() {
 
       <main className="flex-1 flex flex-col justify-center px-4 py-10 sm:py-14 max-w-lg mx-auto w-full">
         <h1 className="text-2xl sm:text-3xl font-display font-semibold text-frost-light tracking-tight text-center leading-snug">
-          Trading cards.
-          <span className="block text-ember mt-1">Serious collectors.</span>
+          Enter the hall.
         </h1>
-        <p className="mt-4 text-center text-sm text-frost-dim max-w-xs mx-auto leading-relaxed">
-          Sign in for the desk. This page is the public front door.
+        <p className="mt-4 text-center text-sm text-frost-dim max-w-sm mx-auto leading-relaxed">
+          The trading desk for listings, movers, and inventory — sign in to work the trade.
         </p>
         <button
           type="button"

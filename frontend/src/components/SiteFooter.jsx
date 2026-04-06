@@ -1,63 +1,55 @@
 import { Link } from 'react-router-dom';
 
-const linkClass = 'text-frost-dim hover:text-frost-light transition-colors py-2 min-h-[44px] inline-flex items-center sm:min-h-0 sm:py-0';
+const sep = <span className="text-surface-border select-none px-1" aria-hidden>·</span>;
 
 /**
- * Shared footer: legal placeholders + careers/contact. Works on public and app shells.
+ * Compact footer: wrapped link row + short legal line (no tall multi-column list).
  */
 export default function SiteFooter() {
   const year = new Date().getFullYear();
 
   return (
     <footer
-      className="border-t border-surface-border bg-surface-card/40 mt-auto pb-[max(2rem,env(safe-area-inset-bottom,0px))]"
+      className="border-t border-surface-border bg-surface-card/40 mt-auto pb-[max(1.25rem,env(safe-area-inset-bottom,0px))]"
       role="contentinfo"
     >
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-8 sm:pt-10">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 text-sm">
-          <div>
-            <div className="text-label mb-3">Company</div>
-            <ul className="space-y-1 flex flex-col">
-              <a href="mailto:careers@ragnarokgamez.com" className={linkClass}>
-                Careers
-              </a>
-              <a href="mailto:hello@ragnarokgamez.com" className={linkClass}>
-                Contact
-              </a>
-            </ul>
-          </div>
-          <div>
-            <div className="text-label mb-3">Legal</div>
-            <ul className="space-y-1 flex flex-col">
-              <span className={`${linkClass} cursor-default opacity-60 pointer-events-none`} title="Coming soon">
-                Privacy Policy
-              </span>
-              <span className={`${linkClass} cursor-default opacity-60 pointer-events-none`} title="Coming soon">
-                Terms of Service
-              </span>
-            </ul>
-          </div>
-          <div>
-            <div className="text-label mb-3">Product</div>
-            <ul className="space-y-1 flex flex-col">
-              <Link to="/help" className={linkClass}>
-                Help &amp; trust
-              </Link>
-              <a href="https://ragnarokgamez.com" className={linkClass} target="_blank" rel="noopener noreferrer">
-                ragnarokgamez.com
-              </a>
-            </ul>
-          </div>
-          <div className="sm:col-span-2 lg:col-span-1 lg:text-right">
-            <div className="text-label mb-3 lg:sr-only">Rights</div>
-            <p className="text-xs text-frost-dim leading-relaxed">
-              © {year} Ragnarok Gaming. All rights reserved.
-            </p>
-            <p className="text-[10px] text-frost-dim/80 mt-2 leading-relaxed">
-              Trademarks and card images are property of their respective owners.
-            </p>
-          </div>
-        </div>
+      <div className="max-w-4xl mx-auto px-4 sm:px-6 pt-5 sm:pt-6 text-center sm:text-left">
+        <nav
+          className="flex flex-wrap items-center justify-center sm:justify-start gap-x-1 gap-y-2 text-[11px] sm:text-xs text-frost-dim leading-snug"
+          aria-label="Footer"
+        >
+          <a href="mailto:careers@ragnarokgamez.com" className="hover:text-frost-light transition-colors px-1 py-1 min-h-[40px] sm:min-h-0 inline-flex items-center">
+            Careers
+          </a>
+          {sep}
+          <a href="mailto:hello@ragnarokgamez.com" className="hover:text-frost-light transition-colors px-1 py-1 min-h-[40px] sm:min-h-0 inline-flex items-center">
+            Contact
+          </a>
+          {sep}
+          <Link to="/help" className="hover:text-frost-light transition-colors px-1 py-1 min-h-[40px] sm:min-h-0 inline-flex items-center">
+            Help
+          </Link>
+          {sep}
+          <span className="opacity-50 px-1 py-1 cursor-default" title="Coming soon">
+            Privacy
+          </span>
+          {sep}
+          <span className="opacity-50 px-1 py-1 cursor-default" title="Coming soon">
+            Terms
+          </span>
+          {sep}
+          <a
+            href="https://ragnarokgamez.com"
+            className="hover:text-frost-light transition-colors px-1 py-1 min-h-[40px] sm:min-h-0 inline-flex items-center"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            ragnarokgamez.com
+          </a>
+        </nav>
+        <p className="mt-3 text-[10px] sm:text-[11px] text-frost-dim/85 leading-relaxed max-w-xl mx-auto sm:mx-0">
+          © {year} Ragnarok Gaming. All rights reserved. Card names and images belong to their owners.
+        </p>
       </div>
     </footer>
   );

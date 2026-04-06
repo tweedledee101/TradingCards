@@ -459,12 +459,25 @@ curl "http://localhost:8000/api/opportunities?listing_type=buy_it_now"
 # Auctions only
 curl http://localhost:8000/api/auctions
 
+# UI default hides ended listings; JSON may include `"ended_fallback": true` when only stale
+# rows exist (scanner has not run since those auctions closed). Pass `include_ended=true` to always include ended.
+
 # With filters
 curl "http://localhost:8000/api/opportunities?min_profit=20&min_roi=50&hide_flagged=true"
 
 # Stats
 curl http://localhost:8000/api/opportunities-stats
 ```
+
+### From scanner run → rows on the Opportunities page (where / how)
+
+1. **Where data is stored:** `find_opportunities.py` and `find_auction_opportunities.py` **INSERT/UPDATE** the PostgreSQL table **`opportunities`** on whatever database **`DATABASE_URL`** points to (local `trading_cards` or **RDS** in production).
+2. **What the UI calls:** The React app (signed in) requests **`GET https://api.ragnarokgamez.com/api/opportunities`** (BIN) and **`GET .../api/auctions`** (auctions). The FastAPI Lambda reads the **same** `opportunities` table via **`DATABASE_URL`** on the API container.
+3. **Therefore:** Production UI only shows rows if **(a)** scanners have run against **RDS** (not only your laptop DB), and **(b)** the **API Lambda** `DATABASE_URL` matches that RDS. Mismatch (API on RDS, pipelines never run on RDS) → empty page with HTTP 200.
+4. **BIN list:** Written by **`find_opportunities.py`** (`listing_type` `buy_it_now` or null). Run via **Opportunity Pipeline** job **BIN**, or locally: `python3 find_opportunities.py` with RDS URL in env.
+5. **Auction list:** Written by **`find_auction_opportunities.py`** (`listing_type` `auction`). The API hides **ended** auctions by default; if every row has `end_time` in the past, you either see **`ended_fallback`** rows (after API update) or nothing until you run the auction job again.
+6. **Fastest way to populate production:** GitHub → **Actions** → **Opportunity Pipeline** → **Run workflow** (ensure secrets include production **`DATABASE_URL`**). Optionally **Auction Pipeline** for auction-only cadence. Wait for the job to finish (up to 90–120 minutes), then refresh the Opportunities page.
+7. **Verify without the UI:** `curl -H "Authorization: Bearer <token>" https://api.ragnarokgamez.com/api/opportunities` and `/api/auctions`, or `psql` against RDS: `SELECT listing_type, COUNT(*) FROM opportunities GROUP BY 1;`
 
 ## Running on GitHub Actions (Off-Laptop)
 
