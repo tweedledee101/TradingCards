@@ -38,7 +38,7 @@ The repo is huge; **this is the only path you need** to trace “who got picked 
 
 | Area | Path |
 |------|------|
-| API app + route registration | `backend/api/main.py`, `backend/api/routes/` (e.g. `GET /api/opportunities/context-strip`, `POST /api/inventory/bulk-import`) |
+| API app + route registration | `backend/api/main.py`, `backend/api/routes/` (e.g. `GET /api/opportunities/context-strip`, `POST /api/inventory/bulk-import`, `PATCH /api/inventory/{id}` — **`inventory` links to your eBay listings** via **`ebay_item_id` / `ebay_listing_url`** after migration 027; seller OAuth sync still TODO) |
 | Business planner (goals, plans, capital) | `backend/services/business_planner.py`, `backend/api/routes/business.py` |
 | Auth (in progress; check git) | `backend/api/routes/auth.py`, `backend/utils/auth.py`, `backend/models/migration_018_auth_multi_tenant.sql`, `aws/cloudformation/cognito-auth.yaml` |
 | Scrapers / eBay / SCP | `backend/scrapers/`, `backend/utils/token_manager.py` |
