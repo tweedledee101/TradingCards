@@ -42,7 +42,8 @@ If this section is wrong, **edit this file** or say what to change — everythin
 
 2. **Card universe per player** — All identities we care about for those players (**years / manufacturers / parallels** as data allows). Today **SCP player catalog** is the richest “all variations” source in the BIN path; **`sold_comps`** is **sale events**, not a full checklist — combining both (sales say *what moved*, SCP says *what exists in guide*) is the engineering problem.
 
-3. **Velocity / sell-through (e.g. sell within ~two weeks of post)** — Needs **operational definitions** stored and measurable: e.g. median days from list to sale for similar identities, or proxy from **`sold_comps.sale_date`** density + listing cadence. **`active_listings`** snapshots + **`sales`** can support sell-through metrics where we have **linked** `ebay_item_id` / card identity. **Not yet** a first-class “reject if expected hold > 14d” gate in pipeline code.
+3. **Velocity / sell-through (working capital)** — **Operator rule:** after you **buy on eBay**, you need to **resell within ~two weeks** (plus a little slack for listing). With **~$1k** working capital, **slow inventory is unacceptable** — the platform should prefer cards **data shows** can turn quickly.  
+   **Implementation (no extra “definition meeting”):** the pipeline approximates that with **observable** signals until your own **inventory / flip timestamps** exist: e.g. **sales frequency** and **median gap between comps** for the same identity in **`sold_comps`** / **`sales`**, and later **list-date → sale** where `ebay_item_id` links. A **hard gate** (skip card if comps too sparse or gaps too long) is code + thresholds derived from this rule — not a philosophical debate.
 
 4. **Capital band** — **$5–$1000** (and stricter **max cash at risk** per flip) as **hard filters** on guide or comp median, aligned with “every buy must resell quickly to fund the next.”
 
