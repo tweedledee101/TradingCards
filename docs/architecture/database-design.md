@@ -10,9 +10,9 @@ PostgreSQL database storing trading card data, sales, market rates, opportunitie
 
 **cards** -- Master card catalog (25,434 cards, 40 players)
 - player_name, card_year, card_set, card_number, parallel, sport
-- image_url (eBay thumbnail)
-- is_rookie, variant columns
-- Unique: (player_name, card_year, card_set, card_number, parallel)
+- image_url (eBay thumbnail), **ungraded_price** (optional cache), **ebay_search_url**
+- is_rookie, variant columns (grade_company, grade_value)
+- Unique: (player_name, card_year, card_set, card_number, parallel, grade_company, grade_value) per migrations
 
 **sales** -- Historical eBay sold data (42,313 sales)
 - card_id (FK), sale_price, sale_date, ebay_item_id

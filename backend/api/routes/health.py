@@ -27,17 +27,23 @@ def health_check(db: Session = Depends(get_db)):
 
     # Trigger retention if stale (non-blocking, fails silently)
     retention_result = {}
+    postgres_db_name = None
     if db_status == "connected":
         try:
             retention_result = run_if_stale()
         except Exception:
             pass
+        try:
+            postgres_db_name = db.execute(text("SELECT current_database()")).scalar_one_or_none()
+        except Exception:
+            postgres_db_name = None
 
     return {
         "status": "healthy" if db_status == "connected" else "degraded",
         "timestamp": datetime.now().isoformat(),
         "service": "trading-card-api",
         "database": db_status,
+        "postgres_db_name": postgres_db_name,
         "retention": retention_result if retention_result else "skipped"
     }
 

@@ -29,13 +29,23 @@ def main() -> int:
     parser.add_argument("--shards", type=int, default=8, help="Number of shard files (default: 8)")
     parser.add_argument("--out-dir", type=str, default="bin_shards", help="Output directory")
     parser.add_argument("--players", type=str, default=None, help="Comma-separated names (skip DB discovery)")
-    parser.add_argument("--top-players", type=int, default=40)
+    parser.add_argument("--top-players", type=int, default=100)
     parser.add_argument("--sport", type=str, default="Baseball")
     parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--dynamic-seed-limit", type=int, default=50)
     parser.add_argument("--dynamic-seed-days", type=int, default=30)
     parser.add_argument("--max-discovery-candidates", type=int, default=100)
     parser.add_argument("--no-dynamic-seeds", action="store_true")
+    parser.add_argument(
+        "--player-rank-source",
+        type=str,
+        choices=("browse", "sold_comps", "sales"),
+        default="browse",
+    )
+    parser.add_argument("--sales-rank-days", type=int, default=7)
+    parser.add_argument("--sales-rank-fallback-browse", action="store_true")
+    parser.add_argument("--sold-comps-rank-days", type=int, default=30)
+    parser.add_argument("--no-sold-comps-fallback-browse", action="store_true")
     args = parser.parse_args()
 
     if args.shards < 1:
@@ -63,6 +73,11 @@ def main() -> int:
                 dynamic_sales_player_limit=dyn,
                 dynamic_sales_lookback_days=args.dynamic_seed_days,
                 max_discovery_candidates=args.max_discovery_candidates,
+                rank_source=args.player_rank_source,
+                sales_rank_lookback_days=args.sales_rank_days,
+                sales_rank_fallback_browse=bool(args.sales_rank_fallback_browse),
+                sold_comps_lookback_days=args.sold_comps_rank_days,
+                sold_comps_fallback_browse=not args.no_sold_comps_fallback_browse,
             )
 
     if not names:

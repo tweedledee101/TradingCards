@@ -9,13 +9,18 @@ aws/
 ├── cloudformation/
 │   ├── cognito-auth.yaml              # Cognito User Pool + app client (optional)
 │   ├── ebay-compliance-lambda.yaml    # eBay compliance webhook (API Gateway + Lambda)
-│   ├── frontend-spa.yaml              # S3 + CloudFront for React/Vite static UI
-│   ├── api-lambda-http.yaml             # HTTP API (v2) + Lambda container + api.<domain> + Route53
+│   ├── frontend-spa.yaml              # S3 + CloudFront for React/Vite static UI (prod apex + www)
+│   ├── frontend-spa-dev.yaml          # S3 + CloudFront for dev.<domain> only
+│   ├── api-lambda-http.yaml             # HTTP API (v2) + Lambda + api.<domain> (prod)
+│   ├── api-lambda-http-dev.yaml        # Same image, second Lambda + dev-api.<domain> + dev DATABASE_URL
 │   └── rds.yaml                       # RDS PostgreSQL with self-contained VPC
 ├── apply-rds-migrations.sh            # Apply schema + migrations to RDS
 ├── migrate-to-rds.sh                  # Migrate local data to RDS
 ├── deploy-ebay-compliance.sh          # Linux/Mac deployment
-├── deploy-frontend.sh                 # S3 + CloudFront SPA
+├── deploy-frontend.sh                 # S3 + CloudFront SPA (prod)
+├── deploy-frontend-dev.sh             # S3 + CloudFront SPA (dev.ragnarokgamez.com)
+├── deploy-api-lambda-dev.sh           # ECR image + CloudFormation dev API (dev-api.ragnarokgamez.com)
+├── scripts/create_trading_cards_dev_database.md
 └── deploy-ebay-compliance.bat         # Windows deployment
 ```
 
@@ -60,6 +65,28 @@ aws cloudfront create-invalidation --distribution-id E1I0LKGWO56GR5 --paths "/*"
 ```
 
 To confirm the distribution ID if yours differs: `aws cloudfront list-distributions --profile ragnarok` and find the entry whose **Aliases** include `ragnarokgamez.com` (or whose origin is the SPA bucket).
+
+## Dev UI (`https://dev.ragnarokgamez.com`)
+
+Separate bucket + CloudFront + Route53 **A** alias so the dev build does not overwrite production `index.html` (different **`VITE_API_URL`** baked in at build time).
+
+1. **ACM (us-east-1):** Re-issue or extend the cert so **SAN includes `dev.ragnarokgamez.com`** (wildcard `*.ragnarokgamez.com` is enough).
+2. **Deploy stack:** `./aws/deploy-frontend-dev.sh <HOSTED_ZONE_ID> <ACM_ARN_US_EAST_1>`
+3. **Build:** `cd frontend && npm run build:dev` (uses `frontend/.env.dev` → default `VITE_API_URL=https://dev-api.ragnarokgamez.com`)
+4. **Publish:** `aws s3 sync dist/ s3://$(aws cloudformation describe-stacks --stack-name ragnarok-frontend-spa-dev --region us-east-1 --query "Stacks[0].Outputs[?OutputKey=='BucketName'].OutputValue" --output text)/ --delete` then **invalidate** that stack’s distribution `/*`.
+5. **API:** The UI is only useful if **`dev-api.ragnarokgamez.com`** (or whatever you put in `.env.dev`) points to a Lambda/service whose **`DATABASE_URL`** is the **dev** database. Same FastAPI routes as prod — no new endpoints. Duplicate **`api-lambda-http`**-style stack or override env on a second function is an ops choice; not auto-created here.
+6. **Cognito:** In the User Pool **app client**, add **Callback URL** `https://dev.ragnarokgamez.com/auth/callback` (and sign-out URL if you use it). See `aws/cloudformation/cognito-auth.yaml`.
+
+## Dev API (`https://dev-api.ragnarokgamez.com`)
+
+Second Lambda + HTTP API + Route53, **same Docker image** as prod. Lambda **`DATABASE_URL`** is **`DATABASE_URL_DEV`** from `backend/.env`, or **derived** as **`…/trading_cards_dev`** from **`DATABASE_URL`** when **`DATABASE_URL_DEV`** is unset.
+
+1. **`backend/.env`:** **`DATABASE_URL`** to RDS (prod DB on that instance). Run **`python3 migrate.py --dev`** — creates **`trading_cards_dev`** if allowed, then migrates. Optional explicit **`DATABASE_URL_DEV`**. If **`CREATE DATABASE`** is denied, see `aws/scripts/create_trading_cards_dev_database.md`.
+2. **ACM:** Certificate in **us-east-1** must include **`dev-api.ragnarokgamez.com`** (wildcard `*.ragnarokgamez.com` is enough).
+3. **Deploy:** `./aws/deploy-api-lambda-dev.sh` (builds/pushes image, deploys stack `ragnarok-api-lambda-dev`, updates `ragnarok-trading-api-dev`).
+4. **Compare prod vs dev JSON** (after both are up): `python3 scripts/compare_dev_prod_api.py` — uses **`GET /health`** (`postgres_db_name`) and, with **`COGNITO_ACCESS_TOKEN`**, opportunities stats + sample rows.
+
+**Prod deploy unchanged:** `./aws/deploy-api-lambda.sh` still targets `api.ragnarokgamez.com` and **`DATABASE_URL`**.
 
 ### Traffic: volume vs “where from”
 

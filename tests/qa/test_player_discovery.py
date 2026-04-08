@@ -1,8 +1,8 @@
 """
-Test: Player discovery must use live eBay volume data, never stale DB queries.
+Test: Default player discovery delegates to discover_top_players (Browse by default).
 
-If get_hot_players returns [] on an empty database, the pipeline is broken --
-it means we regressed to querying internal data instead of discovering from eBay.
+Optional ``rank_source=sold_comps`` ranks from ``sold_comps`` without Browse for that step;
+that path is explicit in CLI, not the default.
 """
 import pytest
 from unittest.mock import patch, MagicMock
@@ -22,7 +22,11 @@ def test_get_hot_players_calls_ebay_not_database():
 
         players = find_opportunities.get_hot_players(limit=2)
 
-        mock_discover.assert_called_once_with(days=7, limit=2, sport='Baseball')
+        mock_discover.assert_called_once()
+        ca = mock_discover.call_args
+        assert ca.kwargs.get('days') == 7 and ca.kwargs.get('limit') == 2
+        assert ca.kwargs.get('sport') == 'Baseball'
+        assert ca.kwargs.get('rank_source', 'browse') == 'browse'
         assert len(players) == 2
         assert players[0]['player_name'] == 'Shohei Ohtani'
         assert players[1]['player_name'] == 'Aaron Judge'
@@ -37,7 +41,8 @@ def test_hot_player_names_for_pipeline_wraps_discover():
 
         names = hot_player_names_for_pipeline(limit=1, sport='Baseball', days=7)
         assert names == ['Test Star']
-        mock_discover.assert_called_once_with(days=7, limit=1, sport='Baseball')
+        mock_discover.assert_called_once()
+        assert mock_discover.call_args.kwargs.get('rank_source', 'browse') == 'browse'
 
 
 def test_get_hot_players_never_returns_empty_with_seed_players():

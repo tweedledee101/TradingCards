@@ -1,0 +1,157 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Ragnarok Trading API (DEV) — same container image as prod; Lambda + HTTP API + dev-api.<domain>.
+  DATABASE_URL must point at dev Postgres database (e.g. trading_cards_dev on same RDS).
+
+Parameters:
+  LambdaImageUri:
+    Type: String
+    Description: Same ECR image as production (e.g. .../ragnarok-trading-api:latest)
+
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+    Description: postgresql://... to **dev** database
+
+  CognitoRegion:
+    Type: String
+    Default: us-east-1
+
+  CognitoUserPoolId:
+    Type: String
+
+  CognitoClientId:
+    Type: String
+
+  EbayClientId:
+    Type: String
+    NoEcho: false
+
+  EbayClientSecret:
+    Type: String
+    NoEcho: true
+
+  CorsAllowOrigins:
+    Type: String
+    Default: 'http://localhost:3000,https://ragnarokgamez.com,https://www.ragnarokgamez.com,https://dev.ragnarokgamez.com'
+    Description: Must include https://dev.ragnarokgamez.com for the dev SPA
+
+  ApiHostname:
+    Type: String
+    Default: dev-api.ragnarokgamez.com
+
+  HostedZoneId:
+    Type: String
+    Description: Route53 hosted zone ID for ragnarokgamez.com
+
+  AcmCertificateArn:
+    Type: String
+    Description: ACM in us-east-1 — must include ApiHostname (or wildcard)
+
+Resources:
+  LambdaExecutionRoleDev:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  ApiFunctionDev:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: ragnarok-trading-api-dev
+      PackageType: Image
+      Code:
+        ImageUri: !Ref LambdaImageUri
+      ImageConfig:
+        Command:
+          - lambda_entry.handler
+      Role: !GetAtt LambdaExecutionRoleDev.Arn
+      Timeout: 60
+      MemorySize: 3008
+      Environment:
+        Variables:
+          DATABASE_URL: !Ref DatabaseUrl
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_USER_POOL_ID: !Ref CognitoUserPoolId
+          COGNITO_CLIENT_ID: !Ref CognitoClientId
+          EBAY_CLIENT_ID: !Ref EbayClientId
+          EBAY_CLIENT_SECRET: !Ref EbayClientSecret
+          EBAY_APP_ID: !Ref EbayClientId
+          EBAY_CERT_ID: !Ref EbayClientSecret
+          CORS_ALLOW_ORIGINS: !Ref CorsAllowOrigins
+
+  HttpApiDev:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: ragnarok-trading-http-api-dev
+      ProtocolType: HTTP
+      Description: Trading Card Platform REST API (dev DB)
+
+  HttpApiIntegrationDev:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApiDev
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ApiFunctionDev.Arn
+      PayloadFormatVersion: '2.0'
+
+  HttpApiDefaultRouteDev:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApiDev
+      RouteKey: '$default'
+      Target: !Sub integrations/${HttpApiIntegrationDev}
+
+  HttpApiStageDev:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApiDev
+      StageName: '$default'
+      AutoDeploy: true
+
+  ApiLambdaPermissionDev:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunctionDev
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApiDev}/*/*
+
+  ApiCustomDomainDev:
+    Type: AWS::ApiGatewayV2::DomainName
+    Properties:
+      DomainName: !Ref ApiHostname
+      DomainNameConfigurations:
+        - CertificateArn: !Ref AcmCertificateArn
+          EndpointType: REGIONAL
+          SecurityPolicy: TLS_1_2
+
+  ApiMappingDev:
+    Type: AWS::ApiGatewayV2::ApiMapping
+    Properties:
+      ApiId: !Ref HttpApiDev
+      DomainName: !Ref ApiCustomDomainDev
+      Stage: !Ref HttpApiStageDev
+
+  ApiDnsRecordDev:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref ApiHostname
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt ApiCustomDomainDev.RegionalDomainName
+        HostedZoneId: !GetAtt ApiCustomDomainDev.RegionalHostedZoneId
+
+Outputs:
+  HttpApiUrl:
+    Value: !GetAtt HttpApiDev.ApiEndpoint
+  CustomApiUrl:
+    Value: !Sub https://${ApiHostname}

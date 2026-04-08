@@ -45,13 +45,45 @@ def main() -> int:
         default="arn:aws:acm:us-east-1:635601810497:certificate/8dda492b-b16f-45bf-965e-9268abaabe78",
     )
     p.add_argument("--api-hostname", default="api.ragnarokgamez.com")
+    p.add_argument(
+        "--template",
+        default="api-lambda-http.yaml",
+        help="Template file under aws/cloudformation/ (e.g. api-lambda-http-dev.yaml)",
+    )
+    p.add_argument(
+        "--database-env-key",
+        default="DATABASE_URL",
+        help="Env key to read from backend/.env after load (use DATABASE_URL_DEV for dev stack)",
+    )
+    p.add_argument(
+        "--cors-origins",
+        default=None,
+        help="Override CorsAllowOrigins CloudFormation parameter (comma-separated)",
+    )
     args = p.parse_args()
 
     load_env_file(ROOT / "backend" / ".env")
 
-    db_url = os.environ.get("DATABASE_URL", "")
+    db_url = os.environ.get(args.database_env_key, "").strip()
+    if not db_url and args.database_env_key == "DATABASE_URL_DEV":
+        sys.path.insert(0, str(ROOT))
+        from backend.utils.dev_postgres import DEFAULT_DEV_DATABASE, derive_dev_database_url
+
+        prod = os.environ.get("DATABASE_URL", "").strip()
+        if prod:
+            db_url = derive_dev_database_url(prod, DEFAULT_DEV_DATABASE)
+            print(
+                f"Derived DATABASE_URL_DEV from DATABASE_URL (…/{DEFAULT_DEV_DATABASE})",
+                file=sys.stderr,
+            )
     if not db_url:
-        print("DATABASE_URL missing in backend/.env", file=sys.stderr)
+        hint = ""
+        if args.database_env_key == "DATABASE_URL_DEV":
+            hint = " — or set DATABASE_URL to derive …/trading_cards_dev"
+        print(
+            f"{args.database_env_key} missing in backend/.env{hint}",
+            file=sys.stderr,
+        )
         return 1
 
     ebay_cid = os.environ.get("EBAY_CLIENT_ID") or os.environ.get("EBAY_APP_ID", "")
@@ -64,7 +96,11 @@ def main() -> int:
     client = os.environ.get("COGNITO_CLIENT_ID", "7lbcmb2cg1o9c0n2s4tuvftjdk")
     creg = os.environ.get("COGNITO_REGION", "us-east-1")
 
-    template = Path(__file__).parent / "cloudformation" / "api-lambda-http.yaml"
+    template = Path(__file__).parent / "cloudformation" / args.template
+    if not template.is_file():
+        print(f"Template not found: {template}", file=sys.stderr)
+        return 1
+
     overrides = [
         f"LambdaImageUri={args.image_uri}",
         f"DatabaseUrl={db_url}",
@@ -77,6 +113,8 @@ def main() -> int:
         f"HostedZoneId={args.hosted_zone_id}",
         f"AcmCertificateArn={args.acm_cert_arn}",
     ]
+    if args.cors_origins:
+        overrides.append(f"CorsAllowOrigins={args.cors_origins}")
 
     cmd = ["aws", "--profile", args.profile]
     cmd.extend(

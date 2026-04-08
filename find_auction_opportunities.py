@@ -898,7 +898,12 @@ if __name__ == '__main__':
     parser.add_argument('--years', type=str, default='2023,2024,2025,2026', help='Years to search (default: 2023,2024,2025,2026)')
     parser.add_argument('--sport', type=str, default='baseball', help='Sport to search (default: baseball)')
     parser.add_argument('--dry-run', action='store_true', help='Show results without storing in DB')
-    parser.add_argument('--top-players', type=int, default=40, help='Hot player count for player queries (default: 40, same as BIN)')
+    parser.add_argument(
+        '--top-players',
+        type=int,
+        default=100,
+        help='Hot player count for player queries (default: 100; match BIN local default)',
+    )
     parser.add_argument('--days', type=int, default=7, help='eBay volume lookback for player discovery (default: 7, same as BIN)')
     parser.add_argument('--players', type=str, default=None, help='Comma-separated names; skips eBay discovery for the player-query arm')
     parser.add_argument(
@@ -946,6 +951,35 @@ if __name__ == '__main__':
         type=int,
         default=7,
         help='Lookback days when ranking sold_comp SKUs for seed queries',
+    )
+    parser.add_argument(
+        '--player-rank-source',
+        type=str,
+        choices=('browse', 'sold_comps', 'sales'),
+        default='browse',
+        help='browse=eBay totals (default). sales=sales table counts per player. sold_comps=130point rows',
+    )
+    parser.add_argument(
+        '--sales-rank-days',
+        type=int,
+        default=7,
+        help='Lookback days on sales.sale_date when --player-rank-source sales',
+    )
+    parser.add_argument(
+        '--sales-rank-fallback-browse',
+        action='store_true',
+        help='If sales ranking returns empty, fall back to Browse',
+    )
+    parser.add_argument(
+        '--sold-comps-rank-days',
+        type=int,
+        default=30,
+        help='Lookback days on sold_comps.created_at when --player-rank-source sold_comps',
+    )
+    parser.add_argument(
+        '--no-sold-comps-fallback-browse',
+        action='store_true',
+        help='If sold_comps ranking returns empty, continue with empty list (auction may use DB fallback)',
     )
     args = parser.parse_args()
 
@@ -1001,7 +1035,8 @@ if __name__ == '__main__':
         print(f"Using --players ({len(player_names)} names); skipping eBay discovery for player queries.")
     else:
         print(
-            f"Finding hot players by sales volume (BIN parity: days={args.days}, limit={args.top_players})..."
+            f"Finding hot players (rank={args.player_rank_source}; "
+            f"BIN parity days={args.days}, limit={args.top_players})..."
         )
         with closing(SessionLocal()) as _db:
             player_names = hot_player_names_for_pipeline(
@@ -1012,6 +1047,11 @@ if __name__ == '__main__':
                 dynamic_sales_player_limit=dyn_limit,
                 dynamic_sales_lookback_days=args.dynamic_seed_days,
                 max_discovery_candidates=args.max_discovery_candidates,
+                rank_source=args.player_rank_source,
+                sales_rank_lookback_days=args.sales_rank_days,
+                sales_rank_fallback_browse=bool(args.sales_rank_fallback_browse),
+                sold_comps_lookback_days=args.sold_comps_rank_days,
+                sold_comps_fallback_browse=not args.no_sold_comps_fallback_browse,
             )
         if not player_names:
             print(

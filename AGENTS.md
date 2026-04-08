@@ -23,7 +23,7 @@ The repo is huge; **this is the only path you need** to trace “who got picked 
 
 **BIN opportunities (`listing_type` buy_it_now / null)**
 
-1. **Who:** `backend/discover_players.py` → `hot_player_names_for_pipeline()` (volume-ranked names; optional `sales` merge). Entry: `find_opportunities.py` → `get_hot_players()`.
+1. **Who:** `backend/discover_players.py` → `hot_player_names_for_pipeline()` (Browse, **`sales` row counts**, or `sold_comps`). Entry: `find_opportunities.py` → `get_hot_players()`.
 2. **Which cards:** Same script → `get_scp_catalog()` (Selenium SCP) → filter **`--min-scp-price` / `--max-scp-price`**, volume text, etc.
 3. **Live listing:** `find_ebay_opportunities()` → `EbayScraper.get_active_listings()` + title/price rules in `find_opportunities.py`.
 4. **Stored:** `opportunities` rows; **shown in UI:** `frontend/src/pages/Opportunities.jsx` via `GET /api/opportunities` → `backend/api/routes/opportunities.py`.
@@ -45,7 +45,7 @@ The repo is huge; **this is the only path you need** to trace “who got picked 
 | DB schema + migrations | `backend/models/schema.sql`, `backend/models/migration_*.sql`, ORM in `backend/models/__init__.py` |
 | Config | `backend/config/settings.py`, `config/targets.yaml` |
 | Frontend | `frontend/src/` — API client `frontend/src/api/client.js`; pages in `frontend/src/pages/` |
-| Pipelines (repo root) | `find_opportunities.py`, `find_auction_opportunities.py`, `worm_130point.py`, `daily_report.py`, `migrate.py` — vision is **post-pipeline** only: `job_runs.results_summary.vision_post_pipeline_queue_sample`, `scripts/vision_retry_scp_from_images.py`; auction Browse efficiency: `scripts/diagnose_auction_query_efficiency.py`; BIN variation efficiency: `scripts/diagnose_bin_ebay_variation_stats.py` (`job_runs.results_summary`) |
+| Pipelines (repo root) | `find_opportunities.py`, `find_auction_opportunities.py`, `worm_130point.py`, `daily_report.py`, `migrate.py`, `scripts/psql_dev.py` (psql to dev DB when `DATABASE_URL_DEV` unset) — vision is **post-pipeline** only: `job_runs.results_summary.vision_post_pipeline_queue_sample`, `scripts/vision_retry_scp_from_images.py`; auction Browse efficiency: `scripts/diagnose_auction_query_efficiency.py`; BIN variation efficiency: `scripts/diagnose_bin_ebay_variation_stats.py` (`job_runs.results_summary`) |
 | GitHub Actions summary (CLI) | `scripts/summarize_github_actions.py` — recent run conclusions + failed steps (`gh auth login` or `GITHUB_TOKEN`); see `PIPELINE-OPS.md` |
 | Auction funnel audit (RDS) | `scripts/audit_auction_pipeline.py` (`--compare` = delta vs prior run); `scripts/cleanup_stale_auction_opportunities.py` — see `PIPELINE-OPS.md` |
 | Nova Act (dev / vision) | `scripts/dev/nova_act_smoke_gym.py` (headed demo), `nova_act_listing_card_extract.py` (eBay images → JSON), `nova_act_listing_visual_probe.py`, `run_nova_act_probe_cases.py`; CI gym smoke `.github/workflows/nova-act-smoke.yml` — see `PIPELINE-OPS.md` |
@@ -55,7 +55,7 @@ The repo is huge; **this is the only path you need** to trace “who got picked 
 | Full data pipeline | `backend/run_pipeline_full.py` |
 | Tests | `tests/unit`, `tests/integration`, `tests/qa` |
 | CI | `.github/workflows/` (BIN, auction, daily report, QA, optional Nova Act gym smoke) |
-| AWS IaC | `aws/cloudformation/` (RDS, eBay compliance, Cognito auth, **frontend SPA**), `aws/README.md` |
+| AWS IaC | `aws/cloudformation/` (RDS, eBay compliance, Cognito auth, **frontend SPA** + **frontend-spa-dev** + **api-lambda-http-dev**), `aws/README.md` |
 
 ## Conventions
 

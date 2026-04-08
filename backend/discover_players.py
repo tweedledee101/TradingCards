@@ -1,8 +1,9 @@
 """
 Volume-Based Player Discovery
 
-Queries eBay Buy Browse (active listing ``total`` per seed) and ranks players.
-Runs on every opportunity pipeline when ``--players`` is not set.
+Default: eBay Buy Browse (active listing ``total`` per seed) ranks players when
+``--players`` is not set. Optional ``rank_source=sold_comps`` ranks from
+``sold_comps`` (no Browse for that step).
 
 Operational visibility:
 - Right before per-seed Browse calls, one **Analytics** line when available: ``BROWSE_APP_QUOTA {...}`` (app-level Buy/Browse **remaining** / **limit**). **Note:** that counter is not the same as Browse **burst** throttling — HTTP 429 on the first seed is common if discovery runs immediately after token refresh + Analytics. Mitigations: ``EBAY_SKIP_ANALYTICS_QUOTA=1``, ``EBAY_DISCOVER_STARTUP_COOLDOWN_SECONDS`` (default **2**), ``EBAY_DISCOVER_SEED_PACE_SECONDS`` (default **1.5**) between every seed.
@@ -125,11 +126,11 @@ def fetch_hot_players_from_sales(
     target_sports: List[str],
     sale_lookback_days: int,
     limit: int,
-) -> List[Tuple[str, str]]:
-    """Rank players by count of linked ``sales`` rows in the lookback window.
+) -> List[Tuple[str, str, int]]:
+    """Rank players by **count of ``sales`` rows** in the lookback window (joined to ``cards``).
 
-    Refreshes the *candidate universe* each run so discovery is not only re-ranking
-    the same fixed names — hot sellers from your DB enter the Browse pass.
+    Returns ``(player_name, sport, sale_count)`` sorted by count descending. This is the
+    direct "who sold the most cards" signal — **no** eBay Browse for ranking.
     """
     from sqlalchemy import func
     from backend.models import Sale, Card
@@ -147,12 +148,12 @@ def fetch_hot_players_from_sales(
         .limit(limit)
         .all()
     )
-    out: List[Tuple[str, str]] = []
-    for player_name, sp, _ in rows:
+    out: List[Tuple[str, str, int]] = []
+    for player_name, sp, cnt in rows:
         spt = (sp or 'Baseball').title()
         if spt not in sports_norm:
             spt = 'Baseball' if 'Baseball' in sports_norm else sports_norm[0]
-        out.append((player_name, spt))
+        out.append((player_name, spt, int(cnt)))
     return out
 
 
@@ -172,15 +173,17 @@ def build_merged_discovery_candidates(
         target_sports = [st]
         anchors = [(n, s) for n, s in SEED_PLAYERS if s == st]
 
-    dyn: List[Tuple[str, str]] = []
+    dyn: List[Tuple[str, str, int]] = []
     if db is not None and dynamic_sales_player_limit > 0:
         dyn = fetch_hot_players_from_sales(
             db, target_sports, dynamic_sales_lookback_days, dynamic_sales_player_limit
         )
 
+    anchor_rows = [(n, s, 0) for n, s in anchors]
     seen: set = set()
     out: List[Tuple[str, str]] = []
-    for pair in dyn + anchors:
+    for row in dyn + anchor_rows:
+        pair = (row[0], row[1])
         key = (pair[0].strip().lower(), pair[1])
         if key in seen:
             continue
@@ -189,6 +192,90 @@ def build_merged_discovery_candidates(
         if len(out) >= max_discovery_candidates:
             break
     return out
+
+
+def dominant_sport_for_player(db, player_name: str) -> Optional[str]:
+    """Most common ``cards.sport`` for this player (case-insensitive name match)."""
+    from sqlalchemy import func
+    from backend.models import Card
+
+    pn = (player_name or '').strip()
+    if not pn:
+        return None
+    key = pn.lower()
+    row = (
+        db.query(Card.sport, func.count(Card.id).label('cnt'))
+        .filter(func.lower(Card.player_name) == key)
+        .group_by(Card.sport)
+        .order_by(func.count(Card.id).desc())
+        .first()
+    )
+    if not row or not row[0]:
+        return None
+    return str(row[0]).strip().title()
+
+
+def fetch_hot_players_from_sold_comps(
+    db,
+    lookback_days: int,
+    limit: int,
+    sport_key: str,
+) -> List[Dict[str, Any]]:
+    """Rank players by ``sold_comps`` row counts (``created_at`` lookback). No Browse calls.
+
+    ``sold_comps`` has no sport column; sport is inferred from ``cards`` when possible,
+    otherwise the pipeline sport (or Baseball for ``all``).
+    """
+    from sqlalchemy import func, desc
+    from backend.models import SoldComp
+
+    cutoff = datetime.utcnow() - timedelta(days=max(1, lookback_days))
+    eff = (sport_key or 'Baseball').strip().title()
+    if eff.lower() == 'all':
+        sport_filter: Optional[str] = None
+    else:
+        sport_filter = eff
+
+    oversample = min(max(limit * 5, limit), 400)
+    rows = (
+        db.query(SoldComp.player_name, func.count(SoldComp.id).label('cnt'))
+        .filter(SoldComp.created_at >= cutoff)
+        .group_by(SoldComp.player_name)
+        .order_by(desc('cnt'))
+        .limit(oversample)
+        .all()
+    )
+
+    def _row(pname: str, cnt: int, sp: str) -> Dict[str, Any]:
+        return {
+            'player_name': pname,
+            'sport': sp,
+            'sales_volume': int(cnt),
+        }
+
+    picked: List[Dict[str, Any]] = []
+    for pname, cnt in rows:
+        dom = dominant_sport_for_player(db, pname)
+        if sport_filter:
+            if dom and dom != sport_filter:
+                continue
+            sp = dom or sport_filter
+        else:
+            sp = dom or 'Baseball'
+        picked.append(_row(pname, cnt, sp))
+        if len(picked) >= limit:
+            return picked
+
+    if picked:
+        return picked
+
+    # Relax sport filter so a narrow job still gets names when comps lack card joins
+    for pname, cnt in rows[:limit]:
+        dom = dominant_sport_for_player(db, pname)
+        sp = dom or sport_filter or 'Baseball'
+        picked.append(_row(pname, cnt, sp))
+
+    return picked[:limit]
 
 
 def _discover_429_backoff_seconds(attempt: int, retry_after_header: Optional[str]) -> float:
@@ -343,34 +430,118 @@ def discover_top_players(
     dynamic_sales_lookback_days: int = 30,
     dynamic_sales_player_limit: int = 0,
     max_discovery_candidates: int = 100,
+    rank_source: str = 'browse',
+    sales_rank_lookback_days: int = 7,
+    sales_rank_fallback_browse: bool = False,
+    sold_comps_lookback_days: int = 30,
+    sold_comps_fallback_browse: bool = True,
 ) -> List[Dict]:
     """
-    Discover top players by eBay **active listing** volume (Browse search ``total``).
+    Rank players for the pipeline.
 
-    ``days`` is kept for CLI compatibility; ranking uses current buyable inventory,
-    not a past ``itemEndDate`` window (that filter yields 0 hits on active listings).
+    **rank_source=sales**: rank by **count of ``sales`` rows per player** (``cards`` join) in the
+    lookback window — **no** Browse, no seed list. Typical dev: 7d lookback, top 100 via ``limit``.
 
-    When ``dynamic_sales_player_limit > 0`` and ``db_session`` is set, candidate names are
-    **merged from recent ``sales`` (by player)** plus anchor ``SEED_PLAYERS`` so the universe
-    changes with what your DB ingests, not only the static list order.
+    **rank_source=sold_comps**: rank by ``sold_comps`` row counts (``created_at`` lookback); **zero**
+    Browse for this step.
 
-    Args:
-        sport: ``Baseball``, ``Basketball``, ``Football``, or ``all`` (multi-sport seeds).
-               ``None`` defaults to **Baseball** (matches legacy BIN default).
-        dynamic_sales_player_limit: Max distinct (player, sport) rows to pull from sales.
-        max_discovery_candidates: Cap Browse API calls (anchors + sales merged).
-    
+    **rank_source=browse** (default): eBay Buy Browse ``total`` per seed; optional sales merge into
+    candidates when ``dynamic_sales_player_limit > 0``.
+
     Returns:
-        List of dicts: player_name, sport, sales_volume (eBay total)
+        List of dicts: player_name, sport, sales_volume (sale count, comp count, or Browse total)
     """
-    scraper = EbayScraper()
-
     if sport is None or str(sport).strip() == '':
         eff_sport = 'Baseball'
     elif str(sport).strip().lower() == 'all':
         eff_sport = 'all'
     else:
         eff_sport = str(sport).strip().title()
+
+    rank_src = (rank_source or 'browse').strip().lower()
+
+    if rank_src == 'sales':
+        if db_session is None:
+            log.warn(
+                'rank_source=sales requires db_session; falling back to Browse ranking',
+                category='discover_rank_source_fallback',
+                context={},
+            )
+            rank_src = 'browse'
+        else:
+            if eff_sport.lower() == 'all':
+                target_sports = list(SPORTS_FOR_PIPELINE)
+            else:
+                target_sports = [eff_sport]
+            triples = fetch_hot_players_from_sales(
+                db_session,
+                target_sports,
+                sales_rank_lookback_days,
+                limit,
+            )
+            ranked = [
+                {'player_name': n, 'sport': s, 'sales_volume': c}
+                for n, s, c in triples
+            ]
+            top_names = [p['player_name'] for p in ranked[:limit]]
+            summary_line = {
+                'event': 'discover_players',
+                'ts': datetime.utcnow().isoformat() + 'Z',
+                'rank_source': 'sales',
+                'sales_rank_lookback_days': sales_rank_lookback_days,
+                'players_returned': len(ranked[:limit]),
+                'browse_seeds_queried': 0,
+                'top_players_preview': top_names[:10],
+            }
+            print(f"DISCOVER_SUMMARY {json.dumps(summary_line, default=str)}", flush=True)
+            if ranked:
+                return ranked[:limit]
+            log.warn(
+                'sales-based player ranking returned empty (no rows in sales in lookback)',
+                category='discover_sales_rank_empty',
+                context={'lookback_days': sales_rank_lookback_days, 'sport': eff_sport},
+            )
+            if not sales_rank_fallback_browse:
+                return []
+            rank_src = 'browse'
+
+    if rank_src == 'sold_comps':
+        if db_session is None:
+            log.warn(
+                'rank_source=sold_comps requires db_session; falling back to Browse ranking',
+                category='discover_rank_source_fallback',
+                context={},
+            )
+            rank_src = 'browse'
+        else:
+            ranked = fetch_hot_players_from_sold_comps(
+                db_session,
+                sold_comps_lookback_days,
+                limit,
+                eff_sport,
+            )
+            top_names = [p['player_name'] for p in ranked[:limit]]
+            summary_line = {
+                'event': 'discover_players',
+                'ts': datetime.utcnow().isoformat() + 'Z',
+                'rank_source': 'sold_comps',
+                'sold_comps_lookback_days': sold_comps_lookback_days,
+                'players_returned': len(ranked[:limit]),
+                'browse_seeds_queried': 0,
+                'top_players_preview': top_names[:10],
+            }
+            print(f"DISCOVER_SUMMARY {json.dumps(summary_line, default=str)}", flush=True)
+            if ranked:
+                return ranked[:limit]
+            log.warn(
+                'sold_comps player ranking returned empty',
+                category='discover_sold_comps_empty',
+                context={'lookback_days': sold_comps_lookback_days, 'sport': eff_sport},
+            )
+            if not sold_comps_fallback_browse:
+                return []
+
+    scraper = EbayScraper()
 
     use_dynamic = dynamic_sales_player_limit > 0 and db_session is not None
     if use_dynamic:
@@ -575,6 +746,7 @@ def discover_top_players(
     summary_line = {
         'event': 'discover_players',
         'ts': datetime.utcnow().isoformat() + 'Z',
+        'rank_source': 'browse',
         'nonzero_seeds': stats['nonzero_seeds'],
         'seeds_queried': stats['seeds_queried'],
         'returned_top_n': len(results[:limit]),
@@ -622,16 +794,30 @@ def discover_top_players(
 
 
 def hot_player_names_for_pipeline(
-    limit: int = 40,
+    limit: int = 100,
     sport: str = 'Baseball',
     days: int = 7,
     db_session=None,
     dynamic_sales_player_limit: int = 0,
     dynamic_sales_lookback_days: int = 30,
     max_discovery_candidates: int = 100,
+    rank_source: str = 'browse',
+    sales_rank_lookback_days: int = 7,
+    sales_rank_fallback_browse: bool = False,
+    sold_comps_lookback_days: int = 30,
+    sold_comps_fallback_browse: bool = True,
 ) -> List[str]:
-    """Ranked player names for BIN and auction pipelines (eBay volume + optional sales merge)."""
-    kw = {'days': days, 'limit': limit, 'sport': sport}
+    """Ranked player names for BIN and auction pipelines (sales counts, comps, or Browse)."""
+    kw = {
+        'days': days,
+        'limit': limit,
+        'sport': sport,
+        'rank_source': rank_source,
+        'sales_rank_lookback_days': sales_rank_lookback_days,
+        'sales_rank_fallback_browse': sales_rank_fallback_browse,
+        'sold_comps_lookback_days': sold_comps_lookback_days,
+        'sold_comps_fallback_browse': sold_comps_fallback_browse,
+    }
     if db_session is not None or dynamic_sales_player_limit > 0:
         kw.update(
             db_session=db_session,

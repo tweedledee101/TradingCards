@@ -29,10 +29,15 @@ def sold_comp_summary_for_identity(
     player_name: str,
     card_year: Optional[int],
     card_number: Optional[str],
+    parallel: Optional[str] = None,
     limit_rows: int = 40,
     lookback_days: int = 730,
 ) -> SoldCompSummary:
-    """Aggregate recent ``sold_comps`` rows for the same rough identity."""
+    """Aggregate recent ``sold_comps`` rows for the same rough identity.
+
+    When ``parallel`` is set and not ``Base``, prefer rows whose ``sold_comps.parallel`` is null,
+    equals, or contains that token (still capped by ``limit_rows``).
+    """
     if not player_name or not card_number:
         return SoldCompSummary(0, None, None, None)
 
@@ -48,6 +53,17 @@ def sold_comp_summary_for_identity(
     )
     if card_year is not None:
         q = q.filter(or_(SoldComp.card_year == card_year, SoldComp.card_year.is_(None)))
+
+    pl_raw = (parallel or "").strip()
+    if pl_raw and pl_raw.lower() not in ("base", "none"):
+        plow = pl_raw.lower()
+        q = q.filter(
+            or_(
+                SoldComp.parallel.is_(None),
+                func.lower(func.coalesce(SoldComp.parallel, "")) == plow,
+                func.lower(func.coalesce(SoldComp.parallel, "")).contains(plow),
+            )
+        )
 
     rows = q.order_by(SoldComp.created_at.desc()).limit(limit_rows).all()
     if not rows:
@@ -80,6 +96,7 @@ def verify_bin_opportunity_row(
         player_name=opp.player_name,
         card_year=opp.card_year,
         card_number=opp.card_number,
+        parallel=opp.parallel,
     )
     scp = float(opp.scp_price)
     buy = float(opp.buy_price)

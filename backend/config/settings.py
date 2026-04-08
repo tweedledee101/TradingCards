@@ -14,7 +14,9 @@ class Config:
     # eBay API Mode
     EBAY_USE_SANDBOX = os.getenv('EBAY_USE_SANDBOX', 'false').lower() == 'true'
     
-    # Database
+    # Database (optional second target for dev replica — migrations + pipelines via env override)
+    DATABASE_URL_DEV = os.getenv('DATABASE_URL_DEV', '').strip() or None
+
     DATABASE_URL = os.getenv('DATABASE_URL')
     if DATABASE_URL:
         # Use DATABASE_URL if provided (for Docker)

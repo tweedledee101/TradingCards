@@ -1,5 +1,25 @@
 # Trading Card Platform - Current Status
-**Last Updated:** 2026-03-27
+**Last Updated:** 2026-04-07
+
+Session 82: **`scripts/psql_dev.py`** — **`psql`** against dev URL when **`DATABASE_URL_DEV`** is unset (derived like **`migrate.py --dev`**). **`.amazonq/rules/database-access.md`**, **`PIPELINE-OPS`**.
+
+Session 81: **`migration_028_cards_ungraded_price.sql`** — fixes missing **`cards.ungraded_price`** when **`migration_add_parallel.sql`** was recorded after constraint conflict with **`migration_003`**. **`migration_add_parallel.sql`** trimmed to column adds only.
+
+Session 80: **`migrate.py`** applies **`backend/models/schema.sql`** when **`public.cards`** is missing, then **`migration_*.sql`** (fixes fresh **`trading_cards_dev`** failing on **`migration_001`**). Doc touch **`create_trading_cards_dev_database.md`**, **`migrate.py`** header.
+
+Session 79: **`migrate.py --dev`** auto-**CREATE DATABASE** **`trading_cards_dev`** (same instance as **`DATABASE_URL`**) via **`backend/utils/dev_postgres.py`**; dev URL derived when **`DATABASE_URL_DEV`** unset; **`--no-create-dev-db`**. **`run_find_opportunities_dev`**, **`deploy_api_cf.py`**, **`deploy-api-lambda-dev.sh`** accept derive. Tests **`tests/unit/test_dev_postgres.py`**. Docs: **`PIPELINE-OPS`**, **`create_trading_cards_dev_database.md`**, dev architecture.
+
+Session 78: **Dev API stack + run/compare tooling** — **`api-lambda-http-dev.yaml`**, **`deploy-api-lambda-dev.sh`**, **`deploy_api_cf.py`** (`--template`, **`--database-env-key DATABASE_URL_DEV`**). **`scripts/run_find_opportunities_dev.py`**, **`scripts/compare_dev_prod_api.py`**. **`GET /health`** + Lambda fast path: **`postgres_db_name`**. **`aws/scripts/create_trading_cards_dev_database.md`**. **`PIPELINE-OPS`**, **`aws/README.md`**, dev architecture doc.
+
+Session 77: **dev.ragnarokgamez.com UI stack** — **`aws/cloudformation/frontend-spa-dev.yaml`**, **`aws/deploy-frontend-dev.sh`**, **`frontend`**: **`npm run build:dev`**, **`frontend/.env.dev`**. **`aws/README.md`** (dev UI checklist + Cognito). **`docs/architecture/dev-environment-and-pipeline-cutover.md`** §2.1.
+
+Session 76: **Dev gaps — SCP/sold_comps reconcile + vision queue** — **`--dev-reconcile-scp-comps`**, **`scp_sold_comps_reconcile`**, **`sold_comp_summary_for_identity(..., parallel=...)`** (verify + reconcile + **`audit_pipeline_skips`**). **`--dev-vision-queue-pass`** / **`--dev-vision-queue-max`**. DB row **`price_source=reconciled`**, **`verification_detail`**. Tests **`test_scp_sold_comps_reconcile`**. **`PIPELINE-OPS`**, dev architecture doc.
+
+Session 75: **Sales-count player ranking + dev strict listings** — **`--player-rank-source sales`** (``sales`` rows / player / ``--sales-rank-days``, default 7); **`fetch_hot_players_from_sales`** returns counts; default **`--top-players` 100** (local/shard writer; CI still passes 40). **`--dev-strict-listings`** + **`backend/services/dev_strict_listing.py`**. **`find_opportunities` / auction / shard script** wiring. Tests **`test_dev_strict_listing`**, **`test_discover_rank_source`** sales. **`PIPELINE-OPS`**, dev architecture doc.
+
+Session 74: **Dev DB migrations + sold_comps player ranking** — **`migrate.py --dev`** / **`--all-db`** when **`DATABASE_URL_DEV`** is set; **`Config.DATABASE_URL_DEV`**. **`--player-rank-source sold_comps`** on **`find_opportunities.py`**, **`find_auction_opportunities.py`**, **`scripts/write_bin_player_shards.py`** (Browse-free discovery step; optional **`--no-sold-comps-fallback-browse`**). **`discover_players`**: **`fetch_hot_players_from_sold_comps`**, **`DISCOVER_SUMMARY`** **`rank_source`**. Tests **`tests/unit/test_discover_rank_source.py`**. **`PIPELINE-OPS`**, **`docs/architecture/dev-environment-and-pipeline-cutover.md`**.
+
+Session 73: **Dev + pipeline cutover plan** — **[docs/architecture/dev-environment-and-pipeline-cutover.md](./docs/architecture/dev-environment-and-pipeline-cutover.md)** (`dev.ragnarokgamez.com` pattern, second DB on same RDS, phased Browse-light funnel, KPI bar vs current). **`docs/README.md`**, **`PIPELINE-OPS.md`** links.
 
 Session 72: **Inventory ↔ eBay** — **`migration_027`**: **`inventory.ebay_item_id`**, **`ebay_listing_url`**, **`listing_ask_price`**, **`listed_at`**. API: **`POST /api/inventory`** + **`PATCH /api/inventory/{id}`**, bulk CSV columns, **`GET /api/inventory?status=active`**, stats count **owned+listed**, **`POST /api/inventory/sales`** returns **`days_held`**. **`PIPELINE-OPS`**, **`database-design`**. Run **`migrate.py`**.
 

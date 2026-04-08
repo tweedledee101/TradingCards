@@ -48,12 +48,15 @@ def main() -> None:
             cn = num_m.group(1) if num_m else None
             yr_m = re.search(r"\b(19|20)\d{2}\b", label)
             cy = int(yr_m.group(0)) if yr_m else None
+            par_m = re.search(r"\[([^\]]+)\]", label)
+            par = par_m.group(1).strip() if par_m else None
 
             cs = sold_comp_summary_for_identity(
                 db,
                 player_name=player,
                 card_year=cy,
                 card_number=cn,
+                parallel=par,
             )
             result = {
                 "audited_at": datetime.utcnow().isoformat() + "Z",

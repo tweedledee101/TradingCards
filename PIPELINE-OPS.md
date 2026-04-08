@@ -132,13 +132,18 @@ python3 find_auction_opportunities.py --dry-run
 --years 2023,2024,2025,2026  # Years to search (default: all four)
 --sport baseball     # Sport (default: baseball)
 --dry-run            # Show results without storing in DB
---top-players 40     # Same as BIN: how many volume-ranked names drive player queries (default: 40)
+--top-players 100    # Same as BIN default locally (Actions may pass 40)
 --days 7             # Same as BIN: eBay volume lookback for that ranking (default: 7)
 --players "A,B"      # Comma-separated names → skips discovery for the player-query arm only
 --no-product-line-queries   # Omit high-listing-volume lines (e.g. "2025 Topps Chrome baseball")
 --product-line-year-cap 3   # Latest N years from --years for those lines (0 = all years)
 --sold-comp-seed-queries 25 # Extra Browse q from top SKUs in sold_comps (130point); 0=off
 --sold-comp-seed-days 7     # Lookback for ranking those SKUs
+--player-rank-source browse|sales|sold_comps
+--sales-rank-days 7
+--sales-rank-fallback-browse
+--sold-comps-rank-days 30
+--no-sold-comps-fallback-browse
 ```
 
 **Smarter Browse coverage (default on for baseball):** Value queries are built in `backend/config/auction_queries.py`: **product-line × recent years** (Topps Chrome, Series 1, Bowman, etc.) **plus** the original parallel/premium strings. Optional **`sold_comps`** seeds (`backend/services/auction_sold_comp_seeds.py`) add **card-centric** queries from the 130point worm (hot player/year/# keys). Listings are still deduped by item id; overlapping queries are expected—use diagnostics below to trim.
@@ -416,12 +421,21 @@ python3 find_opportunities.py --no-dynamic-seeds
 --min-scp-price 20   # Min SCP price to consider (default: $20)
 --max-scp-price 1000 # Max SCP price (default: $1000)
 --players "A,B"      # Comma-separated player names (overrides --top-players)
---top-players 40     # Number of hot players by volume (default: 40)
+--top-players 100    # Number of ranked players (default: 100 locally; Actions often passes 40)
 --sport Baseball     # Baseball | Basketball | Football | all (default: Baseball)
 --dynamic-seed-limit 50   # Merge top N (player,sport) from recent sales (0=off; default 50)
 --dynamic-seed-days 30    # Sales lookback for dynamic merge
 --no-dynamic-seeds        # Only anchor SEED_PLAYERS for Browse candidates
 --max-discovery-candidates 100  # Cap Browse calls before ranking (default 100)
+--player-rank-source browse|sales|sold_comps  # sales = count ``sales`` rows per player (``sale_date`` lookback); no Browse. sold_comps = 130point counts
+--sales-rank-days 7             # Lookback when ranking by sales (default week)
+--sales-rank-fallback-browse    # If sales ranking is empty, fall back to Browse
+--sold-comps-rank-days 30       # sold_comps.created_at lookback when using sold_comps ranking
+--no-sold-comps-fallback-browse # If sold_comps ranking is empty, fail instead of falling back to Browse
+--dev-strict-listings           # Dev: stricter title vs SCP parallel + set tokens (text-only gate)
+--dev-reconcile-scp-comps       # Dev: blend SCP catalog price toward sold_comps median before eBay profit math
+--dev-vision-queue-pass         # Dev: enqueue each stored opportunity listing for post-pipeline vision/CE (see max)
+--dev-vision-queue-max 200      # Cap for dev vision queue (default 200)
 ```
 
 ### Post-ingest BIN verification (130point vs SCP)
@@ -440,7 +454,7 @@ python3 scripts/audit_pipeline_skips.py --limit 200
 
 ### What The Opportunity Finder Does
 
-1. Builds player list: **eBay Browse ranking** over candidates = **anchor `SEED_PLAYERS`** plus **top sellers from your `sales`×`cards` table** (dynamic merge, refreshed every run when DB is available), unless `--no-dynamic-seeds` or `--players`
+1. Builds player list: default **Browse** over seeds (**`SEED_PLAYERS`** + optional **`sales`×`cards` merge** into seeds), unless `--no-dynamic-seeds` or `--players`. **`--player-rank-source sales`** = rank by **count of `sales` rows per player** in **`--sales-rank-days`** (no Browse). **`sold_comps`** = 130point row counts. Grep **`DISCOVER_SUMMARY`** for **`rank_source`**. **`get_active_listings`** uses **BIN + auction** (`AUCTION|FIXED_PRICE`).
 2. Scrapes SCP for each player's full catalog (Selenium/Firefox)
 3. Filters by SCP price range and volume (rejects "rare", "1 sale/year", "2 sales/year")
 4. Searches eBay for each variation (BIN + Auctions); BIN active Browse is paginated (200/page, up to 1000 listings per variation query — same depth cap style as auction)
@@ -496,6 +510,17 @@ curl http://localhost:8000/api/opportunities-stats
 6. **Auction list:** Written by **`find_auction_opportunities.py`** (`listing_type` `auction`). The API hides **ended** auctions by default; if every row has `end_time` in the past, you either see **`ended_fallback`** rows (after API update) or nothing until you run the auction job again.
 7. **Fastest way to populate production:** GitHub → **Actions** → **Opportunity Pipeline** → **Run workflow** (ensure secrets include production **`DATABASE_URL`**). Optionally **Auction Pipeline** for auction-only cadence. Wait for the job to finish (up to 90–120 minutes), then refresh the Opportunities page.
 8. **Verify without the UI:** `curl -H "Authorization: Bearer <token>" https://api.ragnarokgamez.com/api/opportunities` and `/api/auctions`, or `psql` against RDS: `SELECT listing_type, COUNT(*) FROM opportunities GROUP BY 1;`
+
+### Dev database + dev API + compare to prod
+
+1. **`backend/.env`:** production **`DATABASE_URL`** (same RDS instance). Optional explicit **`DATABASE_URL_DEV`**; otherwise dev URL is **`…/trading_cards_dev`** derived from **`DATABASE_URL`**.
+2. **Create + migrate dev DB:** **`python3 migrate.py --dev`** (creates **`trading_cards_dev`** on that instance if missing and permitted; **`--no-create-dev-db`** to skip create). See `aws/scripts/create_trading_cards_dev_database.md` if the app user cannot **`CREATE DATABASE`**. **`psql`:** if **`DATABASE_URL_DEV`** is unset, use **`python3 scripts/psql_dev.py -c '…'`** (same URL resolution as migrate); plain **`psql "$DATABASE_URL_DEV"`** only works after you **`export`** that var or add it to **`backend/.env`**.
+3. **Ingest with dev flags** (writes **`opportunities`** on dev DB):  
+   `python3 scripts/run_find_opportunities_dev.py --player-rank-source sales --top-players 20 …`  
+   (same args as `find_opportunities.py`; targets dev DB via **`DATABASE_URL_DEV`** or derived **`…/trading_cards_dev`**).
+4. **Deploy dev API** (second Lambda): **`./aws/deploy-api-lambda-dev.sh`** → **`https://dev-api.ragnarokgamez.com`** (see **`aws/README.md`**).
+5. **Deploy dev UI** (optional): **`./aws/deploy-frontend-dev.sh`** + **`npm run build:dev`** + S3 sync (→ **`https://dev.ragnarokgamez.com`**).
+6. **Diff JSON** prod vs dev: **`python3 scripts/compare_dev_prod_api.py`** — **`GET /health`** includes **`postgres_db_name`** (`trading_cards` vs `trading_cards_dev`). With **`export COGNITO_ACCESS_TOKEN=…`**, also pulls **`/api/opportunities-stats`** and a 5-row **`/api/opportunities`** sample.
 
 **BIN job cancel / timeout:** `find_opportunities.py` only **commits** `opportunities` rows **after** the full eBay variation loop finishes. If Actions **cancels** or **hits the job timeout** mid-loop, **no new BIN rows** are written for that run (previous BIN rows stay as they were). **`pipeline_listing_skips`** may still have partial commits (flushed in batches). eBay Browse calls already made are **not refunded**.
 
@@ -711,6 +736,8 @@ STORE -- opportunities table (listing_type: buy_it_now or auction)
 API --> Ragnarok Gaming UI
 ```
 
+**Planned:** dev hostname + second DB + Browse-light funnel phases — [docs/architecture/dev-environment-and-pipeline-cutover.md](./docs/architecture/dev-environment-and-pipeline-cutover.md).
+
 All jobs tracked via `job_runs` table. Check status:
 ```bash
 curl http://localhost:8000/api/status
@@ -796,6 +823,11 @@ python3 migrate.py --both
 # Apply to one target only
 python3 migrate.py --local
 python3 migrate.py --rds
+
+# Dev replica DB (set DATABASE_URL_DEV in backend/.env — e.g. second DB on same RDS)
+python3 migrate.py --dev
+python3 migrate.py --status --dev
+python3 migrate.py --all-db   # local + DATABASE_URL + DATABASE_URL_DEV (requires DATABASE_URL_DEV)
 ```
 
-**Rule**: When you add a new migration file to `backend/models/`, run `python3 migrate.py --both` to keep local and RDS in sync.
+**Rule**: When you add a new migration file to `backend/models/`, run `python3 migrate.py --both` to keep local and RDS in sync. Add **`--dev`** (or **`--all-db`**) when you maintain **`trading_cards_dev`** (see [docs/architecture/dev-environment-and-pipeline-cutover.md](./docs/architecture/dev-environment-and-pipeline-cutover.md)).

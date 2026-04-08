@@ -16,6 +16,7 @@
 - [system-architecture.md](./architecture/system-architecture.md) - System design and component overview
 - [database-design.md](./architecture/database-design.md) - Schema, ERD, table descriptions
 - [data-flow.md](./architecture/diagrams/data-flow.md) - Pipeline + post-pipeline vision flow (ASCII diagrams)
+- [dev-environment-and-pipeline-cutover.md](./architecture/dev-environment-and-pipeline-cutover.md) - `dev.*` replica, dev DB vs prod, phased pipeline cutover, effectiveness bar
 
 ## Architecture Decision Records
 - [ADR-001](./architecture/decisions/ADR-001-postgresql-database.md) - Why PostgreSQL

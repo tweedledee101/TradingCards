@@ -21,6 +21,7 @@ def test_health_get_no_db_url_degraded(monkeypatch):
     assert body["status"] == "degraded"
     assert body["database"] == "disconnected"
     assert body["service"] == "trading-card-api"
+    assert body.get("postgres_db_name") is None
 
 
 def test_health_get_other_routes_use_mangum(monkeypatch):

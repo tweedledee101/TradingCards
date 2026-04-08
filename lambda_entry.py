@@ -44,6 +44,7 @@ def _cors_headers_json() -> Dict[str, str]:
 def _health_payload() -> Dict[str, Any]:
     db_status = "disconnected"
     url = os.environ.get("DATABASE_URL")
+    postgres_db_name = None
     if url:
         try:
             import psycopg2
@@ -54,6 +55,11 @@ def _health_payload() -> Dict[str, Any]:
                 cur.execute("SELECT 1")
                 cur.close()
                 db_status = "connected"
+                cur = conn.cursor()
+                cur.execute("SELECT current_database()")
+                row = cur.fetchone()
+                postgres_db_name = row[0] if row else None
+                cur.close()
             finally:
                 conn.close()
         except Exception:
@@ -64,6 +70,7 @@ def _health_payload() -> Dict[str, Any]:
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "service": "trading-card-api",
         "database": db_status,
+        "postgres_db_name": postgres_db_name,
         "retention": "skipped",
     }
 

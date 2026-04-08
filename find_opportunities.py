@@ -17,6 +17,8 @@ from backend.utils.logger import get_logger
 from backend.utils.retention import run_if_stale
 from backend.utils.database import SessionLocal
 from backend.models import Opportunity, PipelineListingSkip
+from backend.services.dev_strict_listing import dev_strict_listing_skip_reason
+from backend.services.scp_sold_comps_reconcile import apply_scp_sold_comps_reconcile
 
 log = get_logger('opportunity_finder')
 
@@ -205,12 +207,15 @@ def find_ebay_opportunities(
     search_query: str = "",
     pipeline_card_label: str = "",
     job_run_id: int | None = None,
+    dev_strict_listings: bool = False,
 ):
-    """Search eBay for listings below SCP price.
+    """Search eBay for listings below SCP price (active **BIN + auction** — ``get_active_listings``).
 
     ``vision_post_pipeline_queue`` collects a **bounded sample** of listings for optional
     **post-pipeline** multimodal review (Nova / manual). The main pipeline never waits on
     vision and never uses vision to include/exclude opportunities.
+
+    ``dev_strict_listings``: tighter title vs parallel/set tokens (dev experiments only).
     """
     query = build_ebay_query(variation)
     scp_price = variation['price']
@@ -292,10 +297,21 @@ def find_ebay_opportunities(
                 )
                 continue
 
+            if dev_strict_listings:
+                rs = dev_strict_listing_skip_reason(title, variation)
+                if rs:
+                    _record_bin_listing_skip(
+                        listing_skip_sink, rs,
+                        pipeline="opportunity_finder", sport=sport, search_query=search_query,
+                        pipeline_card_label=pipeline_card_label, listing=listing, scp_price=scp_price,
+                        job_run_id=job_run_id, extra={"dev_strict": True},
+                    )
+                    continue
+
             parallel = variation.get('parallel', 'Base')
             if parallel != 'Base':
                 parallel_keywords = parallel.lower().split()
-                if not any(kw in title_lower for kw in parallel_keywords):
+                if not dev_strict_listings and not any(kw in title_lower for kw in parallel_keywords):
                     _record_bin_listing_skip(
                         listing_skip_sink, "parallel_mismatch",
                         pipeline="opportunity_finder", sport=sport, search_query=search_query,
@@ -448,11 +464,25 @@ def get_hot_players(
     dynamic_sales_player_limit: int = 0,
     dynamic_sales_lookback_days: int = 30,
     max_discovery_candidates: int = 100,
+    rank_source: str = 'browse',
+    sales_rank_lookback_days: int = 7,
+    sales_rank_fallback_browse: bool = False,
+    sold_comps_lookback_days: int = 30,
+    sold_comps_fallback_browse: bool = True,
 ):
-    """Discover top players by eBay Browse totals; optional sales-driven candidate merge."""
+    """Rank players (``sales`` counts, ``sold_comps``, or Browse); optional sales merge on Browse path."""
     from backend.discover_players import discover_top_players
 
-    kw = {'days': days, 'limit': limit, 'sport': sport}
+    kw = {
+        'days': days,
+        'limit': limit,
+        'sport': sport,
+        'rank_source': rank_source,
+        'sales_rank_lookback_days': sales_rank_lookback_days,
+        'sales_rank_fallback_browse': sales_rank_fallback_browse,
+        'sold_comps_lookback_days': sold_comps_lookback_days,
+        'sold_comps_fallback_browse': sold_comps_fallback_browse,
+    }
     if db_session is not None or dynamic_sales_player_limit > 0:
         kw.update(
             db_session=db_session,
@@ -472,7 +502,12 @@ if __name__ == '__main__':
     parser.add_argument('--min-scp-price', type=float, default=20, help='Min SCP price to consider (default: $20)')
     parser.add_argument('--max-scp-price', type=float, default=1000, help='Max SCP price (default: $1000)')
     parser.add_argument('--players', type=str, default=None, help='Comma-separated player names')
-    parser.add_argument('--top-players', type=int, default=40, help='Number of hot players (default: 40)')
+    parser.add_argument(
+        '--top-players',
+        type=int,
+        default=100,
+        help='How many ranked players to run (default: 100; GitHub Actions often passes 40)',
+    )
     parser.add_argument('--days', type=int, default=7, help='eBay volume lookback days for discovery (default: 7)')
     parser.add_argument(
         '--skip-auction-chain',
@@ -507,6 +542,59 @@ if __name__ == '__main__':
         type=int,
         default=100,
         help='Max Browse discovery calls before ranking (default: 100)',
+    )
+    parser.add_argument(
+        '--player-rank-source',
+        type=str,
+        choices=('browse', 'sold_comps', 'sales'),
+        default='browse',
+        help=(
+            'browse=eBay totals on seeds (default). sales=count sales rows per player in lookback (no Browse). '
+            'sold_comps=130point row counts'
+        ),
+    )
+    parser.add_argument(
+        '--sales-rank-days',
+        type=int,
+        default=7,
+        help='Lookback days on sales.sale_date when --player-rank-source sales (default: 7)',
+    )
+    parser.add_argument(
+        '--sales-rank-fallback-browse',
+        action='store_true',
+        help='If sales ranking returns empty, fall back to Browse ranking',
+    )
+    parser.add_argument(
+        '--sold-comps-rank-days',
+        type=int,
+        default=30,
+        help='Lookback days on sold_comps.created_at when --player-rank-source sold_comps',
+    )
+    parser.add_argument(
+        '--no-sold-comps-fallback-browse',
+        action='store_true',
+        help='If sold_comps ranking returns empty, exit instead of falling back to Browse',
+    )
+    parser.add_argument(
+        '--dev-strict-listings',
+        action='store_true',
+        help='Dev: stricter eBay title vs SCP parallel + set tokens before economics (text only)',
+    )
+    parser.add_argument(
+        '--dev-reconcile-scp-comps',
+        action='store_true',
+        help='Dev: adjust variation reference price from SCP toward sold_comps median before eBay economics',
+    )
+    parser.add_argument(
+        '--dev-vision-queue-pass',
+        action='store_true',
+        help='Dev: enqueue every passing opportunity listing (up to max) for post-pipeline vision/CE review',
+    )
+    parser.add_argument(
+        '--dev-vision-queue-max',
+        type=int,
+        default=200,
+        help='Cap for --dev-vision-queue-pass (default 200)',
     )
     parser.add_argument(
         '--max-ebay-variations',
@@ -553,7 +641,10 @@ if __name__ == '__main__':
             for p in args.players.split(',') if p.strip()
         ]
     else:
-        print("Finding hot players (Browse ranking; optional sales-driven candidate merge)...")
+        print(
+            f"Finding hot players (rank={args.player_rank_source}; "
+            f"optional sales-driven candidate merge on Browse path)..."
+        )
         with closing(SessionLocal()) as db_disc:
             player_rows = get_hot_players(
                 limit=args.top_players,
@@ -563,6 +654,11 @@ if __name__ == '__main__':
                 dynamic_sales_player_limit=dyn_limit,
                 dynamic_sales_lookback_days=args.dynamic_seed_days,
                 max_discovery_candidates=args.max_discovery_candidates,
+                rank_source=args.player_rank_source,
+                sales_rank_lookback_days=args.sales_rank_days,
+                sales_rank_fallback_browse=bool(args.sales_rank_fallback_browse),
+                sold_comps_lookback_days=args.sold_comps_rank_days,
+                sold_comps_fallback_browse=not args.no_sold_comps_fallback_browse,
             )
 
     players = [r['player_name'] for r in player_rows]
@@ -589,14 +685,23 @@ if __name__ == '__main__':
             'skip_auction_chain': bool(args.skip_auction_chain),
             'max_ebay_variations': args.max_ebay_variations or None,
             'bin_replace_scope': args.bin_replace_scope,
+            'player_rank_source': args.player_rank_source,
+            'sales_rank_days': args.sales_rank_days,
+            'sales_rank_fallback_browse': bool(args.sales_rank_fallback_browse),
+            'sold_comps_rank_days': args.sold_comps_rank_days,
+            'no_sold_comps_fallback_browse': bool(args.no_sold_comps_fallback_browse),
+            'dev_strict_listings': bool(args.dev_strict_listings),
+            'dev_reconcile_scp_comps': bool(args.dev_reconcile_scp_comps),
+            'dev_vision_queue_pass': bool(args.dev_vision_queue_pass),
+            'dev_vision_queue_max': int(args.dev_vision_queue_max),
         }
     )
 
     if not players:
         msg = (
-            "eBay player discovery returned 0 players (every seed had total=0). "
-            "In logs, grep DISCOVER_SUMMARY for per-seed totals and error_log for "
-            "discover_all_seeds_zero / ebay_browse_discover_*; use --players a,b,c to override."
+            "Player list is empty after ranking. For browse: check DISCOVER_SUMMARY / error_log "
+            "(discover_all_seeds_zero). For sales: ensure sales.sale_date rows exist in "
+            f"--sales-rank-days ({args.sales_rank_days}). Use --players a,b,c to override."
         )
         print(msg, file=sys.stderr)
         log.error(msg, category='discover_zero_players', context={'top_players': args.top_players})
@@ -702,41 +807,61 @@ if __name__ == '__main__':
         all_opportunities = []
         ebay_variation_stats: list = []
         vision_post_pipeline_queue: list = []
-        _VISION_Q_MAX = 50
+        _VISION_Q_MAX = int(args.dev_vision_queue_max) if args.dev_vision_queue_pass else 50
+        recon_db = SessionLocal() if args.dev_reconcile_scp_comps else None
+        vision_seen_ids: set[str] = set()
 
-        for i, var in enumerate(all_variations, 1):
-            label = f"{var['player']} {var['year']} {var['set_name']} #{var['card_number']} [{var['parallel']}]"
-            print(f"[eBay {i}/{len(all_variations)}] {label}")
-            print(f"  SCP: ${var['price']:.2f}")
+        try:
+            for i, var in enumerate(all_variations, 1):
+                label = f"{var['player']} {var['year']} {var['set_name']} #{var['card_number']} [{var['parallel']}]"
+                print(f"[eBay {i}/{len(all_variations)}] {label}")
 
-            ply_sport = var.get('_pipeline_sport') or 'Baseball'
-            query, opps, ebay_meta = find_ebay_opportunities(
-                scraper,
-                var,
-                max_budget=args.max_budget,
-                vision_post_pipeline_queue=vision_post_pipeline_queue,
-                vision_queue_max=_VISION_Q_MAX,
-                sport=ply_sport,
-                listing_skip_sink=listing_skip_buffer,
-                job_run_id=tracker.run_id,
-            )
-            print(f"  Query: {query}")
-            if len(listing_skip_buffer) >= 200:
-                _flush_listing_skips()
+                if recon_db is not None:
+                    try:
+                        apply_scp_sold_comps_reconcile(recon_db, var)
+                        d = var.get('_price_reconciliation') or {}
+                        if d.get('action') and d.get('action') != 'keep_scp':
+                            print(
+                                f"  SCP raw ${var.get('_scp_price_raw', var['price']):.2f} → "
+                                f"ref ${var['price']:.2f} ({d.get('action')})"
+                            )
+                        else:
+                            print(f"  SCP (ref): ${var['price']:.2f}")
+                    except Exception as ex:
+                        log.warn(
+                            f'SCP/sold_comps reconcile skipped: {ex}',
+                            category='scp_reconcile_error',
+                            context={'card': label[:120]},
+                        )
+                        print(f"  SCP (ref): ${var['price']:.2f}")
+                else:
+                    print(f"  SCP: ${var['price']:.2f}")
 
-            good_opps = [o for o in opps if o['profit'] >= args.min_profit and o['roi'] >= args.min_roi]
+                ply_sport = var.get('_pipeline_sport') or 'Baseball'
+                query, opps, ebay_meta = find_ebay_opportunities(
+                    scraper,
+                    var,
+                    max_budget=args.max_budget,
+                    vision_post_pipeline_queue=vision_post_pipeline_queue,
+                    vision_queue_max=_VISION_Q_MAX,
+                    sport=ply_sport,
+                    listing_skip_sink=listing_skip_buffer,
+                    job_run_id=tracker.run_id,
+                    dev_strict_listings=bool(args.dev_strict_listings),
+                )
+                print(f"  Query: {query}")
+                if len(listing_skip_buffer) >= 200:
+                    _flush_listing_skips()
 
-            if good_opps:
-                print(f"  {len(good_opps)} opportunities found!")
-                for opp in good_opps:
-                    tag = '[AUCTION]' if opp.get('listing_type') == 'auction' else '[BIN]'
-                    print(f"    {tag} ${opp['buy_price']:.2f} -> ${opp['scp_price']:.2f} = ${opp['profit']:.2f} profit ({opp['roi']:.0f}% ROI)")
-                    print(f"    {opp['title'][:80]}")
-                    print(f"    {opp['url']}")
-                    if (
-                        opp.get("flagged")
-                        and len(vision_post_pipeline_queue) < _VISION_Q_MAX
-                    ):
+                good_opps = [o for o in opps if o['profit'] >= args.min_profit and o['roi'] >= args.min_roi]
+
+                if good_opps:
+                    print(f"  {len(good_opps)} opportunities found!")
+                    for opp in good_opps:
+                        tag = '[AUCTION]' if opp.get('listing_type') == 'auction' else '[BIN]'
+                        print(f"    {tag} ${opp['buy_price']:.2f} -> ${opp['scp_price']:.2f} = ${opp['profit']:.2f} profit ({opp['roi']:.0f}% ROI)")
+                        print(f"    {opp['title'][:80]}")
+                        print(f"    {opp['url']}")
                         vu = list(opp.get("listing_image_urls") or [])
                         if opp.get("image_url") and opp["image_url"] not in vu:
                             vu.insert(0, opp["image_url"])
@@ -744,43 +869,73 @@ if __name__ == '__main__':
                         if "/itm/" in (opp.get("url") or ""):
                             tail = opp["url"].split("/itm/", 1)[-1].split("?")[0]
                             nid = tail.strip() or None
-                        vision_post_pipeline_queue.append(
-                            {
-                                "reason": "bin_tertiary_visual_vs_scp",
-                                "pipeline_card": label,
-                                "scp_price": float(opp["scp_price"]),
-                                "buy_price": float(opp["buy_price"]),
-                                "ebay_item_id": nid,
-                                "title": (opp.get("title") or "")[:240],
-                                "image_urls": vu[:15],
-                                "note": "BIN 30–50% of SCP — verify listing photo matches SCP card identity",
-                            }
-                        )
-                    all_opportunities.append({
-                        'card': label,
-                        'scp_title': var['title'],
-                        'scp_url': var.get('scp_url'),
-                        'grade_9': var.get('grade_9'),
-                        'psa_10': var.get('psa_10'),
-                        '_pipeline_sport': ply_sport,
-                        **opp
-                    })
-            else:
-                print(f"  No opportunities")
+                        if (
+                            opp.get("flagged")
+                            and len(vision_post_pipeline_queue) < _VISION_Q_MAX
+                        ):
+                            vision_post_pipeline_queue.append(
+                                {
+                                    "reason": "bin_tertiary_visual_vs_scp",
+                                    "pipeline_card": label,
+                                    "scp_price": float(opp["scp_price"]),
+                                    "buy_price": float(opp["buy_price"]),
+                                    "ebay_item_id": nid,
+                                    "title": (opp.get("title") or "")[:240],
+                                    "image_urls": vu[:15],
+                                    "note": "BIN 30–50% of SCP — verify listing photo matches SCP card identity",
+                                }
+                            )
+                            if nid:
+                                vision_seen_ids.add(nid)
+                        if (
+                            args.dev_vision_queue_pass
+                            and nid
+                            and nid not in vision_seen_ids
+                            and len(vision_post_pipeline_queue) < _VISION_Q_MAX
+                        ):
+                            vision_seen_ids.add(nid)
+                            vision_post_pipeline_queue.append(
+                                {
+                                    "reason": "dev_identity_listing_queue",
+                                    "pipeline_card": label,
+                                    "scp_price": float(opp["scp_price"]),
+                                    "buy_price": float(opp["buy_price"]),
+                                    "ebay_item_id": nid,
+                                    "title": (opp.get("title") or "")[:240],
+                                    "image_urls": vu[:15],
+                                    "note": "Dev: multimodal / CE check listing vs SCP identity",
+                                }
+                            )
+                        all_opportunities.append({
+                            'card': label,
+                            'scp_title': var['title'],
+                            'scp_url': var.get('scp_url'),
+                            'grade_9': var.get('grade_9'),
+                            'psa_10': var.get('psa_10'),
+                            '_pipeline_sport': ply_sport,
+                            '_price_reconciliation': var.get('_price_reconciliation'),
+                            '_scp_price_raw': var.get('_scp_price_raw'),
+                            **opp
+                        })
+                else:
+                    print(f"  No opportunities")
 
-            ebay_variation_stats.append({
-                'idx': i,
-                'card_label': label[:200],
-                'query': (query or '')[:240],
-                'scp_price': float(var['price']),
-                'listings_fetched': int(ebay_meta.get('listings_fetched') or 0),
-                'opportunities_raw': int(ebay_meta.get('opportunities_raw') or 0),
-                'passed_profit_roi': len(good_opps),
-                'ebay_error': bool(ebay_meta.get('ebay_error')),
-            })
+                ebay_variation_stats.append({
+                    'idx': i,
+                    'card_label': label[:200],
+                    'query': (query or '')[:240],
+                    'scp_price': float(var['price']),
+                    'listings_fetched': int(ebay_meta.get('listings_fetched') or 0),
+                    'opportunities_raw': int(ebay_meta.get('opportunities_raw') or 0),
+                    'passed_profit_roi': len(good_opps),
+                    'ebay_error': bool(ebay_meta.get('ebay_error')),
+                })
 
-            print()
-            time.sleep(2)
+                print()
+                time.sleep(2)
+        finally:
+            if recon_db is not None:
+                recon_db.close()
 
         # Summary
         print("=" * 80)
@@ -860,6 +1015,15 @@ if __name__ == '__main__':
 
                 numeric_id = opp['url'].split('/itm/')[-1] if '/itm/' in opp['url'] else None
 
+                vd: dict = {'schema': 1, 'pipeline': 'bin'}
+                pr = opp.get('_price_reconciliation')
+                if pr:
+                    vd['pre_ebay_reconciliation'] = pr
+                if opp.get('_scp_price_raw') is not None:
+                    vd['scp_price_raw'] = float(opp['_scp_price_raw'])
+                reconciled = bool(pr and pr.get('action') not in (None, 'keep_scp'))
+                price_src = 'reconciled' if reconciled else 'scp'
+
                 row = Opportunity(
                     player_name=player,
                     card_year=opp_year,
@@ -882,9 +1046,9 @@ if __name__ == '__main__':
                     listing_type=opp.get('listing_type', 'buy_it_now'),
                     flagged=opp.get('flagged', False),
                     verification_status='pending',
-                    verification_detail={'schema': 1, 'pipeline': 'bin'},
+                    verification_detail=vd,
                     sport=(opp.get('_pipeline_sport') or 'Baseball'),
-                    price_source='scp',
+                    price_source=price_src,
                     scan_id=tracker.run_id
                 )
                 db.add(row)
