@@ -103,9 +103,9 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           set -euo pipefail
-          # Default 40 Baseball players — avoids Browse API discovery (429-blocked since April 2026).
-          # When sold_comps is populated on RDS, switch to --player-rank-source sold_comps.
-          DEFAULT_PLAYERS="Paul Skenes,Jackson Holliday,Jackson Merrill,Wyatt Langford,Colton Cowser,Junior Caminero,Evan Carter,Jasson Dominguez,Jordan Walker,Masyn Winn,Dylan Crews,James Wood,Jac Caglianone,Shohei Ohtani,Aaron Judge,Bobby Witt Jr,Elly De La Cruz,Gunnar Henderson,Ronald Acuna Jr,Julio Rodriguez,Corbin Carroll,Mookie Betts,Mike Trout,Bryce Harper,Juan Soto,Fernando Tatis Jr,Freddie Freeman,Corey Seager,Trea Turner,Adley Rutschman,Spencer Strider,Yoshinobu Yamamoto,Ken Griffey Jr,Derek Jeter,Ichiro Suzuki,Cal Ripken Jr,Nolan Ryan,Roki Sasaki,Jackson Chourio,Marcelo Mayer"
+          # 60 Baseball players from SCP cache (25+ cached entries each).
+          # Avoids Browse API discovery (429-blocked since April 2026).
+          DEFAULT_PLAYERS="Mike Trout,Juan Soto,Aaron Judge,Bobby Witt Jr,Fernando Tatis Jr,Julio Rodriguez,Elly De La Cruz,Ronald Acuna Jr,Shohei Ohtani,Ken Griffey Jr,Mookie Betts,Paul Skenes,Corbin Carroll,Derek Jeter,Adley Rutschman,James Wood,Jackson Chourio,Marcelo Mayer,Gunnar Henderson,Nolan Ryan,Freddie Freeman,Yoshinobu Yamamoto,Jackson Merrill,Dylan Crews,Jasson Dominguez,Corey Seager,Junior Caminero,Cal Ripken Jr,Roman Anthony,Jackson Holliday,Roki Sasaki,Nick Gonzales,Nick Kurtz,David Wright,Trea Turner,Colton Cowser,Jordan Walker,Evan Carter,Ichiro Suzuki,Jac Caglianone,Luisangel Acuna,Mike Piazza,Matt Shaw,Jacob Wilson,Wyatt Langford,Manny Machado,Chipper Jones,Vladimir Guerrero Jr,Charlie Condon,Travis Bazzana,Yordan Alvarez,Drew Gilbert,Frank Thomas,Spencer Strider,Bryce Harper,Kyle Tucker,Oneil Cruz,Coby Mayo,Brooks Lee,Masyn Winn"
           PLAYERS="${{ inputs.players }}"
           if [ -z "$PLAYERS" ]; then
             PLAYERS="$DEFAULT_PLAYERS"
