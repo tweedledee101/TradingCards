@@ -52,6 +52,7 @@ def get_cards_to_crawl(db, limit: int, player_name: str = None, from_opportuniti
             Opportunity.card_set,
             Opportunity.card_number,
             Opportunity.parallel,
+            Opportunity.scp_price,
         ).outerjoin(
             recent_comps,
             and_(

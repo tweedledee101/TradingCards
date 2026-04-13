@@ -1,5 +1,72 @@
 # Trading Card Platform - Current Status
-**Last Updated:** 2026-04-07
+**Last Updated:** 2026-04-13
+
+## HONEST SYSTEM STATE
+
+**Target:** ~1,000 accurate opportunities (BIN + Auction). **Current:** 146 opportunities, many with wrong card matches. **Not trustworthy for buying decisions yet.**
+
+### What's Running (Prod / RDS)
+- Auction pipeline: 2x/day via GitHub Actions, finding 15-32 opps/run
+- BIN pipeline: **FIXED** -- switched to SCP cache + hardcoded players (no Browse discovery needed)
+- SCP cache: 12,806 entries (1,352 unique players, Selenium/Firefox)
+- sold_comps: **populating** -- worm running against RDS via `--opportunities`
+- Frontend: ragnarokgamez.com (Cognito auth, Opportunities + Business Dashboard)
+- API: api.ragnarokgamez.com (FastAPI Lambda)
+- Tests: 221 pass, 2 fail (auth), 11 errors (web search tests need Python 3.12)
+
+### What's Broken (Prod / RDS)
+- **Card data pipeline never ran on RDS** -- `cards`=1, `sales`=0, `active_listings`=0. Trending page empty.
+- **market_rates: 0 rows** -- pipeline uses scp_cache only
+- **52% of opportunities flagged** (76 of 146)
+- **Identity accuracy poor** -- CE verification showed wrong parallels, wrong players, grade mismatches
+- **147,060 error_log entries**
+- **inventory, scheduled_bids: empty**
+
+### RDS Table Counts (April 13, 2026)
+| Table | Rows | Notes |
+|-------|------|-------|
+| cards | 1 | Should be 25K+ -- card data pipeline never ran on RDS |
+| sales | 0 | Same -- no sold data on RDS |
+| active_listings | 0 | Same |
+| market_rates | 0 | Pipeline uses scp_cache instead |
+| scp_cache | 12,806 | Working -- 1,352 players, 43K+ variants |
+| sold_comps | 446+ | Worm running -- populating from opportunities |
+| opportunities | 146 | 118 BIN (stale, will refresh next cron) + 28 auction (fresh) |
+| pipeline_listing_skips | 41,544 | 33,110 economics + 3,243 reprint + 1,833 parallel + more |
+| job_runs | 119 | Auction completing; BIN will resume next cron |
+| error_log | 147,060 | Mostly eBay Browse HTTP errors |
+| schema_migrations | 30 | All applied |
+
+### The Core Problem
+Three compounding issues preventing 1,000 accurate opportunities:
+1. **Coverage too narrow**: 40 players, ~1,665 SCP variations. eBay has 1.1M+ Topps Chrome listings alone.
+2. **Identity matching wrong too often**: text-only matching (title -> SCP) misidentifies cards. Grade mismatch, parallel mismatch, wrong player. 33,110 economics rejects -- many are wrong matches, not genuinely unprofitable.
+3. **No visual verification in pipeline**: Collectors Edge API can identify cards from images (30s, structured JSON, no browser). Proven but not integrated into pipeline yet.
+
+### Session 85 (April 13): BIN Pipeline Fix + SCP Cache Mode + sold_comps Seeding
+- **Root cause of BIN failure**: eBay Browse API returning HTTP 429 on ALL 45 seed discovery calls. Analytics showed 5,000/5,000 remaining (daily quota fine) -- it's burst rate limiting, not quota exhaustion. Every seed got 429'd, discovery returned 0 players, pipeline exited.
+- **Fix 1: Hardcoded player list in workflow** -- `bin-plan` job now passes 40 known Baseball players directly to `write_bin_player_shards.py --players`. Zero Browse API calls for discovery. Eliminates the 429 failure mode entirely.
+- **Fix 2: BIN shards use `--use-scp-cache`** -- reads from 12,806 cached SCP entries (1,352 players, 43K+ variants) instead of Selenium. Removed Firefox/geckodriver install from BIN shard jobs. Faster CI, more reliable, same data.
+- **Fix 3: `--max-ebay-variations 500` per shard** -- SCP cache returns thousands of variants per player. Without a cap, 8 shards would blow through 5,000 Browse API calls/day. 500/shard = 4,000 total, leaves room for auction pipeline.
+- **Fix 4: Worm `--opportunities` SQL error** -- `ORDER BY scp_price` wasn't in `SELECT DISTINCT` list. Added `scp_price` to select. Worm now populates sold_comps from 146 existing opportunities.
+- **sold_comps seeding**: 446 comps stored from first batch before 130point rate limit. Worm will continue on retry.
+- **Changed files**: `.github/workflows/pipeline.yml` (BIN discovery + SCP cache + variation cap), `worm_130point.py` (SQL fix)
+
+### Session 84 (April 13): CE API Direct + Funnel Analysis
+- **CE tRPC API discovered**: `POST collectorsedgeai.com/api/trpc/cards.identifyByImage` -- base64 image in, structured JSON out (player, year, set, variant, printRun, pricing with methodology). 30s per card, no Playwright.
+- **Integrated into existing tooling**: `collectors_edge_photo_run.py` tries API first, Playwright fallback. `--no-api` flag to force browser. Works with `--from-db`, `--merge-qa-to-db`, explore cohorts.
+- **Full-size images fix**: `opportunity_image_urls.py` now sorts s-l1600.jpg first (was using 225px thumbnails -- CE accuracy much better with full-size).
+- **Batch tested 25 cards via CE API**: 100% success rate (vs 40% with Playwright). Found pricing gaps (Cowser Auto /99: SCP $40, CE $175), wrong player matches (Chourio listing identified as Rowdy Tellez), grade mismatches.
+- **Funnel analysis**: 79.7% of pipeline skips are economics. 14,500 skips where buy > 3x SCP (strong wrong-match signal). 31,141 skips on cards with SCP < $20 (wasted effort).
+- **Web search (ddgs/primp)**: Works but doesn't beat Browse API volume. Not the path forward.
+- **New files**: `scripts/ce_verify_skips.py`, `backend/services/web_search_discovery.py`, `tests/unit/test_web_search_discovery.py`
+- **Changed files**: `backend/utils/collectors_edge_result.py` (API functions), `backend/utils/opportunity_image_urls.py` (full-size sort), `scripts/dev/collectors_edge_photo_run.py` (API-first flow)
+
+---
+
+## SESSION HISTORY (oldest at bottom)
+
+Session 83: **Multi-platform listing discovery research** -- ddgs/primp tested, Browse API still better for volume. Python 3.12 confirmed at `/usr/local/bin/python3.12`.
 
 Session 82: **`scripts/psql_dev.py`** — **`psql`** against dev URL when **`DATABASE_URL_DEV`** is unset (derived like **`migrate.py --dev`**). **`.amazonq/rules/database-access.md`**, **`PIPELINE-OPS`**.
 
@@ -135,15 +202,9 @@ Session 17: **Production UI live** at https://ragnarokgamez.com (and www) via Cl
 
 Session 18: **Cognito auth gate** — SPA shows **Sign in** until Hosted UI completes; PKCE + `/auth/callback`; axios sends `Authorization: Bearer`. **API** routes (except `/health`, webhooks, eBay compliance) require **JWT** via `require_auth`. CORS limited to localhost + ragnarokgamez.com (+ www). Cognito stack updated: callback URLs include `/auth/callback`. Backend needs `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` in `backend/.env` (see `.env.example`).
 
-## SYSTEM STATUS: CI GREEN, PIPELINES SCHEDULED, RDS PRIMARY, BUSINESS PLANNER LIVE
+## SYSTEM STATUS: BIN FIXED (SCP CACHE MODE), AUCTION RUNNING, IDENTITY ACCURACY POOR
 
-The SCP-to-eBay opportunity pipeline (`find_opportunities.py`) is running full 40-player scans. Latest scan: 133 opportunities found. Pipeline now includes BIN and auction listings, three-tier pricing (SCP -> 130point sold comps -> eBay BIN comps), volume filtering, price floor, factory set detection, and reprint filtering. Background data worm crawls 130point.com for free eBay sold data. Opportunities stored in database and served via API to the frontend.
-
-Session 14 added: Snipe UI with calculated recommended price (SCP - fees - $10 profit = max bid), Schedule Bid manual entry, My Bids strip on Opportunities page, RDS as primary database, migration runner (`migrate.py`) with schema_migrations tracking for local/RDS sync.
-
-Session 15 added: All 167 tests passing in CI (first time ever). GitHub Actions pipelines scheduled on cron (BIN 2AM/2PM ET, Auction 5AM/5PM ET, Daily Report 7PM ET). Daily operations report (`daily_report.py`) covering pipeline health, data freshness, data quality, QA flags, and action items. ADR-006 Business Operating System scoped. Firefox/geckodriver install fixed for Ubuntu 24.04 GitHub runners (Mozilla PPA + pinned geckodriver v0.36.0).
-
-Session 16 added: Business Operating System fully built (ADR-006). Backend: 4 new tables (business_goals, daily_snapshots, daily_plans, capital_transactions), BusinessPlanner service with goal decomposition, daily plan generator, capital tracking, catch-up logic. 6 API endpoints under /api/business/. Frontend: Business Dashboard page with goal setup, daily targets, weekly/monthly progress bars, action plan with buy links, 12-month trajectory chart, capital transaction recording. Migration 017 applied to both local + RDS (24 migrations total). Nav bar updated with Business link.
+See top of this file for honest current state. The summary below is from earlier sessions and **overstates what is working on RDS**. The numbers (25,434 cards, 42,313 sales) reflect the **local** database, not RDS production.
 
 ### Quick Start
 
@@ -214,19 +275,14 @@ SCP Catalog (100 variations/player)
 - Job tracking: `job_runs` table, `/api/status` endpoint
 - Data retention: self-managing via `run_retention_cleanup()` PostgreSQL function
 
-### Database State
-- 25,434 cards (40 players)
-- 42,313 sales (real eBay sold data)
-- 44,165 active listings (BIN + Auction)
-- 4,400 market rates (SCP prices with Ungraded/Grade 9/PSA 10)
-- 334 SCP cache entries (24h TTL)
-- 25 sold comps (130point eBay sold data, growing via worm)
-- 133 opportunities (latest scan, stored in DB)
-- 24 migrations tracked (schema_migrations table on both local + RDS)
-- 23 tables in both databases
+### Database State (LOCAL -- not RDS; see top of file for RDS)
+- 25,434 cards (40 players) -- LOCAL ONLY
+- 42,313 sales -- LOCAL ONLY
+- 44,165 active listings -- LOCAL ONLY
+- 4,400 market rates -- LOCAL ONLY
+- RDS has: cards=1, sales=0, active_listings=0, market_rates=0
 - Primary DB: RDS (`cardpulse-db.ckvp9bhavaww.us-east-1.rds.amazonaws.com`)
-- Local DB: PostgreSQL localhost (structurally synced via migrate.py)
-- Sport: Baseball only
+- 30 migrations applied on RDS
 
 ### Auction-First Pipeline (Rewritten -- March 22)
 File: `find_auction_opportunities.py`
