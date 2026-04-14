@@ -269,3 +269,43 @@ jobs:
           path: /tmp/opportunity_auction.log
           if-no-files-found: ignore
           retention-days: 7
+
+  verify-ce:
+    name: CE identity verification
+    needs: [opportunity-bin, opportunity-auction]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r backend/requirements.txt
+
+      - name: Verify top opportunities via CE
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          set -o pipefail
+          LOG=/tmp/ce_verify.log
+          python3 scripts/verify_opportunities_ce.py \
+            --limit 50 \
+            --min-profit 10 \
+            --cooldown 5 \
+            2>&1 | tee "$LOG"
+
+      - name: Upload CE verification log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ce-verify-logs
+          path: /tmp/ce_verify.log
+          if-no-files-found: ignore
+          retention-days: 7

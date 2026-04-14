@@ -24,6 +24,7 @@ def get_opportunities(
     listing_type: Optional[str] = Query(default=None),
     sport: Optional[str] = Query(default=None, description="Baseball, Basketball, Football; omit or 'all' for any"),
     hide_flagged: bool = Query(default=False),
+    hide_ce_rejected: bool = Query(default=True, description="Hide opportunities where CE verification found identity mismatch"),
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db)
 ):
@@ -51,6 +52,11 @@ def get_opportunities(
         query = query.filter(Opportunity.roi >= min_roi)
     if hide_flagged:
         query = query.filter(Opportunity.flagged == False)
+    if hide_ce_rejected:
+        ce_reject = ['ce_player_mismatch', 'ce_year_mismatch', 'ce_price_divergence']
+        query = query.filter(
+            ~Opportunity.verification_status.in_(ce_reject)
+        )
     if sport and str(sport).strip().lower() not in ("all", "", "any"):
         query = query.filter(Opportunity.sport == str(sport).strip().title())
 
@@ -186,6 +192,7 @@ def get_auctions(
     min_profit: Optional[float] = Query(default=None),
     max_budget: Optional[float] = Query(default=None),
     include_ended: bool = Query(default=False),
+    hide_ce_rejected: bool = Query(default=True),
     sport: Optional[str] = Query(default=None),
     limit: int = Query(default=100, ge=1, le=500),
     db: Session = Depends(get_db)
@@ -202,6 +209,11 @@ def get_auctions(
         query = query.filter(Opportunity.profit >= min_profit)
     if max_budget:
         query = query.filter(Opportunity.buy_price <= max_budget)
+    if hide_ce_rejected:
+        ce_reject = ['ce_player_mismatch', 'ce_year_mismatch', 'ce_price_divergence']
+        query = query.filter(
+            ~Opportunity.verification_status.in_(ce_reject)
+        )
     if sport and str(sport).strip().lower() not in ("all", "", "any"):
         query = query.filter(Opportunity.sport == str(sport).strip().title())
     opps = query.order_by(Opportunity.profit.desc()).limit(limit).all()
