@@ -1,39 +1,51 @@
 # Trading Card Platform - Current Status
-**Last Updated:** 2026-04-13
+**Last Updated:** 2026-04-14
 
 ## HONEST SYSTEM STATE
 
-**Target:** ~1,000 accurate opportunities (BIN + Auction). **Current:** 146 opportunities, many with wrong card matches. **Not trustworthy for buying decisions yet.**
+**Target:** ~1,000 accurate opportunities (BIN + Auction). **Current:** 60 CE-verified opportunities out of 150 total. **40% accuracy rate -- CE verification now filtering out wrong matches.**
 
 ### What's Running (Prod / RDS)
 - Auction pipeline: 2x/day via GitHub Actions, finding 15-32 opps/run
-- BIN pipeline: **FIXED** -- switched to SCP cache + hardcoded players (no Browse discovery needed)
-- SCP cache: 12,806 entries (1,352 unique players, Selenium/Firefox)
-- sold_comps: **populating** -- worm running against RDS via `--opportunities`
+- BIN pipeline: FIXED -- uses SCP cache (no Selenium), 60 hardcoded players, 500 variations/shard. Awaiting first run.
+- CE verification: all 150 existing opportunities verified. 60 confirmed, 90 rejected (66 price divergence, 23 year mismatch, 1 player mismatch)
+- CE verification in CI: runs automatically after BIN + auction pipelines
+- API: hides CE-rejected opportunities by default (`hide_ce_rejected=true`)
+- SCP cache: 12,806 entries (1,352 unique players, 43K+ variants)
+- sold_comps: 446+ rows (worm seeding from opportunities)
 - Frontend: ragnarokgamez.com (Cognito auth, Opportunities + Business Dashboard)
 - API: api.ragnarokgamez.com (FastAPI Lambda)
 - Tests: 221 pass, 2 fail (auth), 11 errors (web search tests need Python 3.12)
 
 ### What's Broken (Prod / RDS)
+- **BIN pipeline hasn't run with new config yet** -- pushed today, awaiting manual trigger or 2PM ET cron
 - **Card data pipeline never ran on RDS** -- `cards`=1, `sales`=0, `active_listings`=0. Trending page empty.
 - **market_rates: 0 rows** -- pipeline uses scp_cache only
-- **52% of opportunities flagged** (76 of 146)
-- **Identity accuracy poor** -- CE verification showed wrong parallels, wrong players, grade mismatches
 - **147,060 error_log entries**
 - **inventory, scheduled_bids: empty**
 
-### RDS Table Counts (April 13, 2026)
+### CE Verification Results (April 14, 2026 -- all 150 opportunities)
+| Status | Count | Avg Profit | Meaning |
+|--------|-------|-----------|----------|
+| ce_confirmed | 60 | $22.86 | Real opportunities -- card identity matches |
+| ce_price_divergence | 66 | $62.36 | Wrong SCP match -- fake profit |
+| ce_year_mismatch | 23 | $21.88 | Wrong year -- different card |
+| ce_player_mismatch | 1 | $22.85 | Wrong player entirely |
+
+Key insight: the highest-"profit" opportunities were the most wrong. Top 20 by profit had 95% false positive rate. Lower-profit opportunities had ~50% accuracy. CE catches exactly the wrong matches the pipeline was surfacing.
+
+### RDS Table Counts (April 14, 2026)
 | Table | Rows | Notes |
 |-------|------|-------|
-| cards | 1 | Should be 25K+ -- card data pipeline never ran on RDS |
-| sales | 0 | Same -- no sold data on RDS |
+| cards | 1 | Card data pipeline never ran on RDS |
+| sales | 0 | Same |
 | active_listings | 0 | Same |
 | market_rates | 0 | Pipeline uses scp_cache instead |
-| scp_cache | 12,806 | Working -- 1,352 players, 43K+ variants |
-| sold_comps | 446+ | Worm running -- populating from opportunities |
-| opportunities | 146 | 118 BIN (stale, will refresh next cron) + 28 auction (fresh) |
-| pipeline_listing_skips | 41,544 | 33,110 economics + 3,243 reprint + 1,833 parallel + more |
-| job_runs | 119 | Auction completing; BIN will resume next cron |
+| scp_cache | 12,806 | 1,352 players, 43K+ variants |
+| sold_comps | 446+ | Worm seeding from opportunities |
+| opportunities | 150 | 60 CE-confirmed, 90 CE-rejected, BIN stale (April 6) |
+| pipeline_listing_skips | 41,544 | 33,110 economics + 3,243 reprint + more |
+| job_runs | 123+ | Auction completing; BIN awaiting first new run |
 | error_log | 147,060 | Mostly eBay Browse HTTP errors |
 | schema_migrations | 30 | All applied |
 
@@ -42,6 +54,15 @@ Three compounding issues preventing 1,000 accurate opportunities:
 1. **Coverage too narrow**: 40 players, ~1,665 SCP variations. eBay has 1.1M+ Topps Chrome listings alone.
 2. **Identity matching wrong too often**: text-only matching (title -> SCP) misidentifies cards. Grade mismatch, parallel mismatch, wrong player. 33,110 economics rejects -- many are wrong matches, not genuinely unprofitable.
 3. **No visual verification in pipeline**: Collectors Edge API can identify cards from images (30s, structured JSON, no browser). Proven but not integrated into pipeline yet.
+
+### Session 85 continued (April 14): CE Verification Complete + CI Integration
+- **All 150 opportunities CE-verified**: 60 confirmed (40%), 66 price divergence, 23 year mismatch, 1 player mismatch
+- **Key finding**: top 20 by profit had 95% false positive rate. Highest-"profit" opportunities were the most wrong (avg $62 fake profit on price divergence vs $23 real profit on confirmed).
+- **CE verification added to CI**: `verify-ce` job runs after BIN + auction, verifies top 50 unverified by profit
+- **API filter**: `hide_ce_rejected=true` default on `/opportunities` and `/auctions` -- UI only shows confirmed or pending
+- **60 players in BIN pipeline** (up from 40): all with 25+ SCP cache entries
+- **All 3 commits pushed to GitHub**: BIN fix, 60 players + CE script, CE in CI + API filter
+- **Changed files**: `.github/workflows/pipeline.yml`, `backend/api/routes/opportunities.py`, `scripts/verify_opportunities_ce.py`, `scripts/query_scp_cache_players.py`
 
 ### Session 85 (April 13): BIN Pipeline Fix + SCP Cache Mode + sold_comps Seeding
 - **Root cause of BIN failure**: eBay Browse API returning HTTP 429 on ALL 45 seed discovery calls. Analytics showed 5,000/5,000 remaining (daily quota fine) -- it's burst rate limiting, not quota exhaustion. Every seed got 429'd, discovery returned 0 players, pipeline exited.
