@@ -208,6 +208,8 @@ def find_ebay_opportunities(
     pipeline_card_label: str = "",
     job_run_id: int | None = None,
     dev_strict_listings: bool = False,
+    cache_db=None,
+    cache_ttl_hours: int = 12,
 ):
     """Search eBay for listings below SCP price (active **BIN + auction** — ``get_active_listings``).
 
@@ -227,9 +229,16 @@ def find_ebay_opportunities(
     if not search_query:
         search_query = query
 
-    meta = {'listings_fetched': 0, 'query': query}
+    meta = {'listings_fetched': 0, 'query': query, 'cache_hit': False}
     try:
-        listings = scraper.get_active_listings(query)
+        if cache_db is not None:
+            from backend.utils.ebay_search_cache import cached_get_active_listings
+            listings = cached_get_active_listings(scraper, query, cache_db, ttl_hours=cache_ttl_hours)
+            # Check if this was a cache hit (no new API call)
+            from backend.utils.ebay_search_cache import get_cached_results
+            meta['cache_hit'] = get_cached_results(cache_db, query, ttl_hours=cache_ttl_hours) is not None
+        else:
+            listings = scraper.get_active_listings(query)
         meta['listings_fetched'] = len(listings or [])
     except Exception as e:
         log.error(f'eBay search failed: {e}', category='ebay_api_error', context={
@@ -862,6 +871,7 @@ if __name__ == '__main__':
         _VISION_Q_MAX = int(args.dev_vision_queue_max) if args.dev_vision_queue_pass else 50
         recon_db = SessionLocal() if args.dev_reconcile_scp_comps else None
         vision_seen_ids: set[str] = set()
+        cache_db = SessionLocal()  # eBay search cache DB session
 
         try:
             for i, var in enumerate(all_variations, 1):
@@ -900,6 +910,7 @@ if __name__ == '__main__':
                     listing_skip_sink=listing_skip_buffer,
                     job_run_id=tracker.run_id,
                     dev_strict_listings=bool(args.dev_strict_listings),
+                    cache_db=cache_db,
                 )
                 print(f"  Query: {query}")
                 if len(listing_skip_buffer) >= 200:
@@ -981,6 +992,7 @@ if __name__ == '__main__':
                     'opportunities_raw': int(ebay_meta.get('opportunities_raw') or 0),
                     'passed_profit_roi': len(good_opps),
                     'ebay_error': bool(ebay_meta.get('ebay_error')),
+                    'cache_hit': bool(ebay_meta.get('cache_hit')),
                 })
 
                 print()
@@ -988,6 +1000,7 @@ if __name__ == '__main__':
         finally:
             if recon_db is not None:
                 recon_db.close()
+            cache_db.close()
 
         # Summary
         print("=" * 80)
