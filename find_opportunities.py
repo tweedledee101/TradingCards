@@ -597,6 +597,11 @@ if __name__ == '__main__':
         help='Cap for --dev-vision-queue-pass (default 200)',
     )
     parser.add_argument(
+        '--use-scp-cache',
+        action='store_true',
+        help='Read SCP catalog from scp_cache table instead of Selenium (no browser needed). Uses cached data from prior runs.',
+    )
+    parser.add_argument(
         '--max-ebay-variations',
         type=int,
         default=0,
@@ -723,61 +728,108 @@ if __name__ == '__main__':
             log.error(f'Persist listing skips failed: {ex}', category='skip_persist_error')
 
     try:
-        # Step 2: Start Selenium for SCP
-        print("Starting browser for SportsCardsPro...")
-        opts = Options()
-        opts.add_argument('--headless')
-        # Auto-detect Firefox binary (local vs GitHub Actions)
-        import shutil
-        for firefox_path in ['/usr/lib/firefox/firefox', '/usr/bin/firefox-esr', '/usr/bin/firefox']:
-            if shutil.which(firefox_path) or __import__('os').path.exists(firefox_path):
-                opts.binary_location = firefox_path
-                break
-        service = Service(executable_path=shutil.which('geckodriver') or '/usr/local/bin/geckodriver')
-        driver = webdriver.Firefox(options=opts, service=service)
-
-        # Step 3: Get SCP catalogs (tag each variation with pipeline sport for DB/UI)
+        # Step 2/3: Get SCP catalogs
         all_variations = []
-        for i, prow in enumerate(player_rows, 1):
-            player = prow['player_name']
-            ply_sport = prow.get('sport') or 'Baseball'
-            print(f"\n[SCP {i}/{len(player_rows)}] {player} ({ply_sport})")
-            catalog = get_scp_catalog(driver, player)
-            print(f"  {len(catalog)} total variations found")
 
-            if not catalog:
-                log.warn('SCP returned 0 variations', category='scp_empty', context={
-                    'player': player
-                })
+        if args.use_scp_cache:
+            # Read from scp_cache table -- no Selenium needed
+            print("Reading SCP catalog from scp_cache (no browser)...")
+            import json as _json
+            cache_db = SessionLocal()
+            from backend.models import SCPCache
+            for i, prow in enumerate(player_rows, 1):
+                player = prow['player_name']
+                ply_sport = prow.get('sport') or 'Baseball'
+                print(f"\n[SCP-cache {i}/{len(player_rows)}] {player} ({ply_sport})")
+                rows = cache_db.query(SCPCache).filter(
+                    SCPCache.player_name.ilike(f"%{player}%")
+                ).all()
+                catalog = []
+                for row in rows:
+                    variants = row.variants
+                    if isinstance(variants, str):
+                        variants = _json.loads(variants)
+                    if not isinstance(variants, list):
+                        continue
+                    for v in variants:
+                        price = v.get('ungraded') or 0
+                        if not price or price <= 0:
+                            continue
+                        catalog.append({
+                            'player': player,
+                            'title': v.get('raw_title', ''),
+                            'parallel': v.get('parallel', 'Base'),
+                            'card_number': str(row.card_number or v.get('card_number', '')),
+                            'print_run': v.get('print_run'),
+                            'year': row.card_year or v.get('year'),
+                            'set_name': v.get('card_set', ''),
+                            'price': float(price),
+                            'grade_9': v.get('grade_9'),
+                            'psa_10': v.get('psa_10'),
+                            'scp_url': v.get('url'),
+                            'volume': '',
+                        })
+                print(f"  {len(catalog)} total variations from cache")
+                affordable = [v for v in catalog if args.min_scp_price <= v['price'] <= args.max_scp_price]
+                print(f"  {len(affordable)} tradeable in ${args.min_scp_price:.0f}-${args.max_scp_price:.0f} range")
+                for v in affordable:
+                    print(f"    ${v['price']:>8.2f} | {v['title'][:50]} | {v['set_name']}")
+                    v['_pipeline_sport'] = ply_sport
+                all_variations.extend(affordable)
+                tracker.update(processed=i)
+            cache_db.close()
+        else:
+            # Selenium path (original)
+            print("Starting browser for SportsCardsPro...")
+            opts = Options()
+            opts.add_argument('--headless')
+            import shutil
+            for firefox_path in ['/usr/lib/firefox/firefox', '/usr/bin/firefox-esr', '/usr/bin/firefox']:
+                if shutil.which(firefox_path) or __import__('os').path.exists(firefox_path):
+                    opts.binary_location = firefox_path
+                    break
+            service = Service(executable_path=shutil.which('geckodriver') or '/usr/local/bin/geckodriver')
+            driver = webdriver.Firefox(options=opts, service=service)
 
-            affordable = [v for v in catalog if args.min_scp_price <= v['price'] <= args.max_scp_price]
+            for i, prow in enumerate(player_rows, 1):
+                player = prow['player_name']
+                ply_sport = prow.get('sport') or 'Baseball'
+                print(f"\n[SCP {i}/{len(player_rows)}] {player} ({ply_sport})")
+                catalog = get_scp_catalog(driver, player)
+                print(f"  {len(catalog)} total variations found")
 
-            # Filter out cards that rarely sell -- dead money
-            LOW_VOLUME = ['rare', '1 sale per year', '2 sales per year']
-            liquid = []
-            for v in affordable:
-                vol = v.get('volume', '').lower()
-                if any(lv in vol for lv in LOW_VOLUME):
-                    continue
-                liquid.append(v)
+                if not catalog:
+                    log.warn('SCP returned 0 variations', category='scp_empty', context={
+                        'player': player
+                    })
 
-            skipped = len(affordable) - len(liquid)
-            if skipped:
-                print(f"  {skipped} skipped (low volume)")
-            affordable = liquid
+                affordable = [v for v in catalog if args.min_scp_price <= v['price'] <= args.max_scp_price]
 
-            print(f"  {len(affordable)} tradeable in ${args.min_scp_price:.0f}-${args.max_scp_price:.0f} range")
+                LOW_VOLUME = ['rare', '1 sale per year', '2 sales per year']
+                liquid = []
+                for v in affordable:
+                    vol = v.get('volume', '').lower()
+                    if any(lv in vol for lv in LOW_VOLUME):
+                        continue
+                    liquid.append(v)
 
-            for v in affordable:
-                vol_tag = f" [{v['volume']}]" if v.get('volume') else ''
-                print(f"    ${v['price']:>8.2f} | {v['title'][:50]} | {v['set_name']}{vol_tag}")
-                v['_pipeline_sport'] = ply_sport
+                skipped = len(affordable) - len(liquid)
+                if skipped:
+                    print(f"  {skipped} skipped (low volume)")
+                affordable = liquid
 
-            all_variations.extend(affordable)
-            tracker.update(processed=i)
-            time.sleep(2)
+                print(f"  {len(affordable)} tradeable in ${args.min_scp_price:.0f}-${args.max_scp_price:.0f} range")
 
-        driver.quit()
+                for v in affordable:
+                    vol_tag = f" [{v['volume']}]" if v.get('volume') else ''
+                    print(f"    ${v['price']:>8.2f} | {v['title'][:50]} | {v['set_name']}{vol_tag}")
+                    v['_pipeline_sport'] = ply_sport
+
+                all_variations.extend(affordable)
+                tracker.update(processed=i)
+                time.sleep(2)
+
+            driver.quit()
         print(f"\n{'=' * 80}")
         print(f"Total variations to check on eBay: {len(all_variations)}")
         if args.max_ebay_variations and len(all_variations) > args.max_ebay_variations:
