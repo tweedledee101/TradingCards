@@ -24,6 +24,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import requests
+from sqlalchemy import text
 from backend.utils.database import SessionLocal
 from backend.utils.collectors_edge_result import (
     call_ce_identify_api,
@@ -44,6 +45,70 @@ def fetch_image(url: str, timeout: int = 15) -> bytes | None:
     except Exception:
         pass
     return None
+
+
+def _try_year_correction(opp, api_json: dict, ce: dict, db) -> dict | None:
+    """When CE confirms player but disagrees on year, look up SCP price for CE year.
+    Returns correction dict if profitable, else None."""
+    import json as _json
+
+    ce_year = api_json.get("year")
+    if not ce_year:
+        return None
+    try:
+        ce_year_int = int(ce_year)
+    except (TypeError, ValueError):
+        return None
+
+    player = opp.player_name
+    card_number = opp.card_number or ""
+
+    # Use a separate session to avoid polluting the ORM session
+    lookup_db = SessionLocal()
+    try:
+        rows = lookup_db.execute(
+            text(
+                "SELECT variants FROM scp_cache "
+                "WHERE player_name ILIKE :player AND card_year = :yr "
+                "AND card_number ILIKE :cn LIMIT 5"
+            ),
+            {"player": player, "yr": ce_year_int, "cn": card_number},
+        ).fetchall()
+    finally:
+        lookup_db.close()
+
+    if not rows:
+        return None
+
+    best_price = None
+    for row in rows:
+        variants = row[0]
+        if isinstance(variants, str):
+            variants = _json.loads(variants)
+        if not isinstance(variants, list):
+            continue
+        for v in variants:
+            price = v.get("ungraded") or 0
+            if price and float(price) >= 5:
+                if best_price is None or float(price) > best_price:
+                    best_price = float(price)
+
+    if best_price is None:
+        return None
+
+    buy = float(opp.buy_price)
+    profit = best_price - buy - (buy * 0.13)
+    if profit < 10:
+        return None
+
+    return {
+        "year_corrected": True,
+        "original_year": opp.card_year,
+        "corrected_year": ce_year_int,
+        "original_scp_price": float(opp.scp_price),
+        "corrected_scp_price": best_price,
+        "corrected_profit": round(profit, 2),
+    }
 
 
 def best_image_url(opp: Opportunity) -> str | None:
@@ -118,6 +183,14 @@ def verify_one(opp: Opportunity, db, *, dry_run: bool = False) -> dict:
         "ce_variant": api_json.get("variant"),
         "ce_print_run": api_json.get("printRun"),
     }
+
+    # Year correction: player is right but year is wrong -- try SCP lookup for CE year
+    if status == "ce_year_mismatch" and player_ok and db is not None:
+        corrected = _try_year_correction(opp, api_json, ce, db)
+        if corrected:
+            status = "ce_confirmed"
+            detail["ce_status"] = status
+            detail.update(corrected)
 
     # Price divergence check
     ce_med = ce_pricing.get("median_usd")
