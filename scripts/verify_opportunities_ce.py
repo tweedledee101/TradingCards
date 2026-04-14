@@ -143,9 +143,9 @@ def verify_one(opp: Opportunity, db, *, dry_run: bool = False) -> dict:
                 existing = json.loads(existing)
             except Exception:
                 existing = {}
-        existing.update(detail)
+        merged = {**existing, **detail}
         opp.verification_status = status
-        opp.verification_detail = existing
+        opp.verification_detail = merged  # reassign so SQLAlchemy detects JSONB change
         db.commit()
 
     return result
