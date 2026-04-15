@@ -319,15 +319,33 @@ def find_ebay_opportunities(
 
             parallel = variation.get('parallel', 'Base')
             if parallel != 'Base':
-                parallel_keywords = parallel.lower().split()
-                if not dev_strict_listings and not any(kw in title_lower for kw in parallel_keywords):
-                    _record_bin_listing_skip(
-                        listing_skip_sink, "parallel_mismatch",
-                        pipeline="opportunity_finder", sport=sport, search_query=search_query,
-                        pipeline_card_label=pipeline_card_label, listing=listing, scp_price=scp_price,
-                        job_run_id=job_run_id, extra={"parallel": parallel},
-                    )
-                    continue
+                parallel_keywords = [kw for kw in parallel.lower().split() if len(kw) >= 3]
+                if parallel_keywords:
+                    # Require ALL meaningful parallel keywords in title, not just any.
+                    # "Blue Rainbow" must have BOTH "blue" AND "rainbow" in the title.
+                    # This prevents "Aqua Rainbow" from matching "Blue Rainbow".
+                    if not all(kw in title_lower for kw in parallel_keywords):
+                        _record_bin_listing_skip(
+                            listing_skip_sink, "parallel_mismatch",
+                            pipeline="opportunity_finder", sport=sport, search_query=search_query,
+                            pipeline_card_label=pipeline_card_label, listing=listing, scp_price=scp_price,
+                            job_run_id=job_run_id, extra={"parallel": parallel, "method": "all_keywords"},
+                        )
+                        continue
+
+            # Grade detection: skip graded listings (PSA/BGS/SGC/CGC).
+            # Comparing graded card prices to ungraded SCP is always wrong.
+            GRADED_PATTERNS = ['psa ', 'bgs ', 'sgc ', 'cgc ', 'fcgs ', 'gem mint',
+                               'mint 10', 'mint 9', ' graded ', 'psa10', 'psa 10',
+                               'bgs 10', 'sgc 10', 'cgc 10']
+            if any(gp in title_lower for gp in GRADED_PATTERNS):
+                _record_bin_listing_skip(
+                    listing_skip_sink, "graded_listing",
+                    pipeline="opportunity_finder", sport=sport, search_query=search_query,
+                    pipeline_card_label=pipeline_card_label, listing=listing, scp_price=scp_price,
+                    job_run_id=job_run_id,
+                )
+                continue
 
             is_auction = listing.get('listing_type') == 'auction'
 
@@ -414,6 +432,29 @@ def find_ebay_opportunities(
 
             profit = scp_price - price - (price * FEE_RATE)
             roi = (profit / price) * 100
+
+            # SCP variant sanity check: if buy price is far below SCP, check if there's
+            # a cheaper SCP variant for the same card# that better explains the price.
+            # This catches wrong parallel matches (e.g., Aqua Rainbow $56 matched to Blue Rainbow $193).
+            if profit > 0 and price < scp_price * 0.50 and cache_db is not None:
+                try:
+                    from backend.utils.scp_variant_sanity import check_variant_sanity
+                    sanity = check_variant_sanity(
+                        cache_db, variation['player'], variation.get('year'),
+                        variation.get('card_number'), scp_price, price,
+                    )
+                    if sanity and sanity.get('likely_wrong_parallel'):
+                        _record_bin_listing_skip(
+                            listing_skip_sink, "variant_sanity_reject",
+                            pipeline="opportunity_finder", sport=sport, search_query=search_query,
+                            pipeline_card_label=pipeline_card_label, listing=listing, scp_price=scp_price,
+                            job_run_id=job_run_id,
+                            extra={"closest_parallel": sanity.get('closest_parallel'),
+                                   "closest_price": sanity.get('closest_price')},
+                        )
+                        continue
+                except Exception:
+                    pass  # sanity check failure is non-fatal
 
             if profit <= 0 or roi <= 0:
                 _record_bin_listing_skip(
