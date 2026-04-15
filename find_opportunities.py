@@ -842,9 +842,20 @@ if __name__ == '__main__':
         print(f"\n{'=' * 80}")
         print(f"Total variations to check on eBay: {len(all_variations)}")
         if args.max_ebay_variations and len(all_variations) > args.max_ebay_variations:
+            # Prioritize the $20-$200 sweet spot where arbitrage actually exists,
+            # then $200-$500, then $5-$20 (mostly noise at low end)
+            def _sort_key(v):
+                p = v['price']
+                if 20 <= p <= 200:
+                    return (0, -p)  # sweet spot first, highest price first
+                elif 200 < p <= 500:
+                    return (1, -p)
+                else:
+                    return (2, -p)
+            all_variations.sort(key=_sort_key)
             print(
                 f"  (capped to {args.max_ebay_variations} via --max-ebay-variations — "
-                f"full list had {len(all_variations)})"
+                f"full list had {len(all_variations)}, prioritized $20-$200 sweet spot)"
             )
             all_variations = all_variations[: args.max_ebay_variations]
         print(f"{'=' * 80}\n")

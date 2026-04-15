@@ -71,9 +71,9 @@ on:
         required: false
         default: 'baseball'
       ebay_variation_cap:
-        description: 'Max SCP lines to search on eBay per shard (blank = 500 default for SCP cache mode).'
+        description: 'Max SCP lines to search on eBay per shard (default 300 to fit within 5K daily Browse quota).'
         required: false
-        default: '500'
+        default: '300'
 
 jobs:
   # Keep --shards 8 in sync with matrix.shard list below.
@@ -186,7 +186,7 @@ jobs:
             --min-scp-price "${{ inputs.min_scp_price || '5' }}"
             --max-scp-price "${{ inputs.max_scp_price || '1000' }}"
             --sport "${{ inputs.sport || 'Baseball' }}"
-            --max-ebay-variations "${{ inputs.ebay_variation_cap || '500' }}"
+            --max-ebay-variations "${{ inputs.ebay_variation_cap || '300' }}"
           )
           "${ARGS[@]}" 2>&1 | tee "$LOG"
 
