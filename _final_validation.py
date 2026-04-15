@@ -111,7 +111,7 @@ for cr in cache_rows:
         if len(vs) >= 2:
             closest = min(vs, key=lambda v: abs(v['price'] - price))
             pvc = effective_scp / max(closest['price'], 1)
-            if pvc > 3.0: continue
+            if pvc > 2.0: continue
 
         seen.add(iid); total += 1
 

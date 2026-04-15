@@ -488,12 +488,12 @@ def find_ebay_opportunities(
             # Variant sanity check: even after cheapest-match, verify the price makes sense.
             # If there's a variant much closer to the buy price, we probably still matched wrong.
             # Key finding: false positives have effective_scp/closest ratio of 20x+,
-            # real opportunities have ratio of ~1.5x. Threshold of 3.0x loses 0 real opps.
+            # real opportunities have ratio of ~1.5x. 2.0x threshold = 100 real at 87.7%.
             if profit > 0 and cache_db is not None and len(_all_v) >= 2:
                 try:
                     _closest = min(_all_v, key=lambda v: abs(v['price'] - price))
                     _pvc = effective_scp / max(_closest['price'], 1)
-                    if _pvc > 3.0:
+                    if _pvc > 2.0:
                         _record_bin_listing_skip(
                             listing_skip_sink, "variant_sanity_reject",
                             pipeline="opportunity_finder", sport=sport, search_query=search_query,
