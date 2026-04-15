@@ -23,6 +23,7 @@ def check_variant_sanity(
     card_number: Optional[str],
     pipeline_scp_price: float,
     buy_price: float,
+    parallel: str = '',
 ) -> Optional[Dict[str, Any]]:
     """Check if a cheaper SCP variant better explains the eBay buy price.
 
@@ -71,7 +72,17 @@ def check_variant_sanity(
     closest_ratio = closest_gap / max(buy_price, 1)
     pipeline_vs_closest = pipeline_scp_price / max(closest['price'], 1)
 
-    if closest_ratio < 0.40 and pipeline_vs_closest > 1.67:
+    # Use stricter thresholds for single-keyword parallels (1 meaningful keyword).
+    # Single-kw parallels like "Refractor" match too broadly.
+    kw_count = len([w for w in parallel.lower().split() if len(w) >= 3]) if parallel else 0
+    if kw_count <= 1:
+        threshold_gap = 0.85
+        threshold_pvc = 1.15
+    else:
+        threshold_gap = 0.75
+        threshold_pvc = 1.25
+
+    if closest_ratio < threshold_gap and pipeline_vs_closest > threshold_pvc:
         return {
             'likely_wrong_parallel': True,
             'closest_parallel': closest['parallel'],

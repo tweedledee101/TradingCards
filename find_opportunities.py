@@ -429,28 +429,86 @@ def find_ebay_opportunities(
             profit = scp_price - price - (price * FEE_RATE)
             roi = (profit / price) * 100
 
-            # SCP variant sanity check: if buy price is far below SCP, check if there's
-            # a cheaper SCP variant for the same card# that better explains the price.
-            # This catches wrong parallel matches (e.g., Aqua Rainbow $56 matched to Blue Rainbow $193).
-            if profit > 0 and price < scp_price * 0.50 and cache_db is not None:
+            # Conservative variant pricing: if there are multiple SCP variants for this
+            # card number, find ALL that keyword-match the eBay title and use the CHEAPEST.
+            # This prevents wrong parallel matches (e.g., "Aqua Rainbow" $56 matched to
+            # "Blue Rainbow" $193 because both contain "rainbow").
+            effective_scp = scp_price
+            _all_v = []  # all SCP variants for this card number
+            if cache_db is not None and profit > 0:
                 try:
-                    from backend.utils.scp_variant_sanity import check_variant_sanity
-                    sanity = check_variant_sanity(
-                        cache_db, variation['player'], variation.get('year'),
-                        variation.get('card_number'), scp_price, price,
-                    )
-                    if sanity and sanity.get('likely_wrong_parallel'):
+                    import json as _jmod
+                    from sqlalchemy import text as _text
+                    _scp_rows = cache_db.execute(_text(
+                        "SELECT variants FROM scp_cache "
+                        "WHERE player_name ILIKE :p AND card_year = :y AND card_number ILIKE :n"
+                    ), {"p": variation['player'], "y": variation.get('year'), "n": variation.get('card_number')}).fetchall()
+                    _all_v = []
+                    for _sr in _scp_rows:
+                        _vlist = _sr[0]
+                        if isinstance(_vlist, str): _vlist = _jmod.loads(_vlist)
+                        if isinstance(_vlist, list):
+                            for _vv in _vlist:
+                                _vp = _vv.get('ungraded') or 0
+                                if _vp and float(_vp) > 0:
+                                    _par = _vv.get('parallel', 'Base')
+                                    _kws = [w.lower() for w in re.split(r'[^a-zA-Z0-9]+', _par) if len(w) >= 3]
+                                    _all_v.append({'parallel': _par, 'price': float(_vp), 'keywords': _kws})
+                    if len(_all_v) >= 2:
+                        # Find variants that keyword-match the eBay title
+                        _matches = []
+                        for _v in _all_v:
+                            if _v['parallel'] == 'Base':
+                                continue  # don't default to base
+                            if _v['keywords'] and any(kw in title_lower for kw in _v['keywords']):
+                                _matches.append(_v)
+                        if _matches:
+                            _cheapest = min(_matches, key=lambda v: v['price'])
+                            effective_scp = _cheapest['price']
+                except Exception:
+                    pass
+
+            profit = effective_scp - price - (price * FEE_RATE)
+            roi = (profit / price) * 100
+
+            # Graded listing detection: skip graded cards (PSA/BGS/SGC/CGC).
+            # Comparing graded prices to ungraded SCP is always wrong.
+            GRADED_PATTERNS = ['psa ', 'bgs ', 'sgc ', 'cgc ', 'fcgs ', 'gem mint',
+                               'mint 10', 'mint 9', ' graded ', 'psa10', 'psa 10',
+                               'bgs 10', 'sgc 10', 'cgc 10', 'grade 10', 'grade 9']
+            if any(gp in title_lower for gp in GRADED_PATTERNS):
+                _record_bin_listing_skip(
+                    listing_skip_sink, "graded_listing",
+                    pipeline="opportunity_finder", sport=sport, search_query=search_query,
+                    pipeline_card_label=pipeline_card_label, listing=listing, scp_price=scp_price,
+                    job_run_id=job_run_id,
+                )
+                continue
+
+            # Variant sanity check: even after cheapest-match, verify the price makes sense.
+            # If there's a variant much closer to the buy price, we probably still matched wrong.
+            if profit > 0 and cache_db is not None and len(_all_v) >= 2:
+                try:
+                    _closest = min(_all_v, key=lambda v: abs(v['price'] - price))
+                    _gap = abs(_closest['price'] - price) / max(price, 1)
+                    _pvc = effective_scp / max(_closest['price'], 1)
+                    # Single-keyword parallels need stricter check
+                    _par_kw_count = len([w for w in variation.get('parallel', '').lower().split() if len(w) >= 3])
+                    if _par_kw_count <= 1:
+                        _thresh_gap, _thresh_pvc = 0.85, 1.15
+                    else:
+                        _thresh_gap, _thresh_pvc = 0.75, 1.25
+                    if _gap < _thresh_gap and _pvc > _thresh_pvc:
                         _record_bin_listing_skip(
                             listing_skip_sink, "variant_sanity_reject",
                             pipeline="opportunity_finder", sport=sport, search_query=search_query,
-                            pipeline_card_label=pipeline_card_label, listing=listing, scp_price=scp_price,
+                            pipeline_card_label=pipeline_card_label, listing=listing, scp_price=effective_scp,
                             job_run_id=job_run_id,
-                            extra={"closest_parallel": sanity.get('closest_parallel'),
-                                   "closest_price": sanity.get('closest_price')},
+                            extra={"closest": _closest['parallel'], "closest_price": _closest['price']},
                         )
                         continue
                 except Exception:
-                    pass  # sanity check failure is non-fatal
+                    pass
 
             if profit <= 0 or roi <= 0:
                 _record_bin_listing_skip(
@@ -486,7 +544,7 @@ def find_ebay_opportunities(
             opportunities.append({
                 'title': listing.get('title', 'Unknown'),
                 'buy_price': price,
-                'scp_price': scp_price,
+                'scp_price': effective_scp,
                 'profit': profit,
                 'roi': roi,
                 'url': url,
