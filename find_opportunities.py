@@ -879,20 +879,42 @@ if __name__ == '__main__':
         print(f"\n{'=' * 80}")
         print(f"Total variations to check on eBay: {len(all_variations)}")
         if args.max_ebay_variations and len(all_variations) > args.max_ebay_variations:
-            # Prioritize the $20-$200 sweet spot where arbitrage actually exists,
-            # then $200-$500, then $5-$20 (mostly noise at low end)
+            # Prioritize variations that previously had eBay results (from search cache).
+            # 82% of searches return nothing -- searching known-productive variations first
+            # dramatically increases yield per API call.
+            productive_queries = set()
+            try:
+                from backend.utils.ebay_search_cache import _query_hash
+                prod_rows = cache_db.execute(
+                    __import__('sqlalchemy').text(
+                        "SELECT query_hash FROM ebay_search_cache WHERE result_count > 0"
+                    )
+                ).fetchall()
+                productive_queries = {r[0] for r in prod_rows}
+            except Exception:
+                pass
+
             def _sort_key(v):
+                query = build_ebay_query(v)
+                try:
+                    from backend.utils.ebay_search_cache import _query_hash as qh
+                    is_productive = qh(query) in productive_queries
+                except Exception:
+                    is_productive = False
                 p = v['price']
-                if 20 <= p <= 200:
-                    return (0, -p)  # sweet spot first, highest price first
+                if is_productive:
+                    return (0, -p)  # previously had eBay results
+                elif 20 <= p <= 200:
+                    return (1, -p)  # sweet spot
                 elif 200 < p <= 500:
-                    return (1, -p)
-                else:
                     return (2, -p)
+                else:
+                    return (3, -p)
+
             all_variations.sort(key=_sort_key)
             print(
                 f"  (capped to {args.max_ebay_variations} via --max-ebay-variations — "
-                f"full list had {len(all_variations)}, prioritized $20-$200 sweet spot)"
+                f"full list had {len(all_variations)}, {len(productive_queries)} cached productive queries)"
             )
             all_variations = all_variations[: args.max_ebay_variations]
         print(f"{'=' * 80}\n")
