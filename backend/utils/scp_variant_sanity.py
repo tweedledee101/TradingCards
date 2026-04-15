@@ -71,7 +71,7 @@ def check_variant_sanity(
     closest_ratio = closest_gap / max(buy_price, 1)
     pipeline_vs_closest = pipeline_scp_price / max(closest['price'], 1)
 
-    if closest_ratio < 0.50 and pipeline_vs_closest > 1.8:
+    if closest_ratio < 0.40 and pipeline_vs_closest > 1.67:
         return {
             'likely_wrong_parallel': True,
             'closest_parallel': closest['parallel'],

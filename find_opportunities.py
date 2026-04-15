@@ -319,19 +319,15 @@ def find_ebay_opportunities(
 
             parallel = variation.get('parallel', 'Base')
             if parallel != 'Base':
-                parallel_keywords = [kw for kw in parallel.lower().split() if len(kw) >= 3]
-                if parallel_keywords:
-                    # Require ALL meaningful parallel keywords in title, not just any.
-                    # "Blue Rainbow" must have BOTH "blue" AND "rainbow" in the title.
-                    # This prevents "Aqua Rainbow" from matching "Blue Rainbow".
-                    if not all(kw in title_lower for kw in parallel_keywords):
-                        _record_bin_listing_skip(
-                            listing_skip_sink, "parallel_mismatch",
-                            pipeline="opportunity_finder", sport=sport, search_query=search_query,
-                            pipeline_card_label=pipeline_card_label, listing=listing, scp_price=scp_price,
-                            job_run_id=job_run_id, extra={"parallel": parallel, "method": "all_keywords"},
-                        )
-                        continue
+                parallel_keywords = parallel.lower().split()
+                if not any(kw in title_lower for kw in parallel_keywords if len(kw) >= 3):
+                    _record_bin_listing_skip(
+                        listing_skip_sink, "parallel_mismatch",
+                        pipeline="opportunity_finder", sport=sport, search_query=search_query,
+                        pipeline_card_label=pipeline_card_label, listing=listing, scp_price=scp_price,
+                        job_run_id=job_run_id, extra={"parallel": parallel},
+                    )
+                    continue
 
             # Grade detection: skip graded listings (PSA/BGS/SGC/CGC).
             # Comparing graded card prices to ungraded SCP is always wrong.
