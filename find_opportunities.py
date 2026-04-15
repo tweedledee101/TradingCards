@@ -487,24 +487,20 @@ def find_ebay_opportunities(
 
             # Variant sanity check: even after cheapest-match, verify the price makes sense.
             # If there's a variant much closer to the buy price, we probably still matched wrong.
+            # Key finding: false positives have effective_scp/closest ratio of 20x+,
+            # real opportunities have ratio of ~1.5x. Threshold of 3.0x loses 0 real opps.
             if profit > 0 and cache_db is not None and len(_all_v) >= 2:
                 try:
                     _closest = min(_all_v, key=lambda v: abs(v['price'] - price))
-                    _gap = abs(_closest['price'] - price) / max(price, 1)
                     _pvc = effective_scp / max(_closest['price'], 1)
-                    # Single-keyword parallels need stricter check
-                    _par_kw_count = len([w for w in variation.get('parallel', '').lower().split() if len(w) >= 3])
-                    if _par_kw_count <= 1:
-                        _thresh_gap, _thresh_pvc = 0.85, 1.15
-                    else:
-                        _thresh_gap, _thresh_pvc = 0.75, 1.25
-                    if _gap < _thresh_gap and _pvc > _thresh_pvc:
+                    if _pvc > 3.0:
                         _record_bin_listing_skip(
                             listing_skip_sink, "variant_sanity_reject",
                             pipeline="opportunity_finder", sport=sport, search_query=search_query,
                             pipeline_card_label=pipeline_card_label, listing=listing, scp_price=effective_scp,
                             job_run_id=job_run_id,
-                            extra={"closest": _closest['parallel'], "closest_price": _closest['price']},
+                            extra={"closest": _closest['parallel'], "closest_price": _closest['price'],
+                                   "ratio": round(_pvc, 2)},
                         )
                         continue
                 except Exception:

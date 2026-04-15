@@ -107,17 +107,11 @@ for cr in cache_rows:
         roi = (profit / price * 100) if price > 0 else 0
         if profit < MIN_PROFIT or roi < MIN_ROI: continue
 
-        # Sanity check on top of cheapest match
+        # Sanity check: effective_scp / closest ratio
         if len(vs) >= 2:
             closest = min(vs, key=lambda v: abs(v['price'] - price))
-            gap = abs(closest['price'] - price) / max(price, 1)
             pvc = effective_scp / max(closest['price'], 1)
-            par_kw_count = len(cheapest.get('keywords', []))
-            if par_kw_count <= 1:
-                tg, tp = 0.85, 1.15
-            else:
-                tg, tp = 0.75, 1.25
-            if gap < tg and pvc > tp: continue
+            if pvc > 3.0: continue
 
         seen.add(iid); total += 1
 
