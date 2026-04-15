@@ -192,17 +192,55 @@ def verify_one(opp: Opportunity, db, *, dry_run: bool = False) -> dict:
             detail["ce_status"] = status
             detail.update(corrected)
 
-    # Price divergence check
+    # Price triangle: do any two of three (eBay buy, CE median, pipeline SCP) agree?
+    # This determines whether the pipeline's card identity match is correct.
     ce_med = ce_pricing.get("median_usd")
     scp = float(opp.scp_price) if opp.scp_price else None
-    if ce_med and scp and scp > 0:
-        ratio = ce_med / scp
-        detail["ce_scp_price_ratio"] = round(ratio, 3)
-        if ratio < 0.3 or ratio > 3.0:
-            detail["price_divergence"] = "extreme"
+    buy = float(opp.buy_price) if opp.buy_price else None
+
+    if ce_med and scp and buy and scp > 0 and ce_med > 0:
+        ebay_ce_gap = abs(buy - ce_med)
+        ce_scp_gap = abs(ce_med - scp)
+        ebay_scp_gap = abs(buy - scp)
+
+        # "close" = within 30% of the larger value or within $5
+        def _close(a, b):
+            mx = max(a, b, 1)
+            return abs(a - b) < 5.0 or abs(a - b) / mx < 0.30
+
+        ebay_ce_close = _close(buy, ce_med)
+        ce_scp_close = _close(ce_med, scp)
+        ebay_scp_close = _close(buy, scp)
+
+        detail["ebay_ce_gap"] = round(ebay_ce_gap, 2)
+        detail["ce_scp_gap"] = round(ce_scp_gap, 2)
+        detail["ebay_scp_gap"] = round(ebay_scp_gap, 2)
+        detail["ce_scp_price_ratio"] = round(ce_med / scp, 3)
+
+        if ebay_ce_close and not ce_scp_close and scp > ce_med * 2:
+            # eBay and CE agree, SCP is way higher -> pipeline matched wrong SCP entry
+            detail["price_triangle"] = "ebay_ce_agree_scp_wrong"
             if status == "ce_confirmed":
                 status = "ce_price_divergence"
                 detail["ce_status"] = status
+        elif ce_scp_close and buy < ce_med * 0.5:
+            # CE and SCP agree on value, eBay is much cheaper -> possible real opportunity
+            detail["price_triangle"] = "ce_scp_agree_ebay_cheap"
+            # This is potentially a real deal -- don't reject
+            if status in ("ce_year_mismatch", "ce_review") and player_ok:
+                status = "ce_confirmed"
+                detail["ce_status"] = status
+                detail["price_note"] = "CE and SCP agree on value; eBay price is well below -- possible real opportunity"
+        elif ebay_scp_close and not ce_scp_close:
+            # eBay and SCP agree, CE is the outlier -> CE might be wrong
+            detail["price_triangle"] = "ebay_scp_agree_ce_outlier"
+        elif ebay_ce_close and ce_scp_close:
+            # All three roughly agree -> strong signal
+            detail["price_triangle"] = "all_agree"
+        else:
+            detail["price_triangle"] = "no_clear_agreement"
+    elif ce_med and scp and scp > 0:
+        detail["ce_scp_price_ratio"] = round(ce_med / scp, 3)
 
     result["status"] = status
     result["ce_card_name"] = api_json.get("cardName")
