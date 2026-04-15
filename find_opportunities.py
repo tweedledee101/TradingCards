@@ -1100,20 +1100,42 @@ if __name__ == '__main__':
 
         _flush_listing_skips()
 
-        # Store in database (single transaction: cancel/kill before commit leaves old BIN rows intact)
+        # Store in database -- UPSERT by ebay_item_id to accumulate across runs.
+        # Old behavior deleted all BIN rows each run (reset to ~108).
+        # New behavior: update existing, insert new, leave unseen alone.
+        # Listings not re-found in 7 days get cleaned up by retention.
         db = SessionLocal()
         try:
-            bin_type_filter = (Opportunity.listing_type == 'buy_it_now') | (Opportunity.listing_type.is_(None))
-            if args.bin_replace_scope == 'shard_players':
-                shard_names = [p.strip() for p in args.players.split(',') if p.strip()]
-                n_del = (
-                    db.query(Opportunity)
-                    .filter(bin_type_filter, Opportunity.player_name.in_(shard_names))
-                    .delete(synchronize_session=False)
+            # Build set of eBay item IDs we found this run
+            new_item_ids = set()
+            for opp in all_opportunities:
+                numeric_id = opp['url'].split('/itm/')[-1] if '/itm/' in opp['url'] else None
+                if numeric_id:
+                    new_item_ids.add(numeric_id)
+
+            # Update last_seen_at for existing opportunities we re-found
+            if new_item_ids:
+                from datetime import datetime
+                db.execute(
+                    __import__('sqlalchemy').text(
+                        "UPDATE opportunities SET last_seen_at = :now "
+                        "WHERE ebay_item_id = ANY(:ids) AND listing_type IN ('buy_it_now', NULL)"
+                    ),
+                    {"now": datetime.utcnow(), "ids": list(new_item_ids)},
                 )
-                print(f"\nBIN replace scope=shard_players: removed {n_del} prior row(s) for {len(shard_names)} player(s).")
-            else:
-                db.query(Opportunity).filter(bin_type_filter).delete(synchronize_session=False)
+
+            # Find which item IDs are already in the DB
+            existing_ids = set()
+            if new_item_ids:
+                rows = db.execute(
+                    __import__('sqlalchemy').text(
+                        "SELECT ebay_item_id FROM opportunities WHERE ebay_item_id = ANY(:ids)"
+                    ),
+                    {"ids": list(new_item_ids)},
+                ).fetchall()
+                existing_ids = {r[0] for r in rows}
+
+            inserted = 0
 
             for opp in all_opportunities:
                 # Parse card label: "Player Year Set #Number [Parallel]"
@@ -1149,6 +1171,10 @@ if __name__ == '__main__':
                     set_name = _re.sub(r'\[.*?\]', '', set_name).strip()
 
                 numeric_id = opp['url'].split('/itm/')[-1] if '/itm/' in opp['url'] else None
+
+                # Skip if already in DB (we updated last_seen_at above)
+                if numeric_id and numeric_id in existing_ids:
+                    continue
 
                 vd: dict = {'schema': 1, 'pipeline': 'bin'}
                 pr = opp.get('_price_reconciliation')
@@ -1187,9 +1213,13 @@ if __name__ == '__main__':
                     scan_id=tracker.run_id
                 )
                 db.add(row)
+                inserted += 1
 
             db.commit()
-            print(f"\nStored {len(all_opportunities)} opportunities in database.")
+            skipped = len(all_opportunities) - inserted
+            print(f"\nStored {inserted} new + refreshed {len(existing_ids)} existing = {inserted + len(existing_ids)} total opportunities.")
+            if skipped:
+                print(f"  ({skipped} already in DB, updated last_seen_at)")
         except Exception as e:
             db.rollback()
             log.error(f'Failed to store opportunities: {e}', category='db_write_error')
@@ -1217,6 +1247,24 @@ if __name__ == '__main__':
         }
         log.info('Pipeline complete', context=summary)
         tracker.complete(summary=summary)
+
+        # Clean up stale opportunities not seen in 7 days
+        try:
+            from datetime import datetime, timedelta
+            stale_cutoff = datetime.utcnow() - timedelta(days=7)
+            stale_db = SessionLocal()
+            n_stale = stale_db.execute(
+                __import__('sqlalchemy').text(
+                    "DELETE FROM opportunities WHERE last_seen_at < :cutoff AND listing_type IN ('buy_it_now')"
+                ),
+                {"cutoff": stale_cutoff},
+            ).rowcount
+            stale_db.commit()
+            stale_db.close()
+            if n_stale:
+                print(f"Cleaned up {n_stale} stale BIN opportunities (not seen in 7 days)")
+        except Exception as ex:
+            log.warn(f'Stale cleanup failed: {ex}', category='stale_cleanup_error')
 
         # Self-pruning: clean stale data if it's been >24h
         run_if_stale()
