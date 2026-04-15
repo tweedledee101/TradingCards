@@ -58,6 +58,22 @@ When CE variant lookup isn't conclusive, use price agreement:
 - [x] CE API integration (call_ce_identify_api)
 - [x] CE variant extraction (ce_variant field in verification_detail)
 - [x] Price triangle logic (verify_opportunities_ce.py)
-- [ ] CE variant -> SCP cache lookup (the key missing piece)
-- [ ] Corrected profit calculation
+- [x] CE variant -> SCP cache lookup (ce_variant_correction.py)
+- [x] 130point sold comps as confirmation (real sales data, fastest signal)
+- [x] 4-signal recalculation (SCP + CE + 130point + eBay asking price)
+- [ ] Wire full_variant_correction into verify_opportunities_ce.py
 - [ ] Integration into CI pipeline
+- [ ] Handle CE variant misidentification (e.g., "Base" when card is "Dark Yellow")
+
+## Known Limitations (honest)
+
+1. **CE variant misidentification**: CE called a Dark Yellow Heritage card "Base" -- when CE
+   gets the variant wrong, 130point confirms the wrong card too. 2/3 correct in manual testing.
+2. **CE year unreliable**: CE frequently returns wrong year (recurring designs, retro inserts).
+   Year should NOT be used as a hard pass/fail signal.
+3. **CE price approximate**: CE prices can be 10x off. Useful as a signal alongside other
+   sources, not as a standalone reference.
+4. **130point rate limit**: 10 requests/minute, 429 = blocked ~1 hour. Can't query for every
+   opportunity in a single pipeline run.
+5. **SCP variant matching still keyword-based**: "Aqua Rainbow" vs "Blue Rainbow" requires
+   exact color word match. Works when CE identifies the color correctly, fails when CE doesn't.
