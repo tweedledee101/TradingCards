@@ -892,7 +892,7 @@ def _build_scp_result(card: dict, fallback_set: str, match_type: str, flagged: b
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='eBay-First Auction Opportunity Pipeline')
-    parser.add_argument('--hours', type=int, default=48, help='Auctions ending within X hours (default: 48)')
+    parser.add_argument('--hours', type=int, default=168, help='Auctions ending within X hours (default: 168 = 7 days)')
     parser.add_argument('--min-profit', type=float, default=10, help='Min profit after all costs (default: $10)')
     parser.add_argument('--max-budget', type=float, default=200, help='Max current bid + shipping (default: $200)')
     parser.add_argument('--years', type=str, default='2023,2024,2025,2026', help='Years to search (default: 2023,2024,2025,2026)')
@@ -1732,14 +1732,40 @@ if __name__ == '__main__':
         if not args.dry_run and opportunities:
             print(f"\nStoring {len(opportunities)} auction opportunities...")
             try:
-                # Only clear previous auction-pipeline results, not BIN results
-                db.query(Opportunity).filter(
-                    Opportunity.listing_type == 'auction',
-                    Opportunity.scan_id.isnot(None)
-                ).delete(synchronize_session=False)
-                db.commit()
-
+                # Accumulate auction opportunities across runs.
+                # Update last_seen_at for re-found listings, insert new ones.
+                # Ended auctions cleaned up by 7-day expiry.
+                new_item_ids = set()
                 for opp in opportunities:
+                    nid = opp.get('ebay_item_id', '')
+                    if nid: new_item_ids.add(nid)
+
+                if new_item_ids:
+                    from datetime import datetime as _dt
+                    db.execute(
+                        __import__('sqlalchemy').text(
+                            "UPDATE opportunities SET last_seen_at = :now "
+                            "WHERE ebay_item_id = ANY(:ids) AND listing_type = 'auction'"
+                        ),
+                        {"now": _dt.utcnow(), "ids": list(new_item_ids)},
+                    )
+                    db.commit()
+
+                existing_ids = set()
+                if new_item_ids:
+                    eid_rows = db.execute(
+                        __import__('sqlalchemy').text(
+                            "SELECT ebay_item_id FROM opportunities WHERE ebay_item_id = ANY(:ids)"
+                        ),
+                        {"ids": list(new_item_ids)},
+                    ).fetchall()
+                    existing_ids = {r[0] for r in eid_rows}
+
+                inserted = 0
+                for opp in opportunities:
+                    nid = opp.get('ebay_item_id', '')
+                    if nid and nid in existing_ids:
+                        continue  # already in DB, updated last_seen_at above
                     row = Opportunity(
                         player_name=opp['player_name'],
                         card_year=opp['card_year'],
@@ -1771,15 +1797,33 @@ if __name__ == '__main__':
                         scan_id=tracker.run_id,
                     )
                     db.add(row)
+                    inserted += 1
 
                 db.commit()
-                print(f"Stored {len(opportunities)} auction opportunities in database.")
+                print(f"Stored {inserted} new + refreshed {len(existing_ids)} existing auction opportunities.")
             except Exception as e:
                 db.rollback()
                 log.error(f'Failed to store auction opportunities: {e}', category='db_write_error')
                 print(f"DB error: {e}")
         elif args.dry_run:
             print("\n[DRY RUN] Skipping database storage.")
+
+        # Clean up ended auctions older than 3 days
+        try:
+            from datetime import datetime as _dtc, timedelta as _tdc
+            _cutoff = _dtc.utcnow() - _tdc(days=3)
+            n_cleaned = db.execute(
+                __import__('sqlalchemy').text(
+                    "DELETE FROM opportunities WHERE listing_type = 'auction' "
+                    "AND end_time IS NOT NULL AND end_time < :cutoff"
+                ),
+                {"cutoff": _cutoff},
+            ).rowcount
+            db.commit()
+            if n_cleaned:
+                print(f"Cleaned up {n_cleaned} ended auctions (older than 3 days)")
+        except Exception:
+            pass
 
         db.close()
 

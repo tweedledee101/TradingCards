@@ -1,10 +1,10 @@
 name: Auction Pipeline
 
 on:
-  # Standalone auction cron DISABLED -- pipeline.yml runs auction after BIN (2AM/2PM ET).
-  # Enable this only if you need auction-only runs without BIN.
-  # schedule:
-  #   - cron: '0 9,21 * * *'
+  # 2x/day standalone auction runs offset from pipeline.yml.
+  # 7-day window captures most auctions; runs find newly listed ones.
+  schedule:
+    - cron: '0 12,0 * * *'   # 12 PM + 12 AM UTC (8 AM + 8 PM ET)
   workflow_dispatch:
     inputs:
       hours:
@@ -90,7 +90,7 @@ jobs:
         # inputs.* is empty on schedule(); use || defaults here — not bash ${VAR:-x} (fragile in GHA).
         run: |
           python3 find_auction_opportunities.py \
-            --hours "${{ inputs.hours || '48' }}" \
+            --hours "${{ inputs.hours || '168' }}" \
             --max-budget "${{ inputs.max_budget || '200' }}" \
             --min-profit "${{ inputs.min_profit || '10' }}" \
             --years "${{ inputs.years || '2023,2024,2025,2026' }}" \

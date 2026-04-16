@@ -251,7 +251,7 @@ jobs:
           set -o pipefail
           LOG=/tmp/opportunity_auction.log
           python3 find_auction_opportunities.py \
-            --hours "${{ inputs.auction_hours || '48' }}" \
+            --hours "${{ inputs.auction_hours || '168' }}" \
             --max-budget "${{ inputs.max_budget || '200' }}" \
             --min-profit "${{ inputs.min_profit || '10' }}" \
             --years "${{ inputs.auction_years || '2023,2024,2025,2026' }}" \
