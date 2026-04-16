@@ -1,10 +1,10 @@
 name: Auction Pipeline
 
 on:
-  # 2x/day standalone auction runs offset from pipeline.yml.
-  # 7-day window captures most auctions; runs find newly listed ones.
+  # 1x/day standalone auction run offset from pipeline.yml.
+  # 7-day window captures most auctions; pipeline.yml also runs auction after BIN.
   schedule:
-    - cron: '0 12,0 * * *'   # 12 PM + 12 AM UTC (8 AM + 8 PM ET)
+    - cron: '0 0 * * *'   # 12 AM UTC (8 PM ET)
   workflow_dispatch:
     inputs:
       hours:
