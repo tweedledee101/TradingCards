@@ -867,7 +867,8 @@ if __name__ == '__main__':
                             'grade_9': v.get('grade_9'),
                             'psa_10': v.get('psa_10'),
                             'scp_url': v.get('url'),
-                            'volume': '',
+                            'volume': v.get('volume', ''),
+                            'common_keywords': v.get('common_keywords', []),
                         })
                 print(f"  {len(catalog)} total variations from cache")
                 affordable = [v for v in catalog if args.min_scp_price <= v['price'] <= args.max_scp_price]
@@ -964,7 +965,11 @@ if __name__ == '__main__':
                     is_productive = False
                     is_dead = False
                 p = v['price']
-                if is_productive:
+                vol = (v.get('volume') or '').lower()
+                is_liquid = 'per day' in vol or 'per week' in vol
+                if is_liquid:
+                    return (-1, -p)  # liquid cards FIRST (worm confirmed sales volume)
+                elif is_productive:
                     return (0, -p)  # previously had eBay results
                 elif is_dead:
                     return (4, -p)  # previously searched, returned nothing -- search last
@@ -976,9 +981,11 @@ if __name__ == '__main__':
                     return (3, -p)
 
             all_variations.sort(key=_sort_key)
+            liquid_count = sum(1 for v in all_variations if "per day" in (v.get("volume") or "").lower() or "per week" in (v.get("volume") or "").lower())
             print(
                 f"  (capped to {args.max_ebay_variations} via --max-ebay-variations — "
-                f"full list had {len(all_variations)}, {len(productive_queries)} cached productive queries)"
+                f"full list had {len(all_variations)}, {liquid_count} liquid, {len(productive_queries)} cached productive)"
+
             )
             all_variations = all_variations[: args.max_ebay_variations]
         print(f"{'=' * 80}\n")
