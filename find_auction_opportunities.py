@@ -1513,6 +1513,48 @@ if __name__ == '__main__':
 
             scp_price = scp['scp_price']
 
+            # Graded listing detection
+            GRADED_PATTERNS = ['psa ', 'bgs ', 'sgc ', 'cgc ', 'fcgs ', 'gem mint',
+                               'mint 10', 'mint 9', ' graded ', 'psa10', 'psa 10',
+                               'bgs 10', 'sgc 10', 'cgc 10', 'grade 10', 'grade 9']
+            if any(gp in title.lower() for gp in GRADED_PATTERNS):
+                step3_below_min_profit += 1
+                continue
+
+            # Conservative variant pricing: find cheapest keyword-matching SCP variant
+            # and use 2.0x ratio check (same as BIN pipeline)
+            try:
+                import json as _jmod2
+                from sqlalchemy import text as _text2
+                _auc_scp_rows = db.execute(_text2(
+                    "SELECT variants FROM scp_cache "
+                    "WHERE player_name ILIKE :p AND card_year = :y AND card_number ILIKE :n"
+                ), {"p": player, "y": year, "n": card_number}).fetchall()
+                _auc_all_v = []
+                for _asr in _auc_scp_rows:
+                    _avlist = _asr[0]
+                    if isinstance(_avlist, str): _avlist = _jmod2.loads(_avlist)
+                    if isinstance(_avlist, list):
+                        for _avv in _avlist:
+                            _avp = _avv.get('ungraded') or 0
+                            if _avp and float(_avp) > 0:
+                                _apar = _avv.get('parallel', 'Base')
+                                _akws = [w.lower() for w in __import__('re').split(r'[^a-zA-Z0-9]+', _apar) if len(w) >= 3]
+                                _auc_all_v.append({'parallel': _apar, 'price': float(_avp), 'keywords': _akws})
+                if len(_auc_all_v) >= 2:
+                    _tl = title.lower()
+                    _auc_matches = [v for v in _auc_all_v if v['parallel'] != 'Base' and v['keywords'] and any(kw in _tl for kw in v['keywords'])]
+                    if _auc_matches:
+                        _auc_cheapest = min(_auc_matches, key=lambda v: v['price'])
+                        scp_price = _auc_cheapest['price']
+                    _auc_closest = min(_auc_all_v, key=lambda v: abs(v['price'] - price))
+                    _auc_pvc = scp_price / max(_auc_closest['price'], 1)
+                    if _auc_pvc > 2.0:
+                        step3_below_min_profit += 1
+                        continue
+            except Exception:
+                pass
+
             # Sanity check: if listing has a BIN price and it's way below SCP,
             # the SCP match is probably wrong. Seller knows what the card is worth.
             bin_price = auction.get('bin_price')

@@ -937,14 +937,19 @@ if __name__ == '__main__':
             # 82% of searches return nothing -- searching known-productive variations first
             # dramatically increases yield per API call.
             productive_queries = set()
+            dead_queries = set()
             try:
                 from backend.utils.ebay_search_cache import _query_hash
                 prod_rows = cache_db.execute(
                     __import__('sqlalchemy').text(
-                        "SELECT query_hash FROM ebay_search_cache WHERE result_count > 0"
+                        "SELECT query_hash, result_count FROM ebay_search_cache"
                     )
                 ).fetchall()
-                productive_queries = {r[0] for r in prod_rows}
+                for r in prod_rows:
+                    if r[1] > 0:
+                        productive_queries.add(r[0])
+                    else:
+                        dead_queries.add(r[0])
             except Exception:
                 pass
 
@@ -952,14 +957,19 @@ if __name__ == '__main__':
                 query = build_ebay_query(v)
                 try:
                     from backend.utils.ebay_search_cache import _query_hash as qh
-                    is_productive = qh(query) in productive_queries
+                    h = qh(query)
+                    is_productive = h in productive_queries
+                    is_dead = h in dead_queries
                 except Exception:
                     is_productive = False
+                    is_dead = False
                 p = v['price']
                 if is_productive:
                     return (0, -p)  # previously had eBay results
+                elif is_dead:
+                    return (4, -p)  # previously searched, returned nothing -- search last
                 elif 20 <= p <= 200:
-                    return (1, -p)  # sweet spot
+                    return (1, -p)  # sweet spot, never searched
                 elif 200 < p <= 500:
                     return (2, -p)
                 else:

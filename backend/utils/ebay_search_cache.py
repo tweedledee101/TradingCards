@@ -76,10 +76,16 @@ def cached_get_active_listings(
     ttl_hours: int = 12,
     max_total: int = 1000,
 ) -> List[Dict]:
-    """get_active_listings with DB cache. Returns listings (possibly from cache)."""
-    cached = get_cached_results(db, query, ttl_hours=ttl_hours)
-    if cached is not None:
+    """get_active_listings with DB cache. Returns listings (possibly from cache).
+    Productive queries cached 24h. Dead queries (0 results) cached 6h so we retry sooner."""
+    # Check for productive cache first (longer TTL)
+    cached = get_cached_results(db, query, ttl_hours=24)
+    if cached is not None and len(cached) > 0:
         return cached
+    # Check for dead cache (shorter TTL -- retry sooner for new listings)
+    cached = get_cached_results(db, query, ttl_hours=6)
+    if cached is not None:
+        return cached  # still within dead TTL, return empty
 
     listings = scraper.get_active_listings(query, max_total=max_total)
     try:

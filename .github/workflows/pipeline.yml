@@ -73,7 +73,7 @@ on:
       ebay_variation_cap:
         description: 'Max SCP lines to search on eBay per shard (default 300 to fit within 5K daily Browse quota).'
         required: false
-        default: '300'
+        default: '550'
 
 jobs:
   # Keep --shards 8 in sync with matrix.shard list below.
@@ -103,9 +103,9 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           set -euo pipefail
-          # 60 Baseball players from SCP cache (25+ cached entries each).
-          # Avoids Browse API discovery (429-blocked since April 2026).
-          DEFAULT_PLAYERS="Mike Trout,Juan Soto,Aaron Judge,Bobby Witt Jr,Fernando Tatis Jr,Julio Rodriguez,Elly De La Cruz,Ronald Acuna Jr,Shohei Ohtani,Ken Griffey Jr,Mookie Betts,Paul Skenes,Corbin Carroll,Derek Jeter,Adley Rutschman,James Wood,Jackson Chourio,Marcelo Mayer,Gunnar Henderson,Nolan Ryan,Freddie Freeman,Yoshinobu Yamamoto,Jackson Merrill,Dylan Crews,Jasson Dominguez,Corey Seager,Junior Caminero,Cal Ripken Jr,Roman Anthony,Jackson Holliday,Roki Sasaki,Nick Gonzales,Nick Kurtz,David Wright,Trea Turner,Colton Cowser,Jordan Walker,Evan Carter,Ichiro Suzuki,Jac Caglianone,Luisangel Acuna,Mike Piazza,Matt Shaw,Jacob Wilson,Wyatt Langford,Manny Machado,Chipper Jones,Vladimir Guerrero Jr,Charlie Condon,Travis Bazzana,Yordan Alvarez,Drew Gilbert,Frank Thomas,Spencer Strider,Bryce Harper,Kyle Tucker,Oneil Cruz,Coby Mayo,Brooks Lee,Masyn Winn"
+          # 120 Baseball players from SCP cache (2024+ cards with 5+ entries).
+          # Includes hot rookies, prospects, and current stars most likely to have mispriced cards.
+          DEFAULT_PLAYERS="Bobby Witt Jr.,Aaron Judge,Mike Trout,Paul Skenes,Elly De La Cruz,Juan Soto,Shohei Ohtani,Fernando Tatis Jr.,Julio Rodriguez,Mookie Betts,Ronald Acuna Jr.,James Wood,Corbin Carroll,Dylan Crews,Yoshinobu Yamamoto,Gunnar Henderson,Jackson Chourio,Freddie Freeman,Nick Kurtz,Junior Caminero,Roman Anthony,Evan Carter,Jackson Merrill,Derek Jeter,Adley Rutschman,Marcelo Mayer,Jackson Holliday,Ken Griffey Jr,Roki Sasaki,Jasson Dominguez,Jac Caglianone,Nick Gonzales,Wyatt Langford,Nolan Ryan,David Wright,Luisangel Acuna,Corey Seager,Matt Shaw,Jacob Wilson,Trea Turner,Colton Cowser,Travis Bazzana,Manny Machado,Charlie Condon,Ichiro Suzuki,Chipper Jones,Vladimir Guerrero Jr.,Brooks Lee,Cal Ripken Jr,Cal Raleigh,Coby Mayo,Alex Bregman,Masyn Winn,Ryan Clifford,Yordan Alvarez,Kristian Campbell,Brandon Lowe,Pete Crow-Armstrong,Giancarlo Stanton,Mike Piazza,Jacob Misiorowski,Kyle Tucker,Drew Gilbert,Eddie Murray,Rhett Lowder,Matt Chapman,Carson Benge,Hyeseong Kim,Jace Jung,Cody Bellinger,Tarik Skubal,Garrett Crochet,Kevin Alcantara,Nolan McLean,Pete Alonso,William Contreras,Bubba Chandler,Kumar Rocker,Hurston Waldrep,Chase Dollander,Dalton Rushing,Connor Norby,Mason Miller,Jackson Jobe,Zac Veen,Ben Rice,Royce Lewis,Hunter Greene,Ketel Marte,Christian Moore,Byron Buxton,Jordan Walker,Kyle Schwarber,Oneil Cruz,Frank Thomas,Spencer Strider,Bryce Harper,Bo Jackson,Clayton Kershaw,Jose Altuve,Gerrit Cole,Barry Larkin,Thomas Saggese,Rafael Devers,Anthony Volpe,Blake Snell,Dansby Swanson,Francisco Lindor,Jazz Chisholm Jr.,Pete Alonso,Zach Wheeler,Carson Williams,Enrique Bradfield Jr.,Colson Montgomery,Bryce Eldridge,Pablo Guerrero,Michael Helman,Jose Ramirez,Luis Castillo,Willson Contreras"
           PLAYERS="${{ inputs.players }}"
           if [ -z "$PLAYERS" ]; then
             PLAYERS="$DEFAULT_PLAYERS"
@@ -186,7 +186,7 @@ jobs:
             --min-scp-price "${{ inputs.min_scp_price || '5' }}"
             --max-scp-price "${{ inputs.max_scp_price || '1000' }}"
             --sport "${{ inputs.sport || 'Baseball' }}"
-            --max-ebay-variations "${{ inputs.ebay_variation_cap || '300' }}"
+            --max-ebay-variations "${{ inputs.ebay_variation_cap || '550' }}"
           )
           "${ARGS[@]}" 2>&1 | tee "$LOG"
 
