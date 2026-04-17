@@ -435,14 +435,16 @@ def find_ebay_opportunities(
             # "Blue Rainbow" $193 because both contain "rainbow").
             effective_scp = scp_price
             _all_v = []  # all SCP variants for this card number
-            if cache_db is not None and profit > 0:
+            if profit > 0:
                 try:
                     import json as _jmod
                     from sqlalchemy import text as _text
-                    _scp_rows = cache_db.execute(_text(
+                    _scp_db = SessionLocal()
+                    _scp_rows = _scp_db.execute(_text(
                         "SELECT variants FROM scp_cache "
                         "WHERE player_name ILIKE :p AND card_year = :y AND card_number ILIKE :n"
                     ), {"p": variation['player'], "y": variation.get('year'), "n": variation.get('card_number')}).fetchall()
+                    _scp_db.close()
                     _all_v = []
                     for _sr in _scp_rows:
                         _vlist = _sr[0]
@@ -465,8 +467,8 @@ def find_ebay_opportunities(
                         if _matches:
                             _cheapest = min(_matches, key=lambda v: v['price'])
                             effective_scp = _cheapest['price']
-                except Exception:
-                    pass
+                except Exception as _cm_ex:
+                    print(f"  CHEAPEST-MATCH ERROR: {_cm_ex}")
 
             profit = effective_scp - price - (price * FEE_RATE)
             roi = (profit / price) * 100
@@ -489,7 +491,7 @@ def find_ebay_opportunities(
             # If there's a variant much closer to the buy price, we probably still matched wrong.
             # Key finding: false positives have effective_scp/closest ratio of 20x+,
             # real opportunities have ratio of ~1.5x. 2.0x threshold = 100 real at 87.7%.
-            if profit > 0 and cache_db is not None and len(_all_v) >= 2:
+            if profit > 0 and len(_all_v) >= 2:
                 try:
                     _closest = min(_all_v, key=lambda v: abs(v['price'] - price))
                     _pvc = effective_scp / max(_closest['price'], 1)
