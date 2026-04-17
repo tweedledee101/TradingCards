@@ -116,10 +116,31 @@ def main():
             seen.add(t['url'])
             unique.append(t)
 
-    # Sort: popular players first (more SCP entries = more likely to have liquid cards)
-    from collections import Counter
-    player_counts = Counter(t['player'] for t in unique)
-    unique.sort(key=lambda x: (-player_counts[x['player']], abs(x['price'] - 75)))
+    # Round-robin across players so we don't exhaust one player before touching others
+    from collections import defaultdict
+    by_player = defaultdict(list)
+    for t in unique:
+        by_player[t['player']].append(t)
+    
+    # Sort each player's cards by price (mid-range first)
+    for p in by_player:
+        by_player[p].sort(key=lambda x: abs(x['price'] - 75))
+    
+    # Round-robin: take 1 card from each player, repeat
+    players_list = sorted(by_player.keys(), key=lambda p: -len(by_player[p]))
+    round_robin = []
+    idx = 0
+    while len(round_robin) < len(unique):
+        added = False
+        for p in players_list:
+            cards = by_player[p]
+            if idx < len(cards):
+                round_robin.append(cards[idx])
+                added = True
+        if not added:
+            break
+        idx += 1
+    unique = round_robin
 
     print(f"SCP Volume Worm")
     print(f"  Targets: {len(unique)} cards in ${args.min_price}-${args.max_price}")
