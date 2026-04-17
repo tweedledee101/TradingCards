@@ -41,6 +41,20 @@
 - 130point sold data is most trustworthy price reference
 - SCP sold titles show how sellers actually list cards on eBay (search term gold mine)
 
+### Next Iteration: Risk Filters (not yet built)
+
+The current pipeline finds liquid cards with margin. The next layer adds risk assessment:
+
+1. **Volatility / trend direction**: SCP sold listings have dates and prices. If the last 5 sales show a declining trend ($75, $70, $65, $60, $55), don't buy -- the margin will evaporate. If stable or rising, buy with confidence. Data source: SCP product page sold listings (worm already captures these).
+
+2. **Supply / competition**: eBay Browse API `total` field shows how many active listings exist for a card. High supply (500 listings) = saturated market, slow sell-through. Low supply (5 listings) = scarcity, fast sell-through. Data source: eBay Browse search response (captured during pipeline run, 0 extra API calls).
+
+3. **Price freshness**: SCP sold listings show the most recent sale date. If the last sale was yesterday, the price is reliable. If it was 6 months ago, the market may have moved. Data source: SCP product page (worm already captures sold dates).
+
+4. **2026 / new product risk**: New releases have volatile pricing driven by hype. Prices often spike at release then decline as supply increases. Consider: shorter hold time targets for new products, or require higher margin to compensate for volatility.
+
+5. **True sell-through**: Sell-through rate (1/week) doesn't account for competing listings. True sell-through = sales per week / active listings. A card with 1 sale/week and 3 active listings sells through in 3 weeks. Same card with 100 active listings = 100 weeks. Data source: eBay `total` (supply) + SCP volume (demand).
+
 ### The Core Problem
 Three compounding issues preventing 1,000 accurate opportunities:
 1. **Coverage too narrow**: 40 players, ~1,665 SCP variations. eBay has 1.1M+ Topps Chrome listings alone.

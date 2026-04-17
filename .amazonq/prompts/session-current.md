@@ -107,32 +107,34 @@ Infrastructure:
 
 ## Next Steps (Priority Order)
 
-### 1. Verify BIN Pipeline Runs on Next Cron
-- Workflow fix is committed but needs push to GitHub
-- Next scheduled run: 2AM or 2PM ET
-- Expected: 8 shards x 500 variations = up to 4,000 eBay searches, should produce 100+ BIN opps
-- Monitor: `job_runs` for `opportunity_finder` status, `opportunities` for new BIN rows
+### 1. Verify Pipeline Results (morning of April 16)
+- 2AM cron runs with accuracy fix + volume-targeted search + 7-day auction window
+- Check ragnarokgamez.com -- opportunities should be more accurate but VERIFY before buying
+- Spot-check 5-10 opportunities against SCP product pages (correct parallel? correct price?)
+- Check GitHub Actions logs for liquid card count and hit rate
 
-### 2. Continue sold_comps Seeding
-- 446 comps stored, 130point rate limited (10min retry)
-- After opportunities batch: add `--from-scp-cache` mode to worm for broader coverage
-- Goal: enough sold_comps to enable `--player-rank-source sold_comps` (Browse-free discovery)
+### 2. Keep Running SCP Volume Worm
+- `/usr/bin/python3 worm_scp_volume.py --limit 2000` (round-robins across all players)
+- More liquid cards = more targeted eBay searches = more real opportunities
+- Currently 56 liquid cards indexed, target 200+
 
-### 3. Integrate CE into Pipeline
-- CE API direct (30s/card) as identity verification layer
-- Run on the ~1,665 variations that survive to eBay search
-- Use CE identity to correct wrong SCP matches
-- Run on economics rejects where buy > 2x SCP to find hidden opportunities
+### 3. Risk Filters (next code iteration)
+- **Trend direction**: declining prices = don't buy. Use SCP sold dates/prices (worm captures these).
+- **Supply/competition**: eBay `total` field shows active listing count. High supply = slow sell.
+- **Price freshness**: reject cards where last sale was 3+ months ago.
+- **True sell-through**: sales per week / active listings = actual turnover rate.
+- **2026 volatility**: new products need higher margin buffer.
 
-### 4. Fix Grade Mismatch
-- Pipeline compares graded listings to ungraded SCP prices
-- CE detects grading (PSA/BGS/SGC) from images
-- Use CE grading detection + SCP grade_9/psa_10 prices for graded listings
+### 4. Apply for eBay Compatible Application
+- https://developer.ebay.com/my/keys
+- Free, 3-5 days, 50K+ calls/day (currently 5K)
+- With volume-targeted search at 210x efficiency, 50K calls = massive coverage
 
-### 5. Expand Coverage
-- More players (beyond 40 -- SCP cache has 1,352)
-- Basketball/Football seeds ready in SEED_PLAYERS
-- Lower SCP floor already at $5 in CI
+### 5. Spike Detection
+- Daily eBay Browse `total` per player (120 calls)
+- Compare day-over-day: big jump = something happened (call-up, trade, injury)
+- Flag spiking players for priority SCP + 130point scraping
+- Feed into pipeline as high-priority search targets
 
 ## Key Files Changed This Session
 
