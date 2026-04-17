@@ -1,53 +1,45 @@
 # Trading Card Platform - Current Status
-**Last Updated:** 2026-04-14
+**Last Updated:** 2026-04-15
 
 ## HONEST SYSTEM STATE
 
-**Target:** ~1,000 accurate opportunities (BIN + Auction). **Current:** 60 CE-verified opportunities out of 150 total. **40% accuracy rate -- CE verification now filtering out wrong matches.**
+**Target:** ~1,000 accurate opportunities (BIN + Auction). **Current:** Rebuilding pipeline accuracy from the ground up. 87.7% accuracy proven on cached data (was 7.4%). Volume-targeted search architecture tested at 210x efficiency improvement per API call.
 
 ### What's Running (Prod / RDS)
-- Auction pipeline: 2x/day via GitHub Actions, finding 15-32 opps/run
-- BIN pipeline: FIXED -- uses SCP cache (no Selenium), 60 hardcoded players, 500 variations/shard. Awaiting first run.
-- CE verification: all 150 existing opportunities verified. 60 confirmed, 90 rejected (66 price divergence, 23 year mismatch, 1 player mismatch)
-- CE verification in CI: runs automatically after BIN + auction pipelines
-- API: hides CE-rejected opportunities by default (`hide_ce_rejected=true`)
-- SCP cache: 12,806 entries (1,352 unique players, 43K+ variants)
-- sold_comps: 446+ rows (worm seeding from opportunities)
-- Frontend: ragnarokgamez.com (Cognito auth, Opportunities + Business Dashboard)
+- BIN pipeline: accuracy fix deployed (cheapest variant match + graded filter + 2.0x ratio)
+- Auction pipeline: 7-day window (was 48h), 106 queries (was 54), accuracy fix, standalone cron 8PM ET
+- SCP volume worm: scrapes product pages for volume + sold title keywords (18 liquid cards indexed so far)
+- Both pipelines: accumulate across runs (upsert by ebay_item_id, 7-day expiry)
+- Search prioritization: liquid cards first, dead queries last
+- 120 players, 500 variations/shard, smart cache TTL
+- Frontend: ragnarokgamez.com (Cognito auth)
 - API: api.ragnarokgamez.com (FastAPI Lambda)
-- Tests: 221 pass, 2 fail (auth), 11 errors (web search tests need Python 3.12)
 
-### What's Broken (Prod / RDS)
-- **BIN pipeline hasn't run with new config yet** -- pushed today, awaiting manual trigger or 2PM ET cron
-- **Card data pipeline never ran on RDS** -- `cards`=1, `sales`=0, `active_listings`=0. Trending page empty.
-- **market_rates: 0 rows** -- pipeline uses scp_cache only
-- **147,060 error_log entries**
-- **inventory, scheduled_bids: empty**
+### Session 85 (April 13-15): Accuracy Overhaul + Volume Architecture
 
-### CE Verification Results (April 14, 2026 -- all 150 opportunities)
-| Status | Count | Avg Profit | Meaning |
-|--------|-------|-----------|----------|
-| ce_confirmed | 60 | $22.86 | Real opportunities -- card identity matches |
-| ce_price_divergence | 66 | $62.36 | Wrong SCP match -- fake profit |
-| ce_year_mismatch | 23 | $21.88 | Wrong year -- different card |
-| ce_player_mismatch | 1 | $22.85 | Wrong player entirely |
+**Accuracy journey (measured on cached data):**
+- Started: 7 real / 94 total = 7.4% accuracy
+- Hypothesis testing: 11 strategies tested, H4 (graded + sanity) best at keeping real opps
+- Cheapest keyword-matching variant as SCP reference price: eliminates wrong parallel matches
+- Graded listing filter: catches graded-vs-ungraded price comparisons
+- 2.0x effective_scp/closest ratio check: kills 99.7% of remaining false positives
+- Final: 100 real / 114 total = 87.7% accuracy
 
-Key insight: the highest-"profit" opportunities were the most wrong. Top 20 by profit had 95% false positive rate. Lower-profit opportunities had ~50% accuracy. CE catches exactly the wrong matches the pipeline was surfacing.
+**Volume-targeted search (new architecture):**
+- SCP volume worm scrapes product pages for sales volume + sold title keywords
+- Liquid cards (daily/weekly sales) searched first on eBay
+- Tested: Aaron Judge Silver Sparkle Chrome = 18 opportunities from 1 API call
+- Current pipeline: 100 opps from 4,000 calls = 0.025/call
+- Volume approach: 18 opps from 1 call = 18/call (210x more efficient)
+- Both approaches run together: volume-targeted for precision, broad for coverage
 
-### RDS Table Counts (April 14, 2026)
-| Table | Rows | Notes |
-|-------|------|-------|
-| cards | 1 | Card data pipeline never ran on RDS |
-| sales | 0 | Same |
-| active_listings | 0 | Same |
-| market_rates | 0 | Pipeline uses scp_cache instead |
-| scp_cache | 12,806 | 1,352 players, 43K+ variants |
-| sold_comps | 446+ | Worm seeding from opportunities |
-| opportunities | 150 | 60 CE-confirmed, 90 CE-rejected, BIN stale (April 6) |
-| pipeline_listing_skips | 41,544 | 33,110 economics + 3,243 reprint + more |
-| job_runs | 123+ | Auction completing; BIN awaiting first new run |
-| error_log | 147,060 | Mostly eBay Browse HTTP errors |
-| schema_migrations | 30 | All applied |
+**Key findings from manual validation:**
+- 69% of false positives were wrong parallel matches (Blue Rainbow vs Aqua Rainbow)
+- 18% were grade mismatches (graded card vs ungraded SCP price)
+- SCP search page prices differ from product page prices (cache had wrong data)
+- CE is unreliable on year but can identify card color/variant
+- 130point sold data is most trustworthy price reference
+- SCP sold titles show how sellers actually list cards on eBay (search term gold mine)
 
 ### The Core Problem
 Three compounding issues preventing 1,000 accurate opportunities:
