@@ -457,12 +457,15 @@ def find_ebay_opportunities(
                                     _kws = [w.lower() for w in re.split(r'[^a-zA-Z0-9]+', _par) if len(w) >= 3]
                                     _all_v.append({'parallel': _par, 'price': float(_vp), 'keywords': _kws})
                     if len(_all_v) >= 2:
-                        # Find variants that keyword-match the eBay title
+                        # Find variants that keyword-match the eBay title.
+                        # Require ALL keywords of the SCP variant to appear in the title.
+                        # "any" was matching "Rose Gold Mojo Refractor" ($2) to plain "Gold" listings
+                        # because "gold" appeared in both, killing hundreds of real opportunities.
                         _matches = []
                         for _v in _all_v:
                             if _v['parallel'] == 'Base':
                                 continue  # don't default to base
-                            if _v['keywords'] and any(kw in title_lower for kw in _v['keywords']):
+                            if _v['keywords'] and all(kw in title_lower for kw in _v['keywords']):
                                 _matches.append(_v)
                         if _matches:
                             _cheapest = min(_matches, key=lambda v: v['price'])

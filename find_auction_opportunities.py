@@ -1543,7 +1543,7 @@ if __name__ == '__main__':
                                 _auc_all_v.append({'parallel': _apar, 'price': float(_avp), 'keywords': _akws})
                 if len(_auc_all_v) >= 2:
                     _tl = title.lower()
-                    _auc_matches = [v for v in _auc_all_v if v['parallel'] != 'Base' and v['keywords'] and any(kw in _tl for kw in v['keywords'])]
+                    _auc_matches = [v for v in _auc_all_v if v['parallel'] != 'Base' and v['keywords'] and all(kw in _tl for kw in v['keywords'])]
                     if _auc_matches:
                         _auc_cheapest = min(_auc_matches, key=lambda v: v['price'])
                         scp_price = _auc_cheapest['price']
