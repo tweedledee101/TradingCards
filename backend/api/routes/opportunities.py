@@ -219,22 +219,6 @@ def get_auctions(
     opps = query.order_by(Opportunity.profit.desc()).limit(limit).all()
 
     ended_fallback = False
-    # Active-only filter hides everything after listings expire — common if the scanner has not run recently.
-    if not opps and not include_ended:
-        q2 = db.query(Opportunity).filter(Opportunity.listing_type == "auction")
-        if min_profit:
-            q2 = q2.filter(Opportunity.profit >= min_profit)
-        if max_budget:
-            q2 = q2.filter(Opportunity.buy_price <= max_budget)
-        if sport and str(sport).strip().lower() not in ("all", "", "any"):
-            q2 = q2.filter(Opportunity.sport == str(sport).strip().title())
-        opps = (
-            q2.order_by(Opportunity.end_time.desc().nullslast(), Opportunity.profit.desc())
-            .limit(limit)
-            .all()
-        )
-        if opps:
-            ended_fallback = True
 
     return {
         "success": True,
