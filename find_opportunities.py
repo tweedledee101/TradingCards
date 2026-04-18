@@ -1288,8 +1288,12 @@ if __name__ == '__main__':
                     price_source=price_src,
                     scan_id=tracker.run_id
                 )
-                db.add(row)
-                inserted += 1
+                try:
+                    db.add(row)
+                    db.flush()
+                    inserted += 1
+                except Exception:
+                    db.rollback()
 
             db.commit()
             skipped = len(all_opportunities) - inserted
