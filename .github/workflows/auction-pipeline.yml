@@ -87,14 +87,14 @@ jobs:
           EBAY_APP_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CERT_ID: ${{ secrets.EBAY_CLIENT_SECRET }}
           SCP_PAGE_LOAD_TIMEOUT: "90"
-        # inputs.* is empty on schedule(); use || defaults here — not bash ${VAR:-x} (fragile in GHA).
+        # --players skips eBay Browse discovery (zero API calls wasted on ranking).
+        # Same 120 players as BIN pipeline.
         run: |
+          PLAYERS="Bobby Witt Jr.,Aaron Judge,Mike Trout,Paul Skenes,Elly De La Cruz,Juan Soto,Shohei Ohtani,Fernando Tatis Jr.,Julio Rodriguez,Mookie Betts,Ronald Acuna Jr.,James Wood,Corbin Carroll,Dylan Crews,Yoshinobu Yamamoto,Gunnar Henderson,Jackson Chourio,Freddie Freeman,Nick Kurtz,Junior Caminero,Roman Anthony,Evan Carter,Jackson Merrill,Derek Jeter,Adley Rutschman,Marcelo Mayer,Jackson Holliday,Ken Griffey Jr,Roki Sasaki,Jasson Dominguez,Jac Caglianone,Nick Gonzales,Wyatt Langford,Nolan Ryan,David Wright,Luisangel Acuna,Corey Seager,Matt Shaw,Jacob Wilson,Trea Turner,Colton Cowser,Travis Bazzana,Manny Machado,Charlie Condon,Ichiro Suzuki,Chipper Jones,Vladimir Guerrero Jr.,Brooks Lee,Cal Ripken Jr,Cal Raleigh,Coby Mayo,Alex Bregman,Masyn Winn,Ryan Clifford,Yordan Alvarez,Kristian Campbell,Brandon Lowe,Pete Crow-Armstrong,Giancarlo Stanton,Mike Piazza,Jacob Misiorowski,Kyle Tucker,Drew Gilbert,Eddie Murray,Rhett Lowder,Matt Chapman,Carson Benge,Hyeseong Kim,Jace Jung,Cody Bellinger,Tarik Skubal,Garrett Crochet,Kevin Alcantara,Nolan McLean,Pete Alonso,William Contreras,Bubba Chandler,Kumar Rocker,Hurston Waldrep,Chase Dollander,Dalton Rushing,Connor Norby,Mason Miller,Jackson Jobe,Zac Veen,Ben Rice,Royce Lewis,Hunter Greene,Ketel Marte,Christian Moore,Byron Buxton,Jordan Walker,Kyle Schwarber,Oneil Cruz,Frank Thomas,Spencer Strider,Bryce Harper,Bo Jackson,Clayton Kershaw,Jose Altuve,Gerrit Cole,Barry Larkin,Thomas Saggese,Rafael Devers,Anthony Volpe,Blake Snell,Dansby Swanson,Francisco Lindor,Jazz Chisholm Jr.,Pete Alonso,Zach Wheeler,Carson Williams,Enrique Bradfield Jr.,Colson Montgomery,Bryce Eldridge,Pablo Guerrero,Michael Helman,Jose Ramirez,Luis Castillo,Willson Contreras"
           python3 find_auction_opportunities.py \
             --hours "${{ inputs.hours || '168' }}" \
             --max-budget "${{ inputs.max_budget || '200' }}" \
             --min-profit "${{ inputs.min_profit || '10' }}" \
             --years "${{ inputs.years || '2023,2024,2025,2026' }}" \
             --sport "${{ inputs.sport || 'baseball' }}" \
-            --dynamic-seed-limit "${{ inputs.dynamic_seed_limit || '50' }}" \
-            --dynamic-seed-days "${{ inputs.dynamic_seed_days || '30' }}" \
-            --max-discovery-candidates "${{ inputs.max_discovery_candidates || '100' }}"
+            --players "$PLAYERS"
