@@ -1423,45 +1423,41 @@ if __name__ == '__main__':
 
             label = f"{player} {year} {card_set} #{card_number} [{parallel}]"
 
-            # Fast path: if this listing came from a liquid query, match parallel against
-            # the card group and use pre-loaded SCP price (no Selenium, no fallback)
+            # Liquid path: we know ALL variants and prices for this card number.
+            # Instead of guessing the parallel, check if ANY variant makes this bid profitable.
+            # If yes, it's an opportunity. User/CE verifies the parallel before bidding.
             scp = None
             _liquid_hit = False
             if auction.get('_liquid_cards'):
                 lc_group = auction['_liquid_cards']
                 title_lower = title.lower()
-                # Try exact parallel match first, then best keyword overlap
-                best_lc = None
+                total_cost = price + shipping
+
+                # Find the BEST variant that makes this bid profitable
+                # (highest SCP price where bid is still a deal)
+                profitable_variants = []
                 for lc in lc_group:
-                    par_name = (lc.get('parallel') or 'Base').lower()
-                    if par_name == parallel.lower():
-                        best_lc = lc
-                        break
-                if not best_lc:
-                    # Keyword match: find variant whose parallel words appear in title
-                    for lc in sorted(lc_group, key=lambda v: len(v.get('parallel') or ''), reverse=True):
-                        par_name = (lc.get('parallel') or 'Base')
-                        if par_name == 'Base':
-                            continue
-                        words = par_name.lower().split()
-                        if words and all(w in title_lower for w in words):
-                            best_lc = lc
-                            break
-                if not best_lc and lc_group:
-                    # No parallel match found. DON'T fall back to cheapest --
-                    # that prices a Refractor as Base and kills real opportunities.
-                    # Let the normal SCP matching pipeline handle it instead.
-                    pass
-                if best_lc:
+                    lc_price = float(lc.get('price') or 0)
+                    if lc_price <= 0:
+                        continue
+                    net = lc_price * (1 - FEE_RATE)
+                    potential_profit = net - total_cost
+                    if potential_profit >= args.min_profit:
+                        profitable_variants.append((potential_profit, lc))
+
+                if profitable_variants:
+                    # Use the most profitable variant (highest SCP price that works)
+                    profitable_variants.sort(key=lambda x: x[0], reverse=True)
+                    best_profit, best_lc = profitable_variants[0]
                     scp = {
                         'scp_price': float(best_lc['price']),
                         'grade_9': float(best_lc['grade_9']) if best_lc.get('grade_9') else None,
                         'psa_10': float(best_lc['psa_10']) if best_lc.get('psa_10') else None,
                         'scp_url': best_lc.get('scp_url'),
                         'card_set': best_lc.get('card_set') or card_set,
-                        'matched_parallel': best_lc.get('parallel') or parallel,
-                        'match_type': 'liquid_cache',
-                        'flagged': False,
+                        'matched_parallel': best_lc.get('parallel') or 'Verify',
+                        'match_type': 'liquid_any_variant',
+                        'flagged': True,  # Always flag -- user must verify parallel
                         'source': 'scp_cache',
                         'volume': best_lc.get('volume', ''),
                     }
@@ -1567,39 +1563,9 @@ if __name__ == '__main__':
                 step3_below_min_profit += 1
                 continue
 
-            # Conservative variant pricing: find cheapest keyword-matching SCP variant
-            # and use 2.0x ratio check (same as BIN pipeline)
-            try:
-                import json as _jmod2
-                from sqlalchemy import text as _text2
-                _auc_scp_rows = db.execute(_text2(
-                    "SELECT variants FROM scp_cache "
-                    "WHERE player_name ILIKE :p AND card_year = :y AND card_number ILIKE :n"
-                ), {"p": player, "y": year, "n": card_number}).fetchall()
-                _auc_all_v = []
-                for _asr in _auc_scp_rows:
-                    _avlist = _asr[0]
-                    if isinstance(_avlist, str): _avlist = _jmod2.loads(_avlist)
-                    if isinstance(_avlist, list):
-                        for _avv in _avlist:
-                            _avp = _avv.get('ungraded') or 0
-                            if _avp and float(_avp) > 0:
-                                _apar = _avv.get('parallel', 'Base')
-                                _akws = [w.lower() for w in __import__('re').split(r'[^a-zA-Z0-9]+', _apar) if len(w) >= 3]
-                                _auc_all_v.append({'parallel': _apar, 'price': float(_avp), 'keywords': _akws})
-                if len(_auc_all_v) >= 2:
-                    _tl = title.lower()
-                    _auc_matches = [v for v in _auc_all_v if v['parallel'] != 'Base' and v['keywords'] and all(kw in _tl for kw in v['keywords'])]
-                    if _auc_matches:
-                        _auc_cheapest = min(_auc_matches, key=lambda v: v['price'])
-                        scp_price = _auc_cheapest['price']
-                    _auc_closest = min(_auc_all_v, key=lambda v: abs(v['price'] - price))
-                    _auc_pvc = scp_price / max(_auc_closest['price'], 1)
-                    if _auc_pvc > 2.0:
-                        step3_below_min_profit += 1
-                        continue
-            except Exception:
-                pass
+            # Skip the old conservative variant pricing block.
+            # With liquid_any_variant matching, we already picked the best profitable variant.
+            # No need to second-guess with keyword matching against a different variant list.
 
             # Sanity check: if listing has a BIN price and it's way below SCP,
             # the SCP match is probably wrong. Seller knows what the card is worth.
