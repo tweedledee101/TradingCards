@@ -59,6 +59,11 @@ PLATFORM_FEES = {
     'whatnot': {'buyer': 0.0, 'seller': 0.124},  # 9.5% + 2.9%
     'facebook': {'buyer': 0.0, 'seller': 0.0},
     'myslabs': {'buyer': 0.0, 'seller': 0.08},
+    'goldin': {'buyer': 0.20, 'seller': 0.0},  # 20% buyer's premium
+    'pwcc': {'buyer': 0.20, 'seller': 0.0},
+    'heritage': {'buyer': 0.20, 'seller': 0.0},
+    'tcgplayer': {'buyer': 0.0, 'seller': 0.1025},
+    'alt': {'buyer': 0.0, 'seller': 0.03},
 }
 
 
@@ -119,7 +124,7 @@ def search_all_marketplaces(
     Returns combined list of MarketplaceListing from all platforms.
     """
     if platforms is None:
-        platforms = ['mercari', 'comc']  # eBay handled separately by pipeline
+        platforms = ['mercari', 'comc', 'goldin']  # eBay handled separately by pipeline
 
     results: List[MarketplaceListing] = []
 
@@ -154,6 +159,23 @@ def search_all_marketplaces(
                         card_year=item.get('card_year'),
                         card_set=item.get('card_set'),
                         card_number=item.get('card_number'),
+                    ))
+
+            elif platform == 'goldin':
+                from backend.scrapers.goldin_scraper import search_goldin
+                items = search_goldin(query, max_results=max_per_platform, status='active')
+                for item in items:
+                    results.append(MarketplaceListing(
+                        title=item.get('title', ''),
+                        price=item.get('total_with_premium', item.get('price', 0)),
+                        url=item.get('url', ''),
+                        source='goldin',
+                        image_url=item.get('image_url', ''),
+                        item_id=item.get('item_id', ''),
+                        card_year=item.get('card_year'),
+                        card_number=item.get('card_number'),
+                        listing_type='auction',
+                        end_time=item.get('end_time'),
                     ))
 
         except ImportError as e:

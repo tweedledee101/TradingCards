@@ -198,6 +198,58 @@ def run_marketplace_pipeline(
                 time.sleep(3.0)  # COMC is slower (Playwright)
                 tracker.update(processed=i)
 
+        elif platform == 'goldin':
+            from backend.scrapers.goldin_scraper import search_goldin
+            for i, group in enumerate(queries, 1):
+                q = group['query']
+                scp_cards = group['cards']
+                if i % 10 == 0 or i == 1:
+                    print(f"  [{i}/{len(queries)}] Searching Goldin: {q[:60]}...")
+
+                try:
+                    listings = search_goldin(q, max_results=10, status='active')
+                    searched += 1
+
+                    for listing in listings:
+                        price = listing.get('total_with_premium', 0)
+                        if price <= 0 or price > max_buy_price:
+                            continue
+
+                        best_scp = max(scp_cards, key=lambda c: float(c.get('price', 0)))
+                        scp_price = float(best_scp['price'])
+
+                        arb = calculate_arbitrage(listing.get('price', 0), 'goldin', scp_price, 'ebay')
+                        if arb['profit'] >= min_profit:
+                            opp = {
+                                'player_name': best_scp.get('player_name', ''),
+                                'card_year': best_scp.get('card_year'),
+                                'card_set': best_scp.get('card_set', ''),
+                                'card_number': best_scp.get('card_number', ''),
+                                'parallel': best_scp.get('parallel', 'Base'),
+                                'scp_price': scp_price,
+                                'buy_price': price,
+                                'profit': arb['profit'],
+                                'roi': arb['roi'],
+                                'ebay_title': listing.get('title', ''),
+                                'ebay_url': listing.get('url', ''),
+                                'ebay_item_id': listing.get('item_id', ''),
+                                'image_url': listing.get('image_url', ''),
+                                'listing_type': 'goldin',
+                                'price_source': 'scp_cache',
+                                'scp_url': best_scp.get('scp_url'),
+                                'scp_volume': best_scp.get('volume', ''),
+                            }
+                            opportunities.append(opp)
+                            print(f"    FOUND: ${listing['price']:.0f} bid + 20% = ${price:.0f} -> ${scp_price:.0f} SCP = ${arb['profit']:.0f} profit")
+
+                except Exception as e:
+                    errors += 1
+                    if errors <= 5:
+                        print(f"    Error: {e}")
+
+                time.sleep(1.0)  # Algolia is fast, light rate limit
+                tracker.update(processed=i)
+
         # Store opportunities
         print(f"\n{'=' * 60}")
         print(f"RESULTS: {len(opportunities)} {platform} opportunities found")
@@ -270,7 +322,7 @@ def run_marketplace_pipeline(
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Marketplace Opportunity Pipeline')
-    parser.add_argument('--platform', required=True, choices=['mercari', 'comc', 'all'])
+    parser.add_argument('--platform', required=True, choices=['mercari', 'comc', 'goldin', 'all'])
     parser.add_argument('--min-profit', type=float, default=10.0)
     parser.add_argument('--max-budget', type=float, default=200.0)
     parser.add_argument('--liquid-limit', type=int, default=200)
@@ -279,7 +331,7 @@ if __name__ == '__main__':
     parser.add_argument('--sport', default='Baseball')
     args = parser.parse_args()
 
-    platforms = ['mercari', 'comc'] if args.platform == 'all' else [args.platform]
+    platforms = ['mercari', 'comc', 'goldin'] if args.platform == 'all' else [args.platform]
     for plat in platforms:
         print(f"\n{'=' * 60}")
         print(f"MARKETPLACE PIPELINE: {plat.upper()}")

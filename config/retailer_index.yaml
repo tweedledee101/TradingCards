@@ -1,0 +1,190 @@
+# Trading Card Retailer Index
+#
+# Shops listed here are candidates for periodic crawling.
+# Each entry has: URL pattern, access method, and scraping notes.
+#
+# Access methods:
+#   plain_html  - Standard HTTP GET, parse HTML (no Cloudflare)
+#   cloudflare  - Needs Playwright/browser to bypass challenge
+#   api         - Has a public/semi-public API endpoint
+#   algolia     - Uses Algolia search (public keys in frontend JS)
+#
+# Priority:
+#   high   - Known to have mispriced cards, accessible
+#   medium - Good inventory but harder to scrape
+#   low    - Small inventory or difficult access
+
+retailers:
+  # --- ACCESSIBLE (plain HTTP or API) ---
+
+  - name: Goldin Auctions
+    url: https://goldin.co
+    search_pattern: https://goldin.co/search?q={query}
+    access: algolia
+    algolia_app_id: 74ELO4KNI1
+    algolia_key: 3e3e825e1bdc1e1ceab0e3e5d1a81cca
+    algolia_index: prod_goldin_lot
+    fees: {buyer_premium: 0.20}
+    card_types: [singles, graded]
+    sports: [baseball, basketball, football]
+    price_range: "$50-$100,000+"
+    priority: high
+    notes: "Weekly auctions. High-end cards. Algolia API works without auth."
+    status: scraper_built
+
+  - name: TCGPlayer
+    url: https://www.tcgplayer.com
+    search_pattern: https://mp-search-api.tcgplayer.com/v1/search/request
+    access: api
+    fees: {seller: 0.1025, per_order: 0.30}
+    card_types: [singles, sealed]
+    sports: [baseball, basketball, football]  # Limited sports inventory
+    price_range: "$0.25-$500"
+    priority: medium
+    notes: "API accessible via POST. Primarily Pokemon/Magic but has sports cards."
+    status: api_tested
+
+  # --- CLOUDFLARE PROTECTED (need Playwright) ---
+
+  - name: COMC
+    url: https://www.comc.com
+    search_pattern: https://www.comc.com/Cards/{sport}?search={query}
+    access: cloudflare
+    fees: {buyer: 0.05, seller: 0.20}
+    card_types: [singles]
+    sports: [baseball, basketball, football]
+    price_range: "$0.50-$5,000"
+    priority: high
+    notes: "Huge singles inventory. Fixed price. Cards sit for months = stale pricing."
+    status: scraper_built
+
+  - name: Mercari
+    url: https://www.mercari.com
+    search_pattern: https://www.mercari.com/search/?keyword={query}
+    access: cloudflare
+    fees: {seller: 0.10}
+    card_types: [singles, lots, sealed]
+    sports: [baseball, basketball, football]
+    price_range: "$1-$2,000"
+    priority: high
+    notes: "Casual sellers. Frequent mispricing. Free shipping common."
+    status: scraper_built
+
+  - name: PSA Marketplace
+    url: https://www.psacard.com/marketplace
+    access: cloudflare
+    fees: {varies: true}
+    card_types: [graded_only]
+    sports: [baseball, basketball, football]
+    price_range: "$10-$50,000"
+    priority: medium
+    notes: "Only PSA-graded cards. Structured data. Good for graded arbitrage."
+    status: not_started
+
+  - name: Dave & Adam's Card World
+    url: https://www.dacardworld.com
+    search_pattern: https://www.dacardworld.com/sports-cards/baseball-cards?q={query}
+    access: cloudflare
+    fees: {buyer: 0}
+    card_types: [singles, sealed, boxes]
+    sports: [baseball, basketball, football]
+    price_range: "$1-$5,000"
+    priority: medium
+    notes: "Major online retailer. Good prices on sealed product."
+    status: not_started
+
+  - name: Steel City Collectibles
+    url: https://www.steelcitycollectibles.com
+    search_pattern: https://www.steelcitycollectibles.com/catalogsearch/result/?q={query}
+    access: cloudflare
+    fees: {buyer: 0}
+    card_types: [singles, sealed]
+    sports: [baseball, basketball, football]
+    price_range: "$1-$2,000"
+    priority: medium
+    notes: "Good singles selection. Competitive pricing."
+    status: not_started
+
+  - name: Blowout Cards
+    url: https://www.blowoutcards.com
+    search_pattern: https://www.blowoutcards.com/catalogsearch/result/?q={query}
+    access: cloudflare
+    fees: {buyer: 0}
+    card_types: [singles, sealed, boxes]
+    sports: [baseball, basketball, football]
+    price_range: "$1-$3,000"
+    priority: medium
+    notes: "Large retailer + active forum community."
+    status: not_started
+
+  # --- AUCTION HOUSES ---
+
+  - name: PWCC Marketplace
+    url: https://www.pwccmarketplace.com
+    access: cloudflare
+    fees: {buyer_premium: 0.20}
+    card_types: [singles, graded]
+    sports: [baseball, basketball, football]
+    price_range: "$25-$500,000"
+    priority: medium
+    notes: "Weekly auctions. Vault storage. High-end focus."
+    status: not_started
+
+  - name: Heritage Auctions
+    url: https://www.ha.com
+    access: cloudflare
+    fees: {buyer_premium: 0.20}
+    card_types: [singles, graded, vintage]
+    sports: [baseball, basketball, football]
+    price_range: "$100-$1,000,000+"
+    priority: low
+    notes: "Ultra high-end. Vintage focus. Good for price discovery."
+    status: not_started
+
+  # --- SMALL SHOPS (future crawl targets) ---
+
+  - name: Kruk Cards
+    url: https://www.krukcards.com
+    access: unknown
+    fees: {buyer: 0}
+    card_types: [singles]
+    sports: [baseball]
+    price_range: "$1-$500"
+    priority: low
+    notes: "Individual dealer. May have mispriced inventory."
+    status: not_started
+
+  - name: Atlanta Sports Cards
+    url: https://www.atlantasportscards.com
+    access: unknown
+    fees: {buyer: 0}
+    card_types: [singles, sealed]
+    sports: [baseball, basketball, football]
+    price_range: "$1-$1,000"
+    priority: low
+    notes: "Regional shop with online presence."
+    status: not_started
+
+  # --- VAULT / INVESTMENT ---
+
+  - name: Alt
+    url: https://alt.xyz
+    access: api  # SPA but may have accessible API
+    fees: {buyer: 0, seller: 0.03}
+    card_types: [graded, fractional]
+    sports: [baseball, basketball, football]
+    price_range: "$50-$100,000"
+    priority: low
+    notes: "Vault-based. Instant liquidity. Good price data."
+    status: not_started
+
+  - name: StarStock
+    url: https://starstock.com
+    access: unknown
+    fees: {low: true}
+    card_types: [graded, vault]
+    sports: [baseball, basketball, football]
+    price_range: "$10-$10,000"
+    priority: low
+    notes: "Vault-based trading. Cards never ship."
+    status: not_started

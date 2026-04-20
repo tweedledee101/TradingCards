@@ -197,7 +197,7 @@ def get_marketplace_opportunities(
     db: Session = Depends(get_db)
 ):
     """Returns opportunities from non-eBay marketplaces (Mercari, COMC, etc.)."""
-    marketplace_types = ['mercari', 'comc', 'whatnot', 'sportlots']
+    marketplace_types = ['mercari', 'comc', 'goldin', 'whatnot', 'sportlots']
     query = db.query(Opportunity)
 
     if platform and platform != 'all':
