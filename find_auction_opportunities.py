@@ -1105,19 +1105,19 @@ if __name__ == '__main__':
         seen_ids = set()
         step1_query_stats: list = []
 
+        consecutive_429s = 0
+        MAX_CONSECUTIVE_429 = 3  # Bail after 3 straight 429s (quota exhausted)
+
         for i, query in enumerate(queries, 1):
             is_liquid = i <= n_liquid
             tag = 'LIQ' if is_liquid else 'BROAD'
             print(f"\n[{i}/{len(queries)}] [{tag}] \"{query[:100]}\"")
-            # Liquid queries: 1 page is usually enough (targeted).
-            # Broad queries: paginate up to 1000.
             max_offset = 200 if is_liquid else 1000
             offset = 0
             query_total = 0
             query_new = 0
             pages = 0
             ebay_total_hint = None
-            # Look up the liquid card group for this query (if any)
             lc_group = liquid_card_by_query.get(query.lower()) if is_liquid else None
             while True:
                 page_meta: dict = {}
@@ -1126,7 +1126,7 @@ if __name__ == '__main__':
                 )
                 if offset == 0 and page_meta.get('ebay_total') is not None:
                     ebay_total_hint = page_meta.get('ebay_total')
-                pages += 1  # one Browse search GET per iteration
+                pages += 1
                 if not auctions:
                     break
                 for a in auctions:
@@ -1139,12 +1139,23 @@ if __name__ == '__main__':
                         query_new += 1
                 query_total += len(auctions)
                 if len(auctions) < 200:
-                    break  # Last page
+                    break
                 offset += 200
                 if offset >= max_offset:
                     break
+
+            # Track consecutive 429s -- bail early if quota is exhausted
+            if query_total == 0 and ebay_total_hint is None:
+                consecutive_429s += 1
+                if consecutive_429s >= MAX_CONSECUTIVE_429:
+                    print(f"\n*** BAILING: {consecutive_429s} consecutive queries returned 0 results (likely 429/quota exhausted). ***")
+                    print(f"*** Run the pipeline after eBay quota resets (7 AM UTC / midnight Pacific). ***")
+                    break
+            else:
+                consecutive_429s = 0
+
             hint = (
-                f" | eBay total≈{ebay_total_hint} (first page; we fetch ≤{max_offset})"
+                f" | eBay total\u2248{ebay_total_hint} (first page; we fetch \u2264{max_offset})"
                 if ebay_total_hint is not None
                 else ''
             )
@@ -1158,7 +1169,7 @@ if __name__ == '__main__':
                 'ebay_total_hint': ebay_total_hint,
             })
             tracker.update(processed=i)
-            time.sleep(1.0)  # reduce Browse API burst 429s between queries
+            time.sleep(1.0)
 
         print(f"\nTotal unique auctions: {len(all_auctions)}")
 
