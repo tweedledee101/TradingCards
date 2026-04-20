@@ -1669,7 +1669,7 @@ if __name__ == '__main__':
             if auction.get('image_url') and auction['image_url'] not in img_urls:
                 img_urls.insert(0, auction['image_url'])
 
-            opportunities.append({
+            opp = {
                 'player_name': player,
                 'card_year': year,
                 'card_set': scp.get('card_set') or card_set,
@@ -1695,7 +1695,58 @@ if __name__ == '__main__':
                 'listing_type': 'auction',
                 'match_type': match_type,
                 'price_source': scp.get('source', 'scp'),
-            })
+            }
+            opportunities.append(opp)
+
+            # Write to DB immediately so opportunities survive pipeline crashes
+            if not args.dry_run:
+                try:
+                    from sqlalchemy import text as _ins_text
+                    _existing = db.execute(
+                        _ins_text("SELECT id FROM opportunities WHERE ebay_item_id = :eid LIMIT 1"),
+                        {"eid": numeric_id},
+                    ).first()
+                    if _existing:
+                        db.execute(
+                            _ins_text("UPDATE opportunities SET last_seen_at = NOW() WHERE ebay_item_id = :eid"),
+                            {"eid": numeric_id},
+                        )
+                    else:
+                        row = Opportunity(
+                            player_name=opp['player_name'],
+                            card_year=opp['card_year'],
+                            card_set=opp['card_set'],
+                            card_number=opp['card_number'],
+                            parallel=opp['parallel'],
+                            scp_price=opp['scp_price'],
+                            scp_grade_9=opp.get('scp_grade_9'),
+                            scp_psa_10=opp.get('scp_psa_10'),
+                            scp_url=opp.get('scp_url'),
+                            scp_volume=opp.get('scp_volume'),
+                            buy_price=opp['buy_price'],
+                            shipping=opp['shipping'],
+                            profit=opp['profit'],
+                            roi=opp['roi'],
+                            ebay_title=opp['ebay_title'],
+                            ebay_url=opp['ebay_url'],
+                            ebay_item_id=opp['ebay_item_id'],
+                            image_url=opp.get('image_url'),
+                            listing_image_urls=opp.get('listing_image_urls') or None,
+                            bid_count=opp.get('bid_count', 0),
+                            end_time=opp.get('end_time'),
+                            listing_type='auction',
+                            flagged=opp.get('is_flagged', False),
+                            verification_status='pending',
+                            verification_detail={'schema': 1, 'pipeline': 'auction'},
+                            sport=sport_key,
+                            price_source=opp.get('price_source', 'scp'),
+                            scan_id=tracker.run_id,
+                        )
+                        db.add(row)
+                    db.commit()
+                except Exception as _ie:
+                    db.rollback()
+                    log.warn(f'Incremental DB write failed for {numeric_id}: {_ie}', category='db_write_error')
 
         if scp_scraper:
             scp_scraper.close()
@@ -1746,85 +1797,11 @@ if __name__ == '__main__':
                 print(f"   {opp['ebay_title'][:100]}")
                 print(f"   {opp['ebay_url']}")
 
-        # Step 4: Store in database
-        if not args.dry_run and opportunities:
-            print(f"\nStoring {len(opportunities)} auction opportunities...")
-            try:
-                # Accumulate auction opportunities across runs.
-                # Update last_seen_at for re-found listings, insert new ones.
-                # Ended auctions cleaned up by 7-day expiry.
-                new_item_ids = set()
-                for opp in opportunities:
-                    nid = opp.get('ebay_item_id', '')
-                    if nid: new_item_ids.add(nid)
-
-                if new_item_ids:
-                    from datetime import datetime as _dt
-                    db.execute(
-                        __import__('sqlalchemy').text(
-                            "UPDATE opportunities SET last_seen_at = :now "
-                            "WHERE ebay_item_id = ANY(:ids) AND listing_type = 'auction'"
-                        ),
-                        {"now": _dt.utcnow(), "ids": list(new_item_ids)},
-                    )
-                    db.commit()
-
-                existing_ids = set()
-                if new_item_ids:
-                    eid_rows = db.execute(
-                        __import__('sqlalchemy').text(
-                            "SELECT ebay_item_id FROM opportunities WHERE ebay_item_id = ANY(:ids)"
-                        ),
-                        {"ids": list(new_item_ids)},
-                    ).fetchall()
-                    existing_ids = {r[0] for r in eid_rows}
-
-                inserted = 0
-                for opp in opportunities:
-                    nid = opp.get('ebay_item_id', '')
-                    if nid and nid in existing_ids:
-                        continue  # already in DB, updated last_seen_at above
-                    row = Opportunity(
-                        player_name=opp['player_name'],
-                        card_year=opp['card_year'],
-                        card_set=opp['card_set'],
-                        card_number=opp['card_number'],
-                        parallel=opp['parallel'],
-                        scp_price=opp['scp_price'],
-                        scp_grade_9=opp.get('scp_grade_9'),
-                        scp_psa_10=opp.get('scp_psa_10'),
-                        scp_url=opp.get('scp_url'),
-                        scp_volume=opp.get('scp_volume'),
-                        buy_price=opp['buy_price'],
-                        shipping=opp['shipping'],
-                        profit=opp['profit'],
-                        roi=opp['roi'],
-                        ebay_title=opp['ebay_title'],
-                        ebay_url=opp['ebay_url'],
-                        ebay_item_id=opp['ebay_item_id'],
-                        image_url=opp.get('image_url'),
-                        listing_image_urls=opp.get('listing_image_urls') or None,
-                        bid_count=opp.get('bid_count', 0),
-                        end_time=opp.get('end_time'),
-                        listing_type='auction',
-                        flagged=opp.get('is_flagged', False),
-                        verification_status='pending',
-                        verification_detail={'schema': 1, 'pipeline': 'auction'},
-                        sport=sport_key,
-                        price_source=opp.get('price_source', 'scp'),
-                        scan_id=tracker.run_id,
-                    )
-                    db.add(row)
-                    inserted += 1
-
-                db.commit()
-                print(f"Stored {inserted} new + refreshed {len(existing_ids)} existing auction opportunities.")
-            except Exception as e:
-                db.rollback()
-                log.error(f'Failed to store auction opportunities: {e}', category='db_write_error')
-                print(f"DB error: {e}")
-        elif args.dry_run:
-            print("\n[DRY RUN] Skipping database storage.")
+        # Opportunities already written to DB incrementally in Step 3.
+        if args.dry_run:
+            print("\n[DRY RUN] No DB writes.")
+        else:
+            print(f"\n{len(opportunities)} opportunities written to DB during Step 3 (incremental).")
 
         # Clean up ended auctions older than 3 days
         try:
