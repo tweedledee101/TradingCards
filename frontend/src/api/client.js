@@ -51,6 +51,11 @@ export const getAuctions = async (params = {}) => {
   return response.data;
 };
 
+export const getMarketplaceOpportunities = async (params = {}) => {
+  const response = await api.get('/api/marketplace', { params });
+  return response.data;
+};
+
 export const getOpportunityStats = async () => {
   const response = await api.get('/api/opportunities-stats');
   return response.data;

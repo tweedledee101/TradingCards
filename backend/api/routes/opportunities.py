@@ -187,6 +187,39 @@ def get_opportunities_context_strip(
     }
 
 
+@router.get("/marketplace")
+def get_marketplace_opportunities(
+    platform: Optional[str] = Query(default=None, description="mercari, comc, or all"),
+    min_profit: Optional[float] = Query(default=None),
+    max_budget: Optional[float] = Query(default=None),
+    sport: Optional[str] = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db)
+):
+    """Returns opportunities from non-eBay marketplaces (Mercari, COMC, etc.)."""
+    marketplace_types = ['mercari', 'comc', 'whatnot', 'sportlots']
+    query = db.query(Opportunity)
+
+    if platform and platform != 'all':
+        query = query.filter(Opportunity.listing_type == platform)
+    else:
+        query = query.filter(Opportunity.listing_type.in_(marketplace_types))
+
+    if min_profit:
+        query = query.filter(Opportunity.profit >= min_profit)
+    if max_budget:
+        query = query.filter(Opportunity.buy_price <= max_budget)
+    if sport and str(sport).strip().lower() not in ('all', '', 'any'):
+        query = query.filter(Opportunity.sport == str(sport).strip().title())
+
+    opps = query.order_by(Opportunity.profit.desc()).limit(limit).all()
+    return {
+        'success': True,
+        'count': len(opps),
+        'opportunities': [_opp_to_dict(o) for o in opps],
+    }
+
+
 @router.get("/auctions")
 def get_auctions(
     min_profit: Optional[float] = Query(default=None),
