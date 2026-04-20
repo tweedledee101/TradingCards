@@ -101,8 +101,15 @@ Data collection from external sources:
   - Hybrid auction+BIN detection: uses `currentBidPrice` for actual bid, stores BIN price separately
   - Player aspect extraction: accepts Player, Player/Athlete, Athlete, Player Name fields
 - **SportsCardsPro Scraper**: Selenium/Firefox for Ungraded/Grade 9/PSA 10 market rates (WORKING)
+- **COMC Scraper**: Playwright/Chromium for CheckOutMyCards fixed-price listings (PROTOTYPE)
+- **Mercari Scraper**: Mobile API + web fallback for Mercari listings (PROTOTYPE)
 - **PSA Scraper**: Selenium-based scraper for grading population data (untested)
 - **Card Ladder Scraper**: Selenium-based scraper for price benchmarks (untested)
+
+**Marketplace Adapter**: `backend/services/marketplace_adapter.py`
+- Unified `MarketplaceListing` dataclass across all platforms
+- Platform fee schedule: eBay 13%, Mercari 10%, COMC 5%/20%, Whatnot 12.4%
+- `search_all_marketplaces()`, `calculate_arbitrage()`, `find_cross_platform_arbitrage()`
 
 **SportsCardsPro URL Pattern**: `/search-products?q={query}&type=prices`
 **SportsCardsPro Table Classes**: `used_price` (Ungraded), `cib_price` (Grade 9), `new_price` (PSA 10)
@@ -303,9 +310,10 @@ players:
 ## Deployment Architecture
 
 ### Local Development
-- Backend: Python 3.9+ with virtual environment
+- Backend: Python 3.8.10 (system default), Python 3.12.11 available (`/usr/local/bin/python3.12`)
 - Frontend: Node.js 16+ with Vite dev server
 - Database: PostgreSQL 13+
+- OS: Windows with WSL (Ubuntu 20.04 Focal)
 
 ### Production (Planned)
 - **Domain**: ragnarokgamez.com

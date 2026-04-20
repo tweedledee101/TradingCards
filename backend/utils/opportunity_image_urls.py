@@ -10,6 +10,11 @@ from sqlalchemy import or_
 from backend.models import Opportunity
 
 
+def _is_full_size(url: str) -> bool:
+    """True for eBay CDN full-size images (s-l1600, s-l1200, etc.)."""
+    return "s-l1600" in url or "s-l1200" in url
+
+
 def urls_for_opportunity_row(row: Opportunity) -> list[str]:
     out: list[str] = []
     if row.image_url and str(row.image_url).strip().lower().startswith("http"):
@@ -35,6 +40,9 @@ def urls_for_opportunity_row(row: Opportunity) -> list[str]:
         if u not in seen:
             seen.add(u)
             uniq.append(u)
+
+    # Prefer full-size images first (s-l1600 > s-l225 thumbnails)
+    uniq.sort(key=lambda u: (not _is_full_size(u), u))
     return uniq
 
 

@@ -110,7 +110,7 @@ jobs:
           if [ -z "$PLAYERS" ]; then
             PLAYERS="$DEFAULT_PLAYERS"
           fi
-          python3 scripts/write_bin_player_shards.py \
+          python3 scripts/ops/write_bin_player_shards.py \
             --shards 8 \
             --out-dir bin_shards/ \
             --players "$PLAYERS"
@@ -295,7 +295,7 @@ jobs:
         run: |
           set -o pipefail
           LOG=/tmp/ce_verify.log
-          python3 scripts/verify_opportunities_ce.py \
+          python3 scripts/ops/verify_opportunities_ce.py \
             --limit 50 \
             --min-profit 10 \
             --cooldown 5 \

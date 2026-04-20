@@ -58,6 +58,8 @@ if str(_REPO_ROOT) not in sys.path:
 
 from backend.utils.collectors_edge_result import (
     analyze_ce_for_pipeline,
+    call_ce_identify_api,
+    ce_extracted_from_api_json,
     extract_ce_from_body_text,
     extract_ce_from_html,
     flat_parsed_for_legacy,
@@ -323,6 +325,76 @@ def _browser_close_quietly(browser) -> None:
         browser.close()
     except Exception:
         pass
+
+
+def _try_api_direct(
+    image_path: Path,
+    *,
+    json_out: Path,
+    source_image_url: str | None,
+    db_meta: dict[str, Any] | None,
+    run_label: str,
+    merge_payload_out: list[dict[str, Any]] | None = None,
+) -> int | None:
+    """Try CE tRPC API directly. Returns 0 on success, None to fall back to Playwright."""
+    print(f"  Trying CE API direct (no browser)...", flush=True)
+    image_bytes = image_path.read_bytes()
+    api_json = call_ce_identify_api(image_bytes, timeout=120)
+    if api_json is None:
+        print(f"  CE API returned nothing -- falling back to Playwright.", flush=True)
+        return None
+
+    ce_extracted = ce_extracted_from_api_json(api_json)
+    parsed = flat_parsed_for_legacy(ce_extracted)
+    pipeline_ctx = _pipeline_context_from_db_meta(db_meta)
+    ce_pipeline_analysis = analyze_ce_for_pipeline(ce_extracted, pipeline=pipeline_ctx)
+
+    identity = (parsed.get("card_identity_guess") or "").strip()
+    med = parsed.get("median_usd")
+    who = ""
+    if db_meta:
+        oid = db_meta.get("opportunity_id") or db_meta.get("skip_id")
+        title = (db_meta.get("ebay_title") or "")[:60]
+        who = f" id={oid}" + (f" | {title!r}..." if title else "")
+    print(
+        f"\n>>> CE API identified{who}\n"
+        f"    card: {api_json.get('cardName', '?')}\n"
+        f"    median=${med}  player={api_json.get('player', '?')}  "
+        f"year={api_json.get('year', '?')}  variant={api_json.get('variant', '?')}\n",
+        flush=True,
+    )
+    vps = ce_pipeline_analysis.get("verification_points") or []
+    flags = ce_pipeline_analysis.get("suggested_qa_flags") or []
+    if vps:
+        print("--- CE vs pipeline (verification) ---", flush=True)
+        for line in vps[:6]:
+            print(f"  * {line}", flush=True)
+    if flags:
+        print(f"  suggested_qa_flags: {', '.join(flags)}", flush=True)
+
+    payload: dict[str, Any] = {
+        "final_url": "api://collectorsedgeai.com/api/trpc/cards.identifyByImage",
+        "source_image_url": source_image_url,
+        "database_opportunity": db_meta,
+        "parsed": parsed,
+        "ce_extracted": ce_extracted,
+        "ce_pipeline_analysis": ce_pipeline_analysis,
+        "method": "api_direct",
+    }
+    json_out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    print(f"JSON: {json_out}", flush=True)
+
+    print("\n=== CE_RESULT_JSON ===", flush=True)
+    print(json.dumps(payload, indent=2)[:4000], flush=True)
+    if len(json.dumps(payload)) > 4000:
+        print(f"... (truncated)", flush=True)
+    print("=== END CE_RESULT_JSON ===\n", flush=True)
+
+    if merge_payload_out is not None:
+        merge_payload_out[:] = [
+            {"ce_pipeline_analysis": ce_pipeline_analysis, "db_meta": db_meta},
+        ]
+    return 0
 
 
 def _run_one_collectors_edge_card(
@@ -598,6 +670,7 @@ def run_flow(
     source_image_url: str | None = None,
     db_meta: dict[str, Any] | None = None,
     merge_qa_to_db: bool = False,
+    no_api: bool = False,
 ) -> int:
     from playwright.sync_api import sync_playwright
 
@@ -608,13 +681,30 @@ def run_flow(
     html_out = out_dir / f"{stem}.html"
     json_out = out_dir / f"{stem}.json"
 
+    # Try API direct first (no browser needed)
+    if not no_api:
+        merge_holder: list[dict[str, Any]] = []
+        rc = _try_api_direct(
+            image_path,
+            json_out=json_out,
+            source_image_url=source_image_url,
+            db_meta=db_meta,
+            run_label="Collectors Edge — API direct",
+            merge_payload_out=merge_holder if merge_qa_to_db else None,
+        )
+        if rc is not None:
+            if merge_qa_to_db and rc == 0 and merge_holder:
+                _persist_ce_qa_to_db(merge_holder[0])
+            return rc
+
+    # Fallback to Playwright browser
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless, slow_mo=slow_mo_ms)
         context = browser.new_context(viewport={"width": viewport[0], "height": viewport[1]})
         page = context.new_page()
         page.set_default_timeout(timeout_ms)
 
-        merge_holder: list[dict[str, Any]] = []
+        merge_holder_pw: list[dict[str, Any]] = []
         rc = _run_one_collectors_edge_card(
             page,
             image_path,
@@ -625,11 +715,11 @@ def run_flow(
             timeout_ms=timeout_ms,
             source_image_url=source_image_url,
             db_meta=db_meta,
-            run_label="Collectors Edge — single run",
-            merge_payload_out=merge_holder if merge_qa_to_db else None,
+            run_label="Collectors Edge — single run (Playwright fallback)",
+            merge_payload_out=merge_holder_pw if merge_qa_to_db else None,
         )
-        if merge_qa_to_db and rc == 0 and merge_holder:
-            _persist_ce_qa_to_db(merge_holder[0])
+        if merge_qa_to_db and rc == 0 and merge_holder_pw:
+            _persist_ce_qa_to_db(merge_holder_pw[0])
 
         interrupted = False
         if keep_open_s > 0 and not headless:
@@ -657,16 +747,55 @@ def run_flow_db_sequence(
     viewport: tuple[int, int],
     settle_ms: int,
     merge_qa_to_db: bool = False,
+    no_api: bool = False,
 ) -> int:
-    """Same browser session: CE home → photo → each listing image in order."""
-    from playwright.sync_api import sync_playwright
-
+    """Process multiple cards. Tries API direct per card; falls back to shared Playwright session."""
     if not jobs:
         return 0
 
     out_dir = _resolve_out_dir(out_dir)
     stamp = time.strftime("%Y%m%d_%H%M%S")
     n = len(jobs)
+    exit_rc = 0
+
+    # Try API direct for each card first (no browser needed)
+    if not no_api:
+        remaining_jobs: list[tuple[int, Path, str | None, dict[str, Any] | None]] = []
+        for i, (image_path, source_image_url, db_meta) in enumerate(jobs):
+            json_out = out_dir / f"collectors_edge_{stamp}_{i + 1:02d}_of_{n:02d}.json"
+            label = f"Card {i + 1} of {n}"
+            if db_meta and db_meta.get("opportunity_id") is not None:
+                label += f" (opportunity_id={db_meta['opportunity_id']})"
+
+            merge_holder: list[dict[str, Any]] = []
+            rc = _try_api_direct(
+                image_path,
+                json_out=json_out,
+                source_image_url=source_image_url,
+                db_meta=db_meta,
+                run_label=label,
+                merge_payload_out=merge_holder if merge_qa_to_db else None,
+            )
+            if rc is not None:
+                if merge_qa_to_db and rc == 0 and merge_holder:
+                    _persist_ce_qa_to_db(merge_holder[0])
+                if rc != 0:
+                    exit_rc = rc
+            else:
+                remaining_jobs.append((i, image_path, source_image_url, db_meta))
+
+            if i < n - 1 and pause_between_cards_s > 0:
+                time.sleep(pause_between_cards_s)
+
+        if not remaining_jobs:
+            print(f"\nDone. All {n} card(s) processed via API direct.", flush=True)
+            return exit_rc
+        print(f"\n{len(remaining_jobs)} card(s) need Playwright fallback...", flush=True)
+    else:
+        remaining_jobs = [(i, p, u, m) for i, (p, u, m) in enumerate(jobs)]
+
+    # Playwright fallback for cards that failed API
+    from playwright.sync_api import sync_playwright
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless, slow_mo=slow_mo_ms)
@@ -674,66 +803,46 @@ def run_flow_db_sequence(
         page = context.new_page()
         page.set_default_timeout(timeout_ms)
 
-        exit_rc = 0
         interrupted = False
         stop_sequence = False
-        for i, (image_path, source_image_url, db_meta) in enumerate(jobs):
-            stem = f"collectors_edge_{stamp}_{i + 1:02d}_of_{n:02d}"
+        for idx, (orig_i, image_path, source_image_url, db_meta) in enumerate(remaining_jobs):
+            stem = f"collectors_edge_{stamp}_{orig_i + 1:02d}_of_{n:02d}"
             png = out_dir / f"{stem}.png"
             html_out = out_dir / f"{stem}.html"
             json_out = out_dir / f"{stem}.json"
-            label = f"Card {i + 1} of {n} — Collectors Edge photo valuation"
+            label = f"Card {orig_i + 1} of {n} -- Playwright fallback"
             if db_meta and db_meta.get("opportunity_id") is not None:
                 label += f" (opportunity_id={db_meta['opportunity_id']})"
 
-            merge_holder: list[dict[str, Any]] = []
+            merge_holder_pw: list[dict[str, Any]] = []
             rc = _run_one_collectors_edge_card(
-                page,
-                image_path,
-                png=png,
-                html_out=html_out,
-                json_out=json_out,
-                settle_ms=settle_ms,
-                timeout_ms=timeout_ms,
-                source_image_url=source_image_url,
-                db_meta=db_meta,
+                page, image_path,
+                png=png, html_out=html_out, json_out=json_out,
+                settle_ms=settle_ms, timeout_ms=timeout_ms,
+                source_image_url=source_image_url, db_meta=db_meta,
                 run_label=label,
-                merge_payload_out=merge_holder if merge_qa_to_db else None,
+                merge_payload_out=merge_holder_pw if merge_qa_to_db else None,
             )
-            if merge_qa_to_db and rc == 0 and merge_holder:
-                _persist_ce_qa_to_db(merge_holder[0])
+            if merge_qa_to_db and rc == 0 and merge_holder_pw:
+                _persist_ce_qa_to_db(merge_holder_pw[0])
             if rc != 0:
                 exit_rc = rc
             if rc == CE_EXIT_BROWSER_CLOSED:
-                print("Stopping multi-card run (browser window was closed).", file=sys.stderr, flush=True)
                 stop_sequence = True
                 break
 
-            is_last = i == n - 1
+            is_last = idx == len(remaining_jobs) - 1
             if not is_last and pause_between_cards_s > 0:
-                print(
-                    f"\nPausing {pause_between_cards_s:.0f}s before next card (watch the result above)…\n",
-                    flush=True,
-                )
                 if _sleep_keep_open(pause_between_cards_s):
                     interrupted = True
                     break
 
-        if not interrupted and not stop_sequence:
-            if keep_open_s > 0 and not headless:
-                print(
-                    f"\nAll {n} card(s) done. Keeping browser open {keep_open_s:.0f}s — close the window or Ctrl+C.",
-                    flush=True,
-                )
-                interrupted = _sleep_keep_open(keep_open_s)
-            else:
-                print(f"\nDone. Processed {n} card(s). Closing browser.", flush=True)
+        if not interrupted and not stop_sequence and keep_open_s > 0 and not headless:
+            interrupted = _sleep_keep_open(keep_open_s)
 
         _browser_close_quietly(browser)
 
-    if interrupted:
-        return CE_EXIT_INTERRUPTED
-    return exit_rc
+    return CE_EXIT_INTERRUPTED if interrupted else exit_rc
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -809,6 +918,11 @@ def main(argv: list[str] | None = None) -> int:
         "--merge-qa-to-db",
         action="store_true",
         help="With --from-db: after each successful run, merge CE suggested_qa_flags into opportunities.qa_flags.",
+    )
+    p.add_argument(
+        "--no-api",
+        action="store_true",
+        help="Skip direct API call, always use Playwright browser (slower but captures screenshots).",
     )
 
     args = p.parse_args(argv)
@@ -913,6 +1027,7 @@ def main(argv: list[str] | None = None) -> int:
                     source_image_url=u0,
                     db_meta=m0,
                     merge_qa_to_db=args.merge_qa_to_db,
+                    no_api=args.no_api,
                 )
 
             return run_flow_db_sequence(
@@ -926,6 +1041,7 @@ def main(argv: list[str] | None = None) -> int:
                 viewport=(args.width, args.height),
                 settle_ms=max(0, args.settle_ms),
                 merge_qa_to_db=args.merge_qa_to_db,
+                no_api=args.no_api,
             )
 
         if args.image_url:
@@ -954,6 +1070,7 @@ def main(argv: list[str] | None = None) -> int:
                 settle_ms=max(0, args.settle_ms),
                 source_image_url=source_image_url,
                 db_meta=None,
+                no_api=args.no_api,
             )
 
         path = args.image.expanduser().resolve()
@@ -972,6 +1089,7 @@ def main(argv: list[str] | None = None) -> int:
             settle_ms=max(0, args.settle_ms),
             source_image_url=None,
             db_meta=None,
+            no_api=args.no_api,
         )
     finally:
         for pth in tmp_download_paths:
