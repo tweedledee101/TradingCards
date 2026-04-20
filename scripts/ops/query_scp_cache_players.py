@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Query SCP cache for top single-player entries by volume."""
 import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from backend.utils.database import SessionLocal
 from backend.models import SCPCache
 from sqlalchemy import func

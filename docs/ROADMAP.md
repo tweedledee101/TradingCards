@@ -47,6 +47,25 @@ Data gathering must run in a separate process from the core app.
 
 **Problem:** eBay Browse–first **player** discovery burns quota and does not match “liquid players = those with real sold volume.” **Target:** rank **~top 100** players from **`sold_comps`** / **`sales`** aggregates; enforce **$5–$1000** + **fast sell-through** proxies; **CE + SCP** identity before **narrow** eBay listing pull. Spec: **[docs/OPPORTUNITY-FINDER.md](./OPPORTUNITY-FINDER.md)** → *Target evolution: 130point-led…* Success measured from DB/QA metrics, not anecdotal rows.
 
+### 2.0b Multi-platform listing discovery via web search (active research)
+
+**Problem:** eBay Browse API is the bottleneck — 5,000 calls/day, ~1,200 per 40-player scan, and the BIN pipeline is extremely slow (16+ hours for full variation sweep). Auctions are where the real margins live, so freeing Browse budget for auction-specific calls is strategic.
+
+**Approach:** Replace Browse API as the listing discovery mechanism with free web search using TLS fingerprint impersonation. A text search like `"shohei ohtani 2024 bowman chrome 85" site:ebay.com` returns actual eBay listing pages — zero API calls. Same approach works across eBay, Mercari, COMC, Whatnot, Fanatics.
+
+**Key findings (Session 83):**
+- Google Shopping via curl fails (requires JS + TLS fingerprint detection at protocol level)
+- DDG Lite works with curl but rate limits aggressively after ~15-20 requests
+- `deedy5/ddgs` (2,434 stars) solves this: `primp` (Rust HTTP client) impersonates real browser TLS fingerprints; multi-engine rotation (Google, Brave, DDG, Yahoo, Yandex, Mojeek) with deduplication; XPath parsing of raw HTML (no Selenium)
+- Google serves server-rendered HTML to mobile UAs when TLS fingerprint matches a real browser
+- Bing is disabled in ddgs (too aggressive blocking); Brave is cleanest implementation
+
+**Blocker:** `primp` and `ddgs` require Python 3.10+. **Python 3.12.11 already installed** at `/usr/local/bin/python3.12` (deadsnakes). Alternative: `curl_cffi` (Python 3.8-compatible TLS impersonation, not yet tested).
+
+**Not a significant architectural shift** — just swapping the listing discovery function. All existing pipeline rules still apply (min profit, volume, variant matching). Visual confirmation via Collectors Edge remains mandatory.
+
+**Next steps:** (1) Verify `primp` installs on 3.12 and TLS impersonation bypasses Google from our IP, (2) OR test `curl_cffi` on 3.8, (3) Build thin search adapter that returns same shape as Browse API results.
+
 ### 2.0 Listing identity verification (eBay ↔ SCP ↔ Collectors Edge ↔ 130point) — IN PROGRESS / REQUIRED
 
 **Problem:** Opportunities sometimes show an eBay listing whose **visual card** does not match the **SCP catalog row** (wrong parallel, wrong year, wrong variation). That is unacceptable for trading decisions. With multiple independent sources (eBay, SCP art, CE, **130point `sold_comps`**), **persistent discrepancy after validation = ineffectiveness in process or code** — not something the operator should “just know to ignore.”
@@ -430,6 +449,12 @@ Validate prediction accuracy against historical data.
 ## Backlog: Brand, commerce & content (unscheduled)
 
 Captured so ideas are not lost; **not** current sprint work.
+
+### Developer docs in UI
+
+- Serve project documentation (architecture, ADRs, pipeline ops, known issues) through the frontend as a `/docs` page.
+- Render existing repo markdown files (or a curated subset) in the Ragnarok Gaming theme.
+- Audience: operator / future contributors — not public users.
 
 ### Print-on-demand merch (no home inventory)
 

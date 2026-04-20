@@ -3,7 +3,8 @@
 ## Programming Languages
 
 ### Backend
-- **Python 3.9+** - Primary backend language
+- **Python 3.8.10** - System default (`/usr/bin/python3`)
+- **Python 3.12.11** - Available at `/usr/local/bin/python3.12` (deadsnakes PPA, needed for `primp`/`ddgs` TLS impersonation)
 - **SQL** - PostgreSQL database queries and schema
 
 ### Frontend
@@ -57,6 +58,12 @@
 - **GitHub Actions** - 4 workflows (BIN pipeline, Auction pipeline, Daily Report, QA)
 - **Ubuntu 24.04 runners** - `ubuntu-latest` with Mozilla PPA for Firefox ESR
 - **geckodriver 0.36.0** - Pinned version (avoids GitHub API rate limiting)
+
+### Multi-Platform Search (Research / Not Yet Integrated)
+- **primp** - Rust-based HTTP client with browser TLS fingerprint impersonation (requires Python 3.10+)
+- **ddgs (deedy5/ddgs)** - Multi-engine metasearch: Google, Brave, DDG, Yahoo, Yandex, Mojeek with XPath parsing (requires Python 3.10+)
+- **curl_cffi** - Python 3.8-compatible TLS impersonation alternative (not yet tested)
+- **duckduckgo-search 7.2.1** - Installed but rate limited (uses DDG Lite under the hood)
 
 ### Configuration & Utilities
 - **python-dotenv 1.0.0** - Environment variable management
@@ -200,16 +207,26 @@ aws cloudformation validate-template \
 ## Environment Requirements
 
 ### Development
-- **Python**: 3.9 or higher
+- **Python**: 3.8.10 (system default), 3.12.11 available (`/usr/local/bin/python3.12`)
 - **Node.js**: 16 or higher
 - **PostgreSQL**: 13 or higher
 - **Firefox/geckodriver**: For Selenium scrapers (NOT Chrome)
+- **OS**: Windows with WSL (Ubuntu 20.04 Focal)
 
 ### Production (AWS)
 - **ECS**: Docker containers (Python 3.9 + Node 16)
 - **RDS**: PostgreSQL 13+
 - **Lambda**: Python 3.9 runtime
 - **CloudFront**: Static asset delivery
+
+## AWS CLI
+- **Profile**: `ragnarok` -- ALWAYS use `--profile ragnarok` for all AWS CLI commands
+- **Account**: 635601810497 (Ragnarok Gaming)
+- **Region**: us-east-1
+- **Example**: `aws cognito-idp list-user-pools --max-results 10 --profile ragnarok`
+- **Cognito User Pool**: `us-east-1_7WksfnG6T` (ragnarok-production)
+- **Cognito Domain**: `ragnarokgamez-production.auth.us-east-1.amazoncognito.com`
+- **Cognito Client ID**: `7lbcmb2cg1o9c0n2s4tuvftjdk`
 
 ## API Documentation
 - **Interactive Docs**: http://localhost:8000/docs (Swagger UI)

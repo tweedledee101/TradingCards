@@ -1,0 +1,69 @@
+/* Ragnarok Gaming - Cognito Hosted UI Branding */
+/* Only Cognito-allowed CSS classes: https://docs.aws.amazon.com/cognito/latest/developerguide/cognito-user-pools-app-ui-customization.html */
+
+.background-customizable {
+  background-color: #0f1117;
+}
+
+.banner-customizable {
+  background-color: #1a1d27;
+  padding: 24px 0 8px 0;
+}
+
+.label-customizable {
+  color: #e0e0e0;
+  font-weight: 500;
+}
+
+.idpDescription-customizable {
+  color: #a0a0a0;
+}
+
+.textDescription-customizable {
+  color: #a0a0a0;
+}
+
+.inputField-customizable {
+  background-color: #0f1117;
+  border: 1px solid #3a3d47;
+  border-radius: 8px;
+  color: #e0e0e0;
+  padding: 10px 14px;
+}
+
+.inputField-customizable:focus {
+  border-color: #e8590c;
+  box-shadow: 0 0 0 2px rgba(232, 89, 12, 0.25);
+}
+
+.submitButton-customizable {
+  background-color: #e8590c;
+  border: none;
+  border-radius: 8px;
+  color: #ffffff;
+  font-weight: 600;
+  padding: 10px 20px;
+}
+
+.submitButton-customizable:hover {
+  background-color: #d14e0a;
+}
+
+.redirect-customizable {
+  color: #e8590c;
+}
+
+.socialButton-customizable {
+  background-color: #2a2d37;
+  border: 1px solid #3a3d47;
+  border-radius: 8px;
+  color: #e0e0e0;
+}
+
+.errorMessage-customizable {
+  color: #ff4444;
+}
+
+.legalText-customizable {
+  color: #666;
+}

@@ -14,3 +14,5 @@ scripts/dev/_collectors_edge_artifacts/
 # Local pipeline log captures (large; not for git)
 opportunity_pipeline_run.log
 *_pipeline_run.log
+experiments/**/*.py
+!experiments/README.md

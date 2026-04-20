@@ -99,6 +99,7 @@ A data-driven arbitrage opportunity finder for trading card dealers that identif
 
 | Source | Purpose | Status |
 |--------|---------|--------|
+| Google/Brave/DDG (via ddgs) | Multi-platform listing discovery (eBay, Mercari, COMC, etc.) | Research (Python 3.12 + primp needed) |
 | eBay Browse API | Sold listings, active listings | Working (Real Data) |
 | SportsCardsPro | Market rates (Ungraded/Grade 9/PSA 10) | Working (Selenium/Firefox, graduated search + set validation) |
 | 130point.com | eBay sold comps (actual sale prices + volume) | Working (HTTP POST, background worm) |
@@ -111,23 +112,32 @@ A data-driven arbitrage opportunity finder for trading card dealers that identif
 | Twitter/Reddit | Social sentiment | Planned |
 | Release Calendars | New releases | Planned |
 
-**Current Status**: 4/11 sources with real data, 2/11 infrastructure ready
+**Current Status**: 4/11 sources with real data, 2/11 infrastructure ready, 1 in active research (multi-engine search)
 
 ## Cross-Platform Strategy
 
 eBay is the primary marketplace (best API, highest volume). Other platforms tracked for price comparison and universal inventory intake.
 
+**Active research (Session 83):** Replace eBay Browse API as listing discovery with free web search using TLS fingerprint impersonation (`primp` + `ddgs`). Text search for `"shohei ohtani 2024 bowman chrome 85" site:ebay.com` returns actual listing pages. Same approach works across eBay, Mercari, COMC, Whatnot, Fanatics -- zero API calls. Requires Python 3.12 (already installed at `/usr/local/bin/python3.12`). Key insight: auctions are where the real money is; freeing up eBay API budget for auction-specific calls is the strategic goal.
+
 | Platform | Integration | Priority |
 |----------|------------|----------|
 | eBay | Full API (Browse + OAuth) | DONE |
 | SportsCardsPro | Selenium scraping | DONE |
-| Mercari | Price comparison scrape | Medium |
-| COMC | Price comparison scrape | Medium |
+| Mercari | API scraper (mobile endpoint + web fallback) | Prototype (feature/comc-scraper) |
+| COMC | Playwright scraper (Cloudflare bypass) | Prototype (feature/comc-scraper) |
 | Whatnot | Manual intake, monitor later | Medium |
 | Facebook | Manual intake, NovaAct later | Low |
 | MySlabs | Price comparison scrape | Low |
 | StockX | Monitor if API opens | Low |
 | Card Shows/LCS | Manual intake only | Low |
+
+**Unified marketplace adapter**: `backend/services/marketplace_adapter.py`
+- Normalized `MarketplaceListing` dataclass across all platforms
+- Platform fee schedule for profit calculations
+- `search_all_marketplaces()` searches multiple platforms in one call
+- `calculate_arbitrage()` for any buy/sell platform combination
+- `find_cross_platform_arbitrage()` with SCP price comparison
 
 Key principle: Inventory tracks cards from ANY source. Users buy on eBay, Whatnot, Facebook, card shows -- all tracked the same way with platform-specific fee rates (eBay 13%, Mercari 10%, Whatnot 9.5%+2.9%, Facebook 0%, COMC 20%).
 
