@@ -981,6 +981,12 @@ if __name__ == '__main__':
         action='store_true',
         help='If sold_comps ranking returns empty, continue with empty list (auction may use DB fallback)',
     )
+    parser.add_argument(
+        '--liquid-limit',
+        type=int,
+        default=800,
+        help='Max liquid card queries from SCP cache (default: 800, fits within 5K daily Browse quota)',
+    )
     args = parser.parse_args()
 
     dyn_limit = 0 if args.no_dynamic_seeds else max(0, args.dynamic_seed_limit)
@@ -988,23 +994,49 @@ if __name__ == '__main__':
     years = [int(y.strip()) for y in args.years.split(',')]
 
     from backend.config.auction_queries import BASEBALL_VALUE_QUERIES_CORE, build_baseball_value_queries
+    from backend.services.liquid_auction_queries import build_liquid_auction_queries
 
-    sport_lc = (args.sport or 'baseball').strip().lower()
-    if sport_lc == 'baseball':
-        cap = None if args.product_line_year_cap == 0 else args.product_line_year_cap
-        VALUE_QUERIES, value_query_meta = build_baseball_value_queries(
-            years,
-            include_product_lines=not args.no_product_line_queries,
-            product_line_year_cap=cap,
+    sport_key = (args.sport or 'baseball').strip().title()
+
+    # PRIMARY: Liquid card queries from SCP cache (cards with known volume + price)
+    # Default 800 to leave room for BIN pipeline's ~4000 calls within 5K daily quota.
+    # Override with --liquid-limit.
+    liquid_limit = args.liquid_limit
+    liquid_queries: list = []
+    liquid_cards: list = []
+    liquid_meta: dict = {}
+    with closing(SessionLocal()) as db_liq:
+        liquid_queries, liquid_cards, liquid_meta = build_liquid_auction_queries(
+            db_liq,
+            min_price=float(getattr(args, 'min_scp_price', 5)),
+            max_price=float(getattr(args, 'max_scp_price', 1000)),
+            limit=liquid_limit,
         )
-    else:
-        VALUE_QUERIES = list(BASEBALL_VALUE_QUERIES_CORE)
-        value_query_meta = {
-            'product_lines': False,
-            'note': f'sport={sport_lc!r}: product-line pack is baseball-only; using core parallel queries',
-            'parallel_queries': len(VALUE_QUERIES),
-            'total_value_queries': len(VALUE_QUERIES),
-        }
+    # Build a lookup: query_lower -> card dict (for instant SCP price in Step 3)
+    liquid_card_by_query: dict = {}
+    for q, card in zip(liquid_queries, liquid_cards):
+        liquid_card_by_query[q.lower()] = card
+    print(f"Liquid card queries: {len(liquid_queries)} (from {liquid_meta.get('total_liquid_variants', 0)} SCP variants with daily/weekly volume)")
+
+    # SECONDARY: Small broad sweep for cards not yet in SCP cache
+    sport_lc = sport_key.lower()
+    BROAD_QUERIES: list = []
+    value_query_meta: dict = {'product_lines': False, 'parallel_queries': 0, 'total_value_queries': 0}
+    if not args.no_product_line_queries:
+        if sport_lc == 'baseball':
+            cap = None if args.product_line_year_cap == 0 else args.product_line_year_cap
+            BROAD_QUERIES, value_query_meta = build_baseball_value_queries(
+                years,
+                include_product_lines=True,
+                product_line_year_cap=cap,
+            )
+        else:
+            BROAD_QUERIES = list(BASEBALL_VALUE_QUERIES_CORE)
+            value_query_meta = {
+                'product_lines': False,
+                'parallel_queries': len(BROAD_QUERIES),
+                'total_value_queries': len(BROAD_QUERIES),
+            }
 
     sold_seed_queries: list = []
     if args.sold_comp_seed_queries > 0:
@@ -1023,68 +1055,20 @@ if __name__ == '__main__':
                 f"(top SKUs by 130point rows, last {args.sold_comp_seed_days}d)"
             )
 
-    # Player-specific searches: same ranked list as BIN (eBay volume), not DB card counts
-    from backend.config.sets import HIGH_VALUE_SETS, get_set_queries
-    from contextlib import closing
-    from backend.discover_players import hot_player_names_for_pipeline
-
-    sport_key = (args.sport or 'baseball').strip().title()
-    PLAYER_QUERIES = []
-    if args.players:
-        player_names = [p.strip() for p in args.players.split(',') if p.strip()]
-        print(f"Using --players ({len(player_names)} names); skipping eBay discovery for player queries.")
-    else:
-        print(
-            f"Finding hot players (rank={args.player_rank_source}; "
-            f"BIN parity days={args.days}, limit={args.top_players})..."
-        )
-        with closing(SessionLocal()) as _db:
-            player_names = hot_player_names_for_pipeline(
-                limit=args.top_players,
-                sport=sport_key,
-                days=args.days,
-                db_session=_db,
-                dynamic_sales_player_limit=dyn_limit,
-                dynamic_sales_lookback_days=args.dynamic_seed_days,
-                max_discovery_candidates=args.max_discovery_candidates,
-                rank_source=args.player_rank_source,
-                sales_rank_lookback_days=args.sales_rank_days,
-                sales_rank_fallback_browse=bool(args.sales_rank_fallback_browse),
-                sold_comps_lookback_days=args.sold_comps_rank_days,
-                sold_comps_fallback_browse=not args.no_sold_comps_fallback_browse,
-            )
-        if not player_names:
-            print(
-                "WARNING: discover_top_players returned no players; "
-                "falling back to DB Card.name counts (no BIN parity)."
-            )
-            with closing(SessionLocal()) as db_temp:
-                rows = (
-                    db_temp.query(Card.player_name, func.count(Card.id).label('cnt'))
-                    .group_by(Card.player_name)
-                    .order_by(func.count(Card.id).desc())
-                    .limit(args.top_players)
-                    .all()
-                )
-            player_names = [r[0] for r in rows]
-
-    for idx, name in enumerate(player_names):
-        PLAYER_QUERIES.append(f"{name} auto numbered")
-        PLAYER_QUERIES.append(f"{name} refractor")
-        if sport_key in HIGH_VALUE_SETS and idx < 15:
-            PLAYER_QUERIES.extend(get_set_queries(name, sport_key))
-
-    queries = VALUE_QUERIES + sold_seed_queries + PLAYER_QUERIES
+    # Liquid queries first (targeted, high-value), then broad sweep
+    queries = liquid_queries + BROAD_QUERIES + sold_seed_queries
+    n_liquid = len(liquid_queries)
+    n_broad = len(BROAD_QUERIES) + len(sold_seed_queries)
 
     print("=" * 80)
-    print("EBAY-FIRST AUCTION OPPORTUNITY PIPELINE")
+    print("LIQUID-FIRST AUCTION OPPORTUNITY PIPELINE")
     print("=" * 80)
     print(f"\nAuctions ending within: {args.hours}h")
     print(f"Budget: ${args.max_budget:.0f} max | Min Profit: ${args.min_profit:.0f}")
-    print(f"Sport: {args.sport} | dynamic_seed_limit={dyn_limit} | dynamic_seed_days={args.dynamic_seed_days}")
+    print(f"Sport: {args.sport}")
     print(
         f"Search queries: {len(queries)} "
-        f"({len(VALUE_QUERIES)} value + {len(sold_seed_queries)} sold-seed + {len(PLAYER_QUERIES)} player)"
+        f"({n_liquid} liquid-card + {n_broad} broad sweep)"
     )
     if value_query_meta.get('product_lines'):
         print(
@@ -1103,8 +1087,8 @@ if __name__ == '__main__':
             'hours': args.hours, 'min_profit': args.min_profit,
             'max_budget': args.max_budget, 'sport': args.sport,
             'years': years, 'query_count': len(queries),
-            'top_players': args.top_players, 'discovery_days': args.days,
-            'players_override': bool(args.players),
+            'liquid_queries': n_liquid, 'broad_queries': n_broad,
+            'liquid_meta': liquid_meta,
             'value_query_meta': value_query_meta,
             'sold_comp_seed_queries': len(sold_seed_queries),
         }
@@ -1121,13 +1105,19 @@ if __name__ == '__main__':
         step1_query_stats: list = []
 
         for i, query in enumerate(queries, 1):
-            print(f"\n[{i}/{len(queries)}] \"{query}\"")
-            # Paginate to get all results, not just first 200
+            is_liquid = i <= n_liquid
+            tag = 'LIQ' if is_liquid else 'BROAD'
+            print(f"\n[{i}/{len(queries)}] [{tag}] \"{query[:100]}\"")
+            # Liquid queries: 1 page is usually enough (targeted).
+            # Broad queries: paginate up to 1000.
+            max_offset = 200 if is_liquid else 1000
             offset = 0
             query_total = 0
             query_new = 0
             pages = 0
             ebay_total_hint = None
+            # Look up the liquid card for this query (if any)
+            lc = liquid_card_by_query.get(query.lower()) if is_liquid else None
             while True:
                 page_meta: dict = {}
                 auctions = scraper.search_auctions_ending_soon(
@@ -1142,22 +1132,25 @@ if __name__ == '__main__':
                     item_id = a.get('ebay_item_id', '')
                     if item_id not in seen_ids:
                         seen_ids.add(item_id)
+                        if lc:
+                            a['_liquid_card'] = lc
                         all_auctions.append(a)
                         query_new += 1
                 query_total += len(auctions)
                 if len(auctions) < 200:
                     break  # Last page
                 offset += 200
-                if offset >= 1000:  # Safety cap: 5 pages max per query
+                if offset >= max_offset:
                     break
             hint = (
-                f" | eBay total≈{ebay_total_hint} (first page; we fetch ≤1000)"
+                f" | eBay total≈{ebay_total_hint} (first page; we fetch ≤{max_offset})"
                 if ebay_total_hint is not None
                 else ''
             )
             print(f"  {query_total} rows, {query_new} new after dedupe{hint}")
             step1_query_stats.append({
                 'query': query[:200],
+                'source': 'liquid' if is_liquid else 'broad',
                 'pages': pages,
                 'items_returned': query_total,
                 'new_after_dedupe': query_new,
@@ -1362,6 +1355,9 @@ if __name__ == '__main__':
                 'step1_query_stats': step1_query_stats,
                 'value_query_meta': value_query_meta,
                 'sold_comp_seed_query_count': len(sold_seed_queries),
+                'liquid_queries': n_liquid,
+                'broad_queries': n_broad,
+                'liquid_meta': liquid_meta,
                 'qualified': 0,
                 'opportunities_found': 0,
                 'step2_skip_reasons': skip_reasons,
@@ -1415,11 +1411,33 @@ if __name__ == '__main__':
 
             label = f"{player} {year} {card_set} #{card_number} [{parallel}]"
 
-            # DB lookup first
-            scp = find_scp_match_in_db(db, player, year, card_number, parallel, card_set)
-            if scp:
+            # Fast path: if this listing came from a liquid query, use pre-loaded SCP price
+            # (the whole point of liquid-first: we already know the price)
+            scp = None
+            _liquid_hit = False
+            if auction.get('_liquid_card'):
+                lc = auction['_liquid_card']
+                scp = {
+                    'scp_price': float(lc['price']),
+                    'grade_9': float(lc['grade_9']) if lc.get('grade_9') else None,
+                    'psa_10': float(lc['psa_10']) if lc.get('psa_10') else None,
+                    'scp_url': lc.get('scp_url'),
+                    'card_set': lc.get('card_set') or card_set,
+                    'matched_parallel': lc.get('parallel') or parallel,
+                    'match_type': 'liquid_cache',
+                    'flagged': False,
+                    'source': 'scp_cache',
+                    'volume': lc.get('volume', ''),
+                }
                 db_hits += 1
-            else:
+                _liquid_hit = True
+
+            # DB lookup for non-liquid listings
+            if not scp:
+                scp = find_scp_match_in_db(db, player, year, card_number, parallel, card_set)
+            if scp and not _liquid_hit:
+                db_hits += 1
+            elif not scp:
                 # SCP lookup: cache first, Selenium fallback
                 if scp_scraper is None:
                     print("  Starting Selenium for SCP lookups...")
@@ -1834,6 +1852,9 @@ if __name__ == '__main__':
             'step1_query_stats': step1_query_stats,
             'value_query_meta': value_query_meta,
             'sold_comp_seed_query_count': len(sold_seed_queries),
+            'liquid_queries': n_liquid,
+            'broad_queries': n_broad,
+            'liquid_meta': liquid_meta,
             'qualified': len(qualified),
             'step2_skip_reasons': skip_reasons,
             'detail_lookups': detail_lookups,

@@ -1,8 +1,8 @@
 name: Auction Pipeline
 
 on:
-  # 1x/day standalone auction run offset from pipeline.yml.
-  # 7-day window captures most auctions; pipeline.yml also runs auction after BIN.
+  # 1x/day standalone auction run.
+  # Liquid-first: queries built from SCP cache, no Browse discovery needed.
   schedule:
     - cron: '0 0 * * *'   # 12 AM UTC (8 PM ET)
   workflow_dispatch:
@@ -10,7 +10,7 @@ on:
       hours:
         description: 'Auctions ending within X hours'
         required: false
-        default: '48'
+        default: '168'
       max_budget:
         description: 'Max bid + shipping'
         required: false
@@ -27,23 +27,16 @@ on:
         description: 'Sport to search (baseball, basketball, football, all)'
         required: false
         default: 'baseball'
-      dynamic_seed_limit:
-        description: 'Merge top N players from DB sales into discovery (0=off)'
+      no_broad:
+        description: 'Skip broad sweep queries (liquid-only)'
+        type: boolean
         required: false
-        default: '50'
-      dynamic_seed_days:
-        description: 'Lookback days when ranking players from sales table'
-        required: false
-        default: '30'
-      max_discovery_candidates:
-        description: 'Max Browse discovery calls before ranking seeds'
-        required: false
-        default: '100'
+        default: false
 
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v4
@@ -64,7 +57,6 @@ jobs:
           sudo add-apt-repository -y ppa:mozillateam/ppa
           sudo apt-get update
           sudo apt-get install -y firefox-esr
-          # geckodriver (pinned version to avoid GitHub API rate limits)
           GECKO_VER="v0.36.0"
           curl -sL -o geckodriver.tar.gz "https://github.com/mozilla/geckodriver/releases/download/${GECKO_VER}/geckodriver-${GECKO_VER}-linux64.tar.gz"
           file geckodriver.tar.gz
@@ -79,7 +71,7 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python3 migrate.py --rds
 
-      - name: Run auction pipeline
+      - name: Run auction pipeline (liquid-first)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
@@ -87,14 +79,17 @@ jobs:
           EBAY_APP_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CERT_ID: ${{ secrets.EBAY_CLIENT_SECRET }}
           SCP_PAGE_LOAD_TIMEOUT: "90"
-        # --players skips eBay Browse discovery (zero API calls wasted on ranking).
-        # Same 120 players as BIN pipeline.
+        # Liquid-first: queries come from scp_cache (cards with known volume).
+        # No Browse discovery needed. No --players needed.
         run: |
-          PLAYERS="Bobby Witt Jr.,Aaron Judge,Mike Trout,Paul Skenes,Elly De La Cruz,Juan Soto,Shohei Ohtani,Fernando Tatis Jr.,Julio Rodriguez,Mookie Betts,Ronald Acuna Jr.,James Wood,Corbin Carroll,Dylan Crews,Yoshinobu Yamamoto,Gunnar Henderson,Jackson Chourio,Freddie Freeman,Nick Kurtz,Junior Caminero,Roman Anthony,Evan Carter,Jackson Merrill,Derek Jeter,Adley Rutschman,Marcelo Mayer,Jackson Holliday,Ken Griffey Jr,Roki Sasaki,Jasson Dominguez,Jac Caglianone,Nick Gonzales,Wyatt Langford,Nolan Ryan,David Wright,Luisangel Acuna,Corey Seager,Matt Shaw,Jacob Wilson,Trea Turner,Colton Cowser,Travis Bazzana,Manny Machado,Charlie Condon,Ichiro Suzuki,Chipper Jones,Vladimir Guerrero Jr.,Brooks Lee,Cal Ripken Jr,Cal Raleigh,Coby Mayo,Alex Bregman,Masyn Winn,Ryan Clifford,Yordan Alvarez,Kristian Campbell,Brandon Lowe,Pete Crow-Armstrong,Giancarlo Stanton,Mike Piazza,Jacob Misiorowski,Kyle Tucker,Drew Gilbert,Eddie Murray,Rhett Lowder,Matt Chapman,Carson Benge,Hyeseong Kim,Jace Jung,Cody Bellinger,Tarik Skubal,Garrett Crochet,Kevin Alcantara,Nolan McLean,Pete Alonso,William Contreras,Bubba Chandler,Kumar Rocker,Hurston Waldrep,Chase Dollander,Dalton Rushing,Connor Norby,Mason Miller,Jackson Jobe,Zac Veen,Ben Rice,Royce Lewis,Hunter Greene,Ketel Marte,Christian Moore,Byron Buxton,Jordan Walker,Kyle Schwarber,Oneil Cruz,Frank Thomas,Spencer Strider,Bryce Harper,Bo Jackson,Clayton Kershaw,Jose Altuve,Gerrit Cole,Barry Larkin,Thomas Saggese,Rafael Devers,Anthony Volpe,Blake Snell,Dansby Swanson,Francisco Lindor,Jazz Chisholm Jr.,Pete Alonso,Zach Wheeler,Carson Williams,Enrique Bradfield Jr.,Colson Montgomery,Bryce Eldridge,Pablo Guerrero,Michael Helman,Jose Ramirez,Luis Castillo,Willson Contreras"
+          EXTRA_ARGS=""
+          if [ "${{ inputs.no_broad }}" = "true" ]; then
+            EXTRA_ARGS="--no-product-line-queries --sold-comp-seed-queries 0"
+          fi
           python3 find_auction_opportunities.py \
             --hours "${{ inputs.hours || '168' }}" \
             --max-budget "${{ inputs.max_budget || '200' }}" \
             --min-profit "${{ inputs.min_profit || '10' }}" \
             --years "${{ inputs.years || '2023,2024,2025,2026' }}" \
             --sport "${{ inputs.sport || 'baseball' }}" \
-            --players "$PLAYERS"
+            $EXTRA_ARGS

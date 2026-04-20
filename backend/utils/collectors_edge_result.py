@@ -35,6 +35,153 @@ _CE_HYPHEN_PROSE = frozenset(
     """.split()
 )
 
+# --- tRPC API direct call -------------------------------------------------------
+
+
+def call_ce_identify_api(image_bytes: bytes, *, timeout: int = 120) -> dict[str, Any] | None:
+    """
+    Call ``cards.identifyByImage`` tRPC endpoint directly (no browser).
+
+    Returns the raw tRPC response dict on success, None on failure.
+    """
+    import base64
+    try:
+        import requests
+    except ImportError:
+        return None
+
+    b64 = base64.b64encode(image_bytes).decode("ascii")
+    payload = {"0": {"json": {"imageBase64": b64}}}
+    try:
+        resp = requests.post(
+            "https://collectorsedgeai.com/api/trpc/cards.identifyByImage?batch=1",
+            json=payload,
+            headers={
+                "Content-Type": "application/json",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Origin": "https://collectorsedgeai.com",
+                "Referer": "https://collectorsedgeai.com/",
+            },
+            timeout=timeout,
+        )
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        if isinstance(data, list) and data:
+            return data[0].get("result", {}).get("data", {}).get("json")
+        return None
+    except Exception:
+        return None
+
+
+def ce_extracted_from_api_json(api: dict[str, Any]) -> dict[str, Any]:
+    """
+    Convert tRPC ``cards.identifyByImage`` response into the same ``ce_extracted``
+    shape that ``analyze_ce_for_pipeline`` and downstream code consume.
+    """
+    pricing_raw = api.get("pricing") or {}
+    med = pricing_raw.get("medianPrice") or pricing_raw.get("avgPrice")
+    lo = pricing_raw.get("lowPrice")
+    hi = pricing_raw.get("highPrice")
+
+    pricing: dict[str, Any] = {}
+    if med is not None:
+        pricing["median_usd"] = float(med)
+    if lo is not None:
+        pricing["low_usd"] = float(lo)
+    if hi is not None:
+        pricing["high_usd"] = float(hi)
+    if pricing.get("low_usd") is not None and pricing.get("high_usd") is not None and pricing.get("median_usd"):
+        m = pricing["median_usd"]
+        if m > 0:
+            pricing["band_width_pct_of_median"] = round((pricing["high_usd"] - pricing["low_usd"]) / m * 100, 2)
+
+    # Confidence from hybrid breakdown
+    breakdown = pricing_raw.get("hybridBreakdown") or []
+    conf_vals = [b.get("confidence", 0) for b in breakdown if isinstance(b, dict)]
+    avg_conf = int(sum(conf_vals) / max(len(conf_vals), 1)) if conf_vals else None
+
+    rec: dict[str, Any] = {}
+    if avg_conf is not None:
+        rec["confidence_pct"] = avg_conf
+        if avg_conf >= 70:
+            rec["confidence_tier"] = "High"
+        elif avg_conf >= 40:
+            rec["confidence_tier"] = "Medium"
+        else:
+            rec["confidence_tier"] = "Low"
+    rec_text = api.get("investmentRecommendation") or api.get("recommendation")
+    if isinstance(rec_text, str):
+        for label in ("BUY", "HOLD", "SELL"):
+            if label in rec_text.upper():
+                rec["recommendation"] = label
+                break
+
+    # Identity
+    card_name = api.get("cardName") or ""
+    year_str = api.get("year")
+    years = []
+    if year_str:
+        try:
+            years.append(int(year_str))
+        except (TypeError, ValueError):
+            pass
+
+    identity: dict[str, Any] = {}
+    if card_name:
+        identity["analysis_headline"] = card_name
+    if years:
+        identity["years_mentioned"] = years
+        identity["years_in_analysis_headline"] = years
+    pr = api.get("printRun") or ""
+    if pr:
+        import re as _re
+        denoms = [int(x) for x in _re.findall(r"/(\d+)", pr) if int(x) <= 10000]
+        if denoms:
+            identity["serial_denominators_mentioned"] = denoms
+            identity["serial_slash_notation"] = pr.strip()
+
+    signals: dict[str, Any] = {
+        "is_autograph": bool(api.get("isAutograph")),
+        "is_rookie": "rookie" in (card_name + " " + (api.get("rarity") or "")).lower(),
+        "is_refractor": "refractor" in (card_name + " " + (api.get("variant") or "")).lower(),
+        "is_gold_parallel": "gold" in (card_name + " " + (api.get("variant") or "")).lower(),
+        "short_print_mentioned": "short print" in (api.get("rarity") or "").lower(),
+        "graded_mentioned": bool(api.get("gradingService")),
+        "raw_mentioned": (api.get("condition") or "").lower() in ("raw", "unknown"),
+    }
+
+    comps: dict[str, Any] = {
+        "no_recent_comparable_sales": (pricing_raw.get("recentSalesCount") or 0) == 0,
+        "few_comparable_sales": 0 < (pricing_raw.get("recentSalesCount") or 0) <= 3,
+    }
+    src = pricing_raw.get("priceSource") or ""
+    if src:
+        comps["sources_line"] = src
+
+    cn = api.get("cardNumber")
+    card_number_candidates = [cn] if cn else []
+
+    merged: dict[str, Any] = {
+        "from_api": api,
+        "pricing": pricing,
+        "recommendation": rec,
+        "edge": {},
+        "identity": identity,
+        "card_signals": signals,
+        "comparables": comps,
+        "market_trend": {},
+        "raw_text_length": 0,
+        "api_source": True,
+    }
+    if card_number_candidates:
+        merged["card_number_candidates"] = card_number_candidates
+    if api.get("imageDescription"):
+        merged["image_description"] = api["imageDescription"]
+
+    return merged
+
+
 # --- extraction -----------------------------------------------------------------
 
 
