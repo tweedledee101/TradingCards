@@ -1437,8 +1437,10 @@ if __name__ == '__main__':
                             best_lc = lc
                             break
                 if not best_lc and lc_group:
-                    # Fall back to cheapest variant (conservative)
-                    best_lc = min(lc_group, key=lambda v: float(v.get('price') or 9999))
+                    # No parallel match found. DON'T fall back to cheapest --
+                    # that prices a Refractor as Base and kills real opportunities.
+                    # Let the normal SCP matching pipeline handle it instead.
+                    pass
                 if best_lc:
                     scp = {
                         'scp_price': float(best_lc['price']),
