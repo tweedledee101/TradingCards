@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { getOpportunities, getAuctions, getScheduledBids, cancelScheduledBid, getOpportunitiesContextStrip } from '../api/client';
+import { getOpportunities, getAuctions, getScheduledBids, cancelScheduledBid, getOpportunitiesContextStrip, getMarketplaceOpportunities } from '../api/client';
 import CardDetailModal from '../components/CardDetailModal';
 import { VerificationBadge, ConfidenceBadge } from '../components/TrustBadges';
 
@@ -33,6 +33,7 @@ const Opportunities = () => {
   const [showListingsPulse, setShowListingsPulse] = useState(false);
   const [sportFilter, setSportFilter] = useState('all');
   const [auctionsEndedFallback, setAuctionsEndedFallback] = useState(false);
+  const [marketplaceDeals, setMarketplaceDeals] = useState([]);
 
   useEffect(() => { fetchAll(); }, [sportFilter]);
 
@@ -49,10 +50,11 @@ const Opportunities = () => {
       // API default limit is 100; we want the full stored set (cap 500 on the API).
       const sportParams =
         sportFilter === 'all' ? { limit: 500 } : { sport: sportFilter, limit: 500 };
-      const [auctionRes, binRes, bidsRes] = await Promise.allSettled([
+      const [auctionRes, binRes, bidsRes, mktRes] = await Promise.allSettled([
         getAuctions(sportParams),
         getOpportunities(sportParams),
         getScheduledBids(),
+        getMarketplaceOpportunities(sportParams),
       ]);
 
       if (auctionRes.status === 'fulfilled') {
@@ -76,6 +78,12 @@ const Opportunities = () => {
         setMyBids(bidsRes.value.bids || []);
       } else {
         setMyBids([]);
+      }
+
+      if (mktRes.status === 'fulfilled') {
+        setMarketplaceDeals(mktRes.value.opportunities || []);
+      } else {
+        setMarketplaceDeals([]);
       }
 
       const auctionFailed = auctionRes.status === 'rejected';
@@ -419,6 +427,23 @@ const Opportunities = () => {
         <>
           <SectionHeader title="Buy It Now" subtitle="Below SCP reference — verify photos/title before buying." count={0} />
           <EmptyState message="No BIN rows match your filters — try clearing min profit / ROI." />
+        </>
+      )}
+
+      {/* NEEDS REVIEW — BIN only (auctions stay in Live list with amber border) */}
+      {marketplaceDeals.length > 0 && (
+        <>
+          <div className="border-t border-surface-border mt-10 pt-6 mb-4">
+            <SectionHeader title="Other Marketplaces" subtitle="Cross-platform arbitrage: buy here, sell on eBay." count={marketplaceDeals.length} />
+          </div>
+          <div className="space-y-2 mb-10">
+            {marketplaceDeals.map((opp, i) => (
+              <BinCard key={`mkt-${opp.ebay_item_id || i}`} opp={opp} rank={i + 1}
+                isExpanded={expandedBin === `mkt-${i}`}
+                onToggle={() => setExpandedBin(expandedBin === `mkt-${i}` ? null : `mkt-${i}`)}
+                onDrillIn={() => setSelectedCard({ data: opp, type: 'bin' })} />
+            ))}
+          </div>
         </>
       )}
 
