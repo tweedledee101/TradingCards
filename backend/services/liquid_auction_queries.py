@@ -72,7 +72,12 @@ def fetch_liquid_cards(
 
 
 def build_ebay_query(card: dict) -> str:
-    """Build a precise eBay search string from a liquid card dict."""
+    """Build a precise eBay search string from a liquid card dict.
+
+    Groups by card number (player + year + set + #) WITHOUT the parallel,
+    so one query catches all parallels for that card. Step 3 matches the
+    specific parallel using the pre-loaded SCP data.
+    """
     parts = [card['player_name'].strip()]
     if card.get('card_year'):
         parts.append(str(card['card_year']))
@@ -82,9 +87,6 @@ def build_ebay_query(card: dict) -> str:
     cn = (card.get('card_number') or '').strip()
     if cn:
         parts.append(f'#{cn}')
-    par = (card.get('parallel') or 'Base').strip()
-    if par and par != 'Base':
-        parts.append(par)
     return ' '.join(parts)
 
 
@@ -94,32 +96,34 @@ def build_liquid_auction_queries(
     min_price: float = 5.0,
     max_price: float = 1000.0,
     limit: int = 2000,
-) -> Tuple[List[str], List[dict], dict]:
-    """Build eBay queries from liquid SCP cards.
+) -> Tuple[List[str], List[List[dict]], dict]:
+    """Build eBay queries from liquid SCP cards, grouped by card number.
 
     Returns:
-        (queries, cards, meta) where cards[i] corresponds to queries[i]
-        so Step 3 can instantly look up the SCP price.
+        (queries, card_groups, meta) where card_groups[i] is a list of
+        all liquid variants for queries[i]. Step 3 matches the eBay listing
+        title against these variants to find the right parallel + price.
     """
     cards = fetch_liquid_cards(db, min_price=min_price, max_price=max_price, limit=limit)
 
-    queries = []
-    matched_cards = []
-    seen = set()
-
+    # Group by query (player + year + set + card number, no parallel)
+    from collections import OrderedDict
+    grouped: OrderedDict = OrderedDict()
     for card in cards:
         q = build_ebay_query(card)
         q_key = q.lower()
-        if q_key in seen:
-            continue
-        seen.add(q_key)
-        queries.append(q)
-        matched_cards.append(card)
+        if q_key not in grouped:
+            grouped[q_key] = {'query': q, 'cards': []}
+        grouped[q_key]['cards'].append(card)
+
+    queries = [g['query'] for g in grouped.values()]
+    card_groups = [g['cards'] for g in grouped.values()]
 
     meta = {
         'source': 'scp_cache_liquid',
         'total_liquid_variants': len(cards),
         'unique_queries': len(queries),
+        'variants_per_query_avg': round(len(cards) / max(len(queries), 1), 1),
         'price_range': [min_price, max_price],
     }
-    return queries, matched_cards, meta
+    return queries, card_groups, meta

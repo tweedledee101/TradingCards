@@ -1012,11 +1012,12 @@ if __name__ == '__main__':
             max_price=float(getattr(args, 'max_scp_price', 1000)),
             limit=liquid_limit,
         )
-    # Build a lookup: query_lower -> card dict (for instant SCP price in Step 3)
+    # Build a lookup: query_lower -> list of card dicts (all parallels for that card number)
     liquid_card_by_query: dict = {}
-    for q, card in zip(liquid_queries, liquid_cards):
-        liquid_card_by_query[q.lower()] = card
-    print(f"Liquid card queries: {len(liquid_queries)} (from {liquid_meta.get('total_liquid_variants', 0)} SCP variants with daily/weekly volume)")
+    for q, card_group in zip(liquid_queries, liquid_cards):
+        liquid_card_by_query[q.lower()] = card_group
+    total_variants = liquid_meta.get('total_liquid_variants', 0)
+    print(f"Liquid card queries: {len(liquid_queries)} (from {total_variants} variants, ~{liquid_meta.get('variants_per_query_avg', 0)} variants/query)")
 
     # SECONDARY: Small broad sweep for cards not yet in SCP cache
     sport_lc = sport_key.lower()
@@ -1116,8 +1117,8 @@ if __name__ == '__main__':
             query_new = 0
             pages = 0
             ebay_total_hint = None
-            # Look up the liquid card for this query (if any)
-            lc = liquid_card_by_query.get(query.lower()) if is_liquid else None
+            # Look up the liquid card group for this query (if any)
+            lc_group = liquid_card_by_query.get(query.lower()) if is_liquid else None
             while True:
                 page_meta: dict = {}
                 auctions = scraper.search_auctions_ending_soon(
@@ -1132,8 +1133,8 @@ if __name__ == '__main__':
                     item_id = a.get('ebay_item_id', '')
                     if item_id not in seen_ids:
                         seen_ids.add(item_id)
-                        if lc:
-                            a['_liquid_card'] = lc
+                        if lc_group:
+                            a['_liquid_cards'] = lc_group
                         all_auctions.append(a)
                         query_new += 1
                 query_total += len(auctions)
@@ -1411,26 +1412,48 @@ if __name__ == '__main__':
 
             label = f"{player} {year} {card_set} #{card_number} [{parallel}]"
 
-            # Fast path: if this listing came from a liquid query, use pre-loaded SCP price
-            # (the whole point of liquid-first: we already know the price)
+            # Fast path: if this listing came from a liquid query, match parallel against
+            # the card group and use pre-loaded SCP price (no Selenium, no fallback)
             scp = None
             _liquid_hit = False
-            if auction.get('_liquid_card'):
-                lc = auction['_liquid_card']
-                scp = {
-                    'scp_price': float(lc['price']),
-                    'grade_9': float(lc['grade_9']) if lc.get('grade_9') else None,
-                    'psa_10': float(lc['psa_10']) if lc.get('psa_10') else None,
-                    'scp_url': lc.get('scp_url'),
-                    'card_set': lc.get('card_set') or card_set,
-                    'matched_parallel': lc.get('parallel') or parallel,
-                    'match_type': 'liquid_cache',
-                    'flagged': False,
-                    'source': 'scp_cache',
-                    'volume': lc.get('volume', ''),
-                }
-                db_hits += 1
-                _liquid_hit = True
+            if auction.get('_liquid_cards'):
+                lc_group = auction['_liquid_cards']
+                title_lower = title.lower()
+                # Try exact parallel match first, then best keyword overlap
+                best_lc = None
+                for lc in lc_group:
+                    par_name = (lc.get('parallel') or 'Base').lower()
+                    if par_name == parallel.lower():
+                        best_lc = lc
+                        break
+                if not best_lc:
+                    # Keyword match: find variant whose parallel words appear in title
+                    for lc in sorted(lc_group, key=lambda v: len(v.get('parallel') or ''), reverse=True):
+                        par_name = (lc.get('parallel') or 'Base')
+                        if par_name == 'Base':
+                            continue
+                        words = par_name.lower().split()
+                        if words and all(w in title_lower for w in words):
+                            best_lc = lc
+                            break
+                if not best_lc and lc_group:
+                    # Fall back to cheapest variant (conservative)
+                    best_lc = min(lc_group, key=lambda v: float(v.get('price') or 9999))
+                if best_lc:
+                    scp = {
+                        'scp_price': float(best_lc['price']),
+                        'grade_9': float(best_lc['grade_9']) if best_lc.get('grade_9') else None,
+                        'psa_10': float(best_lc['psa_10']) if best_lc.get('psa_10') else None,
+                        'scp_url': best_lc.get('scp_url'),
+                        'card_set': best_lc.get('card_set') or card_set,
+                        'matched_parallel': best_lc.get('parallel') or parallel,
+                        'match_type': 'liquid_cache',
+                        'flagged': False,
+                        'source': 'scp_cache',
+                        'volume': best_lc.get('volume', ''),
+                    }
+                    db_hits += 1
+                    _liquid_hit = True
 
             # DB lookup for non-liquid listings
             if not scp:
@@ -1476,20 +1499,12 @@ if __name__ == '__main__':
                     if i <= 30 or i % 50 == 0:
                         print(f"  [{i}/{len(qualified)}] {label} -- 130point: ${scp['scp_price']:.2f} ({scp.get('volume', '?')})")
 
-                # Fallback 2: eBay active BIN comps (1 API call)
+                # No eBay BIN comps fallback in auction pipeline.
+                # Each fallback call burns 1 Browse API call for cards we can't price.
+                # If liquid cache + SCP DB + SCP cache + Selenium + 130point all miss,
+                # the card is unpriced -- skip it, don't waste API budget.
                 if not scp or not scp.get('scp_price'):
                     step3_no_pricing_after_sold_comps += 1
-                    scp = find_ebay_comps_fallback(
-                        scraper, player, year, card_set, card_number, parallel,
-                        ebay_title=title)
-                    if scp and scp.get('source') == 'ebay_comps':
-                        ebay_comp_hits += 1
-                        if i <= 30 or i % 50 == 0:
-                            prices = scp.get('comp_prices', [])
-                            print(
-                                f"  [{i}/{len(qualified)}] {label} -- eBay comps: "
-                                f"${scp['scp_price']:.2f} (median of {len(prices)} BINs)"
-                            )
 
                 if not scp or not scp.get('scp_price'):
                     no_scp += 1
