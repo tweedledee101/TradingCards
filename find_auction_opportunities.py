@@ -1423,9 +1423,8 @@ if __name__ == '__main__':
 
             label = f"{player} {year} {card_set} #{card_number} [{parallel}]"
 
-            # Liquid path: we know ALL variants and prices for this card number.
-            # Instead of guessing the parallel, check if ANY variant makes this bid profitable.
-            # If yes, it's an opportunity. User/CE verifies the parallel before bidding.
+            # Liquid path: identify the card FIRST by matching title keywords,
+            # THEN check if the correctly identified variant is profitable.
             scp = None
             _liquid_hit = False
             if auction.get('_liquid_cards'):
@@ -1433,36 +1432,47 @@ if __name__ == '__main__':
                 title_lower = title.lower()
                 total_cost = price + shipping
 
-                # Find the BEST variant that makes this bid profitable
-                # (highest SCP price where bid is still a deal)
-                profitable_variants = []
+                # Step 1: IDENTIFY -- score each variant by how well its name matches the eBay title
+                scored_variants = []
                 for lc in lc_group:
                     lc_price = float(lc.get('price') or 0)
                     if lc_price <= 0:
                         continue
+                    par = (lc.get('parallel') or 'Base').strip()
+                    par_keywords = [w.lower() for w in re.split(r'[^a-zA-Z0-9]+', par) if len(w) >= 3]
+                    if not par_keywords:
+                        continue
+                    # Count how many of this variant's keywords appear in the eBay title
+                    hits = sum(1 for kw in par_keywords if kw in title_lower)
+                    score = hits / len(par_keywords) if par_keywords else 0
+                    if score > 0:
+                        scored_variants.append((score, hits, lc))
+
+                # Pick the best title match (highest % of keywords matched, then most keywords)
+                if scored_variants:
+                    scored_variants.sort(key=lambda x: (x[0], x[1]), reverse=True)
+                    best_score, best_hits, best_lc = scored_variants[0]
+
+                    # Step 2: THEN check profitability of the identified variant
+                    lc_price = float(best_lc.get('price') or 0)
                     net = lc_price * (1 - FEE_RATE)
                     potential_profit = net - total_cost
                     if potential_profit >= args.min_profit:
-                        profitable_variants.append((potential_profit, lc))
-
-                if profitable_variants:
-                    # Use the most profitable variant (highest SCP price that works)
-                    profitable_variants.sort(key=lambda x: x[0], reverse=True)
-                    best_profit, best_lc = profitable_variants[0]
-                    scp = {
-                        'scp_price': float(best_lc['price']),
-                        'grade_9': float(best_lc['grade_9']) if best_lc.get('grade_9') else None,
-                        'psa_10': float(best_lc['psa_10']) if best_lc.get('psa_10') else None,
-                        'scp_url': best_lc.get('scp_url'),
-                        'card_set': best_lc.get('card_set') or card_set,
-                        'matched_parallel': best_lc.get('parallel') or 'Verify',
-                        'match_type': 'liquid_any_variant',
-                        'flagged': True,  # Always flag -- user must verify parallel
-                        'source': 'scp_cache',
-                        'volume': best_lc.get('volume', ''),
-                    }
-                    db_hits += 1
-                    _liquid_hit = True
+                        scp = {
+                            'scp_price': lc_price,
+                            'grade_9': float(best_lc['grade_9']) if best_lc.get('grade_9') else None,
+                            'psa_10': float(best_lc['psa_10']) if best_lc.get('psa_10') else None,
+                            'scp_url': best_lc.get('scp_url'),
+                            'card_set': best_lc.get('card_set') or card_set,
+                            'matched_parallel': best_lc.get('parallel') or 'Verify',
+                            'match_type': 'liquid_title_match',
+                            'flagged': best_score < 1.0,  # Flag if not all keywords matched
+                            'source': 'scp_cache',
+                            'volume': best_lc.get('volume', ''),
+                            '_match_score': round(best_score, 2),
+                        }
+                        db_hits += 1
+                        _liquid_hit = True
 
             # DB lookup for non-liquid listings
             if not scp:
