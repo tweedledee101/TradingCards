@@ -246,6 +246,67 @@ def verify_one(opp: Opportunity, db, *, dry_run: bool = False) -> dict:
     result["ce_card_name"] = api_json.get("cardName")
     result["ce_median"] = ce_med
 
+    # CE Variant Correction: when CE identifies a different variant than the pipeline
+    # matched, go back to SCP with CE's answer and re-price the opportunity.
+    corrected_scp = None
+    if not dry_run and status in ("ce_confirmed", "ce_price_divergence", "ce_review") and player_ok:
+        ce_variant = api_json.get("variant") or ""
+        ce_card_name = api_json.get("cardName") or ""
+        if ce_variant or ce_card_name:
+            try:
+                from backend.utils.ce_variant_correction import find_corrected_scp_entry
+                corrected_scp = find_corrected_scp_entry(
+                    player_name=opp.player_name,
+                    card_year=opp.card_year,
+                    card_number=opp.card_number,
+                    ce_variant=ce_variant,
+                    ce_card_name=ce_card_name,
+                    ce_price=ce_med,
+                )
+            except Exception as e:
+                detail["ce_correction_error"] = str(e)[:200]
+
+    if corrected_scp and corrected_scp.get("scp_price"):
+        corrected_price = corrected_scp["scp_price"]
+        corrected_parallel = corrected_scp.get("parallel", opp.parallel)
+        old_scp = float(opp.scp_price)
+        buy = float(opp.buy_price)
+        shipping = float(opp.shipping or 0)
+        new_profit = corrected_price - buy - shipping - (buy * 0.13)
+        new_roi = (new_profit / (buy + shipping) * 100) if (buy + shipping) > 0 else 0
+
+        detail["ce_correction"] = {
+            "original_parallel": opp.parallel,
+            "corrected_parallel": corrected_parallel,
+            "original_scp_price": old_scp,
+            "corrected_scp_price": corrected_price,
+            "original_profit": float(opp.profit),
+            "corrected_profit": round(new_profit, 2),
+            "match_score": corrected_scp.get("match_score"),
+            "ce_price_agreement": corrected_scp.get("ce_price_agreement"),
+            "ambiguous": corrected_scp.get("ambiguous", False),
+        }
+
+        if new_profit >= 10:
+            # Correction found a profitable match -- update the opportunity
+            if not dry_run:
+                opp.scp_price = corrected_price
+                opp.parallel = corrected_parallel
+                opp.profit = round(new_profit, 2)
+                opp.roi = round(new_roi, 2)
+                if corrected_scp.get("scp_url"):
+                    opp.scp_url = corrected_scp["scp_url"]
+            status = "ce_confirmed"
+            detail["ce_status"] = status
+            detail["ce_correction"]["action"] = "repriced"
+        else:
+            # Correct variant identified but not profitable at the real price
+            status = "ce_not_profitable"
+            detail["ce_status"] = status
+            detail["ce_correction"]["action"] = "not_profitable_at_correct_price"
+
+    result["status"] = status
+
     if not dry_run:
         existing = opp.verification_detail or {}
         if isinstance(existing, str):

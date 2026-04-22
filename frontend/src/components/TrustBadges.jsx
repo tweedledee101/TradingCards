@@ -1,16 +1,30 @@
 export function VerificationBadge({ status }) {
   const s = status || 'pending';
-  if (s === 'verified') {
+  if (s === 'verified' || s === 'ce_confirmed') {
     return (
-      <span title="Cross-source checks passed" className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gain/15 text-gain border border-gain/25 shrink-0">
-        Verified
+      <span title="CE visual verification passed" className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-gain/15 text-gain border border-gain/25 shrink-0">
+        CE Verified
       </span>
     );
   }
-  if (s === 'conflict') {
+  if (s === 'conflict' || s === 'ce_price_divergence') {
     return (
-      <span title="Sources disagree — review manually" className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-loss/15 text-loss border border-loss/25 shrink-0">
-        Conflict
+      <span title="CE price disagrees with pipeline — review manually" className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/25 shrink-0">
+        Price Mismatch
+      </span>
+    );
+  }
+  if (s === 'ce_year_mismatch' || s === 'ce_player_mismatch') {
+    return (
+      <span title="CE identified a different card" className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-loss/15 text-loss border border-loss/25 shrink-0">
+        Wrong Card
+      </span>
+    );
+  }
+  if (s === 'ce_not_profitable') {
+    return (
+      <span title="CE confirmed card but not profitable at correct price" className="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-frost-dim/15 text-frost-dim border border-surface-border shrink-0">
+        No Margin
       </span>
     );
   }

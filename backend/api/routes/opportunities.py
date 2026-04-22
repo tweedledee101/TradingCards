@@ -53,7 +53,7 @@ def get_opportunities(
     if hide_flagged:
         query = query.filter(Opportunity.flagged == False)
     if hide_ce_rejected:
-        ce_reject = ['ce_player_mismatch', 'ce_year_mismatch', 'ce_price_divergence']
+        ce_reject = ['ce_player_mismatch', 'ce_year_mismatch', 'ce_price_divergence', 'ce_not_profitable']
         query = query.filter(
             ~Opportunity.verification_status.in_(ce_reject)
         )
@@ -210,7 +210,7 @@ def get_auctions(
     if max_budget:
         query = query.filter(Opportunity.buy_price <= max_budget)
     if hide_ce_rejected:
-        ce_reject = ['ce_player_mismatch', 'ce_year_mismatch', 'ce_price_divergence']
+        ce_reject = ['ce_player_mismatch', 'ce_year_mismatch', 'ce_price_divergence', 'ce_not_profitable']
         query = query.filter(
             ~Opportunity.verification_status.in_(ce_reject)
         )
