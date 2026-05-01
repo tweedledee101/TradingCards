@@ -4,7 +4,7 @@ on:
   # 1x/day standalone auction run.
   # Liquid-first: queries built from SCP cache, no Browse discovery needed.
   schedule:
-    - cron: '0 0 * * *'   # 12 AM UTC (8 PM ET)
+    - cron: '30 7 * * *'   # 7:30 AM UTC = 2:30 AM CT (right after eBay quota reset)
   workflow_dispatch:
     inputs:
       hours:

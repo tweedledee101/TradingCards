@@ -1105,19 +1105,19 @@ if __name__ == '__main__':
         seen_ids = set()
         step1_query_stats: list = []
 
+        consecutive_429s = 0
+        MAX_CONSECUTIVE_429 = 3  # Bail after 3 straight 429s (quota exhausted)
+
         for i, query in enumerate(queries, 1):
             is_liquid = i <= n_liquid
             tag = 'LIQ' if is_liquid else 'BROAD'
             print(f"\n[{i}/{len(queries)}] [{tag}] \"{query[:100]}\"")
-            # Liquid queries: 1 page is usually enough (targeted).
-            # Broad queries: paginate up to 1000.
             max_offset = 200 if is_liquid else 1000
             offset = 0
             query_total = 0
             query_new = 0
             pages = 0
             ebay_total_hint = None
-            # Look up the liquid card group for this query (if any)
             lc_group = liquid_card_by_query.get(query.lower()) if is_liquid else None
             while True:
                 page_meta: dict = {}
@@ -1126,7 +1126,7 @@ if __name__ == '__main__':
                 )
                 if offset == 0 and page_meta.get('ebay_total') is not None:
                     ebay_total_hint = page_meta.get('ebay_total')
-                pages += 1  # one Browse search GET per iteration
+                pages += 1
                 if not auctions:
                     break
                 for a in auctions:
@@ -1139,12 +1139,23 @@ if __name__ == '__main__':
                         query_new += 1
                 query_total += len(auctions)
                 if len(auctions) < 200:
-                    break  # Last page
+                    break
                 offset += 200
                 if offset >= max_offset:
                     break
+
+            # Track consecutive 429s -- bail early if quota is exhausted
+            if query_total == 0 and ebay_total_hint is None:
+                consecutive_429s += 1
+                if consecutive_429s >= MAX_CONSECUTIVE_429:
+                    print(f"\n*** BAILING: {consecutive_429s} consecutive queries returned 0 results (likely 429/quota exhausted). ***")
+                    print(f"*** Run the pipeline after eBay quota resets (7 AM UTC / midnight Pacific). ***")
+                    break
+            else:
+                consecutive_429s = 0
+
             hint = (
-                f" | eBay total≈{ebay_total_hint} (first page; we fetch ≤{max_offset})"
+                f" | eBay total\u2248{ebay_total_hint} (first page; we fetch \u2264{max_offset})"
                 if ebay_total_hint is not None
                 else ''
             )
@@ -1158,7 +1169,7 @@ if __name__ == '__main__':
                 'ebay_total_hint': ebay_total_hint,
             })
             tracker.update(processed=i)
-            time.sleep(1.0)  # reduce Browse API burst 429s between queries
+            time.sleep(1.0)
 
         print(f"\nTotal unique auctions: {len(all_auctions)}")
 
@@ -1412,50 +1423,56 @@ if __name__ == '__main__':
 
             label = f"{player} {year} {card_set} #{card_number} [{parallel}]"
 
-            # Fast path: if this listing came from a liquid query, match parallel against
-            # the card group and use pre-loaded SCP price (no Selenium, no fallback)
+            # Liquid path: identify the card FIRST by matching title keywords,
+            # THEN check if the correctly identified variant is profitable.
             scp = None
             _liquid_hit = False
             if auction.get('_liquid_cards'):
                 lc_group = auction['_liquid_cards']
                 title_lower = title.lower()
-                # Try exact parallel match first, then best keyword overlap
-                best_lc = None
+                total_cost = price + shipping
+
+                # Step 1: IDENTIFY -- score each variant by how well its name matches the eBay title
+                scored_variants = []
                 for lc in lc_group:
-                    par_name = (lc.get('parallel') or 'Base').lower()
-                    if par_name == parallel.lower():
-                        best_lc = lc
-                        break
-                if not best_lc:
-                    # Keyword match: find variant whose parallel words appear in title
-                    for lc in sorted(lc_group, key=lambda v: len(v.get('parallel') or ''), reverse=True):
-                        par_name = (lc.get('parallel') or 'Base')
-                        if par_name == 'Base':
-                            continue
-                        words = par_name.lower().split()
-                        if words and all(w in title_lower for w in words):
-                            best_lc = lc
-                            break
-                if not best_lc and lc_group:
-                    # No parallel match found. DON'T fall back to cheapest --
-                    # that prices a Refractor as Base and kills real opportunities.
-                    # Let the normal SCP matching pipeline handle it instead.
-                    pass
-                if best_lc:
-                    scp = {
-                        'scp_price': float(best_lc['price']),
-                        'grade_9': float(best_lc['grade_9']) if best_lc.get('grade_9') else None,
-                        'psa_10': float(best_lc['psa_10']) if best_lc.get('psa_10') else None,
-                        'scp_url': best_lc.get('scp_url'),
-                        'card_set': best_lc.get('card_set') or card_set,
-                        'matched_parallel': best_lc.get('parallel') or parallel,
-                        'match_type': 'liquid_cache',
-                        'flagged': False,
-                        'source': 'scp_cache',
-                        'volume': best_lc.get('volume', ''),
-                    }
-                    db_hits += 1
-                    _liquid_hit = True
+                    lc_price = float(lc.get('price') or 0)
+                    if lc_price <= 0:
+                        continue
+                    par = (lc.get('parallel') or 'Base').strip()
+                    par_keywords = [w.lower() for w in re.split(r'[^a-zA-Z0-9]+', par) if len(w) >= 3]
+                    if not par_keywords:
+                        continue
+                    # Count how many of this variant's keywords appear in the eBay title
+                    hits = sum(1 for kw in par_keywords if kw in title_lower)
+                    score = hits / len(par_keywords) if par_keywords else 0
+                    if score > 0:
+                        scored_variants.append((score, hits, lc))
+
+                # Pick the best title match (highest % of keywords matched, then most keywords)
+                if scored_variants:
+                    scored_variants.sort(key=lambda x: (x[0], x[1]), reverse=True)
+                    best_score, best_hits, best_lc = scored_variants[0]
+
+                    # Step 2: THEN check profitability of the identified variant
+                    lc_price = float(best_lc.get('price') or 0)
+                    net = lc_price * (1 - FEE_RATE)
+                    potential_profit = net - total_cost
+                    if potential_profit >= args.min_profit:
+                        scp = {
+                            'scp_price': lc_price,
+                            'grade_9': float(best_lc['grade_9']) if best_lc.get('grade_9') else None,
+                            'psa_10': float(best_lc['psa_10']) if best_lc.get('psa_10') else None,
+                            'scp_url': best_lc.get('scp_url'),
+                            'card_set': best_lc.get('card_set') or card_set,
+                            'matched_parallel': best_lc.get('parallel') or 'Verify',
+                            'match_type': 'liquid_title_match',
+                            'flagged': best_score < 1.0,  # Flag if not all keywords matched
+                            'source': 'scp_cache',
+                            'volume': best_lc.get('volume', ''),
+                            '_match_score': round(best_score, 2),
+                        }
+                        db_hits += 1
+                        _liquid_hit = True
 
             # DB lookup for non-liquid listings
             if not scp:
@@ -1556,39 +1573,9 @@ if __name__ == '__main__':
                 step3_below_min_profit += 1
                 continue
 
-            # Conservative variant pricing: find cheapest keyword-matching SCP variant
-            # and use 2.0x ratio check (same as BIN pipeline)
-            try:
-                import json as _jmod2
-                from sqlalchemy import text as _text2
-                _auc_scp_rows = db.execute(_text2(
-                    "SELECT variants FROM scp_cache "
-                    "WHERE player_name ILIKE :p AND card_year = :y AND card_number ILIKE :n"
-                ), {"p": player, "y": year, "n": card_number}).fetchall()
-                _auc_all_v = []
-                for _asr in _auc_scp_rows:
-                    _avlist = _asr[0]
-                    if isinstance(_avlist, str): _avlist = _jmod2.loads(_avlist)
-                    if isinstance(_avlist, list):
-                        for _avv in _avlist:
-                            _avp = _avv.get('ungraded') or 0
-                            if _avp and float(_avp) > 0:
-                                _apar = _avv.get('parallel', 'Base')
-                                _akws = [w.lower() for w in __import__('re').split(r'[^a-zA-Z0-9]+', _apar) if len(w) >= 3]
-                                _auc_all_v.append({'parallel': _apar, 'price': float(_avp), 'keywords': _akws})
-                if len(_auc_all_v) >= 2:
-                    _tl = title.lower()
-                    _auc_matches = [v for v in _auc_all_v if v['parallel'] != 'Base' and v['keywords'] and all(kw in _tl for kw in v['keywords'])]
-                    if _auc_matches:
-                        _auc_cheapest = min(_auc_matches, key=lambda v: v['price'])
-                        scp_price = _auc_cheapest['price']
-                    _auc_closest = min(_auc_all_v, key=lambda v: abs(v['price'] - price))
-                    _auc_pvc = scp_price / max(_auc_closest['price'], 1)
-                    if _auc_pvc > 2.0:
-                        step3_below_min_profit += 1
-                        continue
-            except Exception:
-                pass
+            # Skip the old conservative variant pricing block.
+            # With liquid_any_variant matching, we already picked the best profitable variant.
+            # No need to second-guess with keyword matching against a different variant list.
 
             # Sanity check: if listing has a BIN price and it's way below SCP,
             # the SCP match is probably wrong. Seller knows what the card is worth.

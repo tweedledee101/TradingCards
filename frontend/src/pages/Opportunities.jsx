@@ -111,7 +111,12 @@ const Opportunities = () => {
 
   /** One list: higher-confidence first, then flagged (still shown — no hidden “second queue”) */
   const auctionsDisplay = useMemo(() => {
-    return [...auctions].sort((a, b) => Number(!!a.flagged) - Number(!!b.flagged));
+    return [...auctions].sort((a, b) => {
+      // Ending soonest first -- the whole point of auctions is time sensitivity
+      const aEnd = a.end_time ? new Date(a.end_time).getTime() : Infinity;
+      const bEnd = b.end_time ? new Date(b.end_time).getTime() : Infinity;
+      return aEnd - bEnd;
+    });
   }, [auctions]);
 
   const filteredAuctions = auctionsDisplay.filter((a) => {
