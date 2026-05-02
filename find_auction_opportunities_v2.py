@@ -323,88 +323,94 @@ def main():
             ce_identity = None
 
             if not args.skip_ce and image_url:
-                # Get SCP product page image for visual comparison
-                # Check cache first (stored in variant JSONB), Selenium fallback
-                scp_image_url = None
-                scp_variant_used = None
-                for v in scp_variants:
-                    # Check if we already cached the CDN image URL
-                    cached_img = v.get('scp_image_url')
-                    if cached_img and cached_img.startswith('http'):
-                        scp_image_url = cached_img
-                        scp_variant_used = v
-                        break
-
-                # No cached URL -- scrape with Selenium and cache it
-                if not scp_image_url:
-                    for v in scp_variants:
-                        if v.get('url'):
-                            if not scp_scraper_instance:
-                                from backend.scrapers.sportscardspro_scraper import SportsCardsProScraper
-                                try:
-                                    scp_scraper_instance = SportsCardsProScraper(headless=True)
-                                except Exception as e:
-                                    print(f"  WARNING: Can't start SCP Selenium: {e}")
-                                    scp_scraper_instance = False
-                            if scp_scraper_instance and scp_scraper_instance is not False:
-                                scp_image_url = scp_scraper_instance.get_product_image_url(v['url'])
-                                if scp_image_url:
-                                    scp_variant_used = v
-                                    # Cache the CDN URL back into the DB for next run
-                                    try:
-                                        db.execute(
-                                            text(
-                                                "UPDATE scp_cache SET variants = "
-                                                "jsonb_set(variants, ('{' || :idx || ',scp_image_url}')::text[], to_jsonb(:img_url::text)) "
-                                                "WHERE player_name = :p AND card_year = :y AND card_number = :n"
-                                            ),
-                                            {
-                                                'idx': str(scp_variants.index(v)),
-                                                'img_url': scp_image_url,
-                                                'p': scp_card['player_name'],
-                                                'y': scp_card['card_year'],
-                                                'n': scp_card['card_number'],
-                                            },
-                                        )
-                                        db.commit()
-                                    except Exception:
-                                        db.rollback()
-                                    break
-
+                # Compare eBay image against ALL SCP variant images
+                # Pick the variant with the lowest color distance
+                ebay_full = image_url.replace('/s-l225.', '/s-l1600.') if '/s-l225.' in image_url else image_url
                 numeric_id = (auction.get('ebay_item_id') or '').split('|')[1] if '|' in (auction.get('ebay_item_id') or '') else auction.get('ebay_item_id', '')
 
-                if scp_image_url:
-                    # Use full-size eBay image for comparison (not 225px thumbnail)
-                    ebay_full = image_url.replace('/s-l225.', '/s-l1600.') if '/s-l225.' in image_url else image_url
-
-                    # LAYERED COMPARISON: color gate → AI deep check if borderline
-                    same_card, compare_result = compare_cards_via_nova(ebay_full, scp_image_url)
-                    stats['ce_calls'] += 1
-
-                    print(f"\n  --- Card {i}/{len(all_auctions)} ---")
-                    print(f"  eBay:    {title[:100]}")
-                    print(f"           https://www.ebay.com/itm/{numeric_id}")
-                    print(f"  SCP:     {scp_variant_used.get('parallel','Base')} ${float(scp_variant_used.get('ungraded',0)):.2f} | vol: {scp_variant_used.get('volume','')}")
-                    print(f"           {scp_variant_used.get('url','')}")
-                    layer = compare_result.get('layer', '?')
-                    color_dist = compare_result.get('color_distance', '?')
-                    reason = compare_result.get('reason', '?')[:80]
-                    print(f"  Compare: same={same_card} | layer={layer} | color_dist={color_dist} | {reason}")
-
-                    if same_card:
-                        scp_match = scp_variant_used
-                        stats['ce_matched'] += 1
-                    else:
-                        stats['ce_failed'] += 1
-
-                    time.sleep(0.5)
-                else:
-                    # No SCP image -- skip this card
-                    print(f"\n  --- Card {i}/{len(all_auctions)} (no SCP image) ---")
-                    print(f"  eBay:  {title[:100]}")
-                    print(f"  SKIP:  Could not get SCP product image for comparison")
+                # Download eBay image once
+                from backend.services.card_comparator import download_image, weighted_color_distance
+                ebay_bytes, ebay_img = download_image(ebay_full)
+                if not ebay_img:
                     stats['skipped_no_image'] += 1
                     continue
+
+                # Score each SCP variant by color distance
+                variant_scores = []
+                for v in scp_variants:
+                    scp_img_url = v.get('scp_image_url')
+                    if not scp_img_url:
+                        # Try to scrape and cache it
+                        if v.get('url') and scp_scraper_instance and scp_scraper_instance is not False:
+                            scp_img_url = scp_scraper_instance.get_product_image_url(v['url'])
+                            if scp_img_url:
+                                try:
+                                    idx = scp_variants.index(v)
+                                    db.execute(
+                                        text(
+                                            "UPDATE scp_cache SET variants = "
+                                            "jsonb_set(variants, ('{' || :idx || ',scp_image_url}')::text[], to_jsonb(:img_url::text)) "
+                                            "WHERE player_name = :p AND card_year = :y AND card_number = :n"
+                                        ),
+                                        {'idx': str(idx), 'img_url': scp_img_url,
+                                         'p': scp_card['player_name'], 'y': scp_card['card_year'], 'n': scp_card['card_number']},
+                                    )
+                                    db.commit()
+                                except Exception:
+                                    db.rollback()
+                        elif not scp_scraper_instance:
+                            from backend.scrapers.sportscardspro_scraper import SportsCardsProScraper
+                            try:
+                                scp_scraper_instance = SportsCardsProScraper(headless=True)
+                                if v.get('url'):
+                                    scp_img_url = scp_scraper_instance.get_product_image_url(v['url'])
+                            except Exception:
+                                scp_scraper_instance = False
+
+                    if not scp_img_url:
+                        continue
+
+                    _, scp_img = download_image(scp_img_url)
+                    if not scp_img:
+                        continue
+
+                    avg_dist, _ = weighted_color_distance(scp_img, ebay_img)
+                    variant_scores.append((avg_dist, v, scp_img_url))
+
+                if not variant_scores:
+                    stats['skipped_no_image'] += 1
+                    print(f"\n  --- Card {i}/{len(all_auctions)} (no SCP images) ---")
+                    print(f"  eBay:  {title[:100]}")
+                    print(f"  SKIP:  No SCP variant images available")
+                    continue
+
+                # Sort by color distance -- closest match first
+                variant_scores.sort(key=lambda x: x[0])
+                best_dist, best_variant, best_scp_img = variant_scores[0]
+
+                print(f"\n  --- Card {i}/{len(all_auctions)} ---")
+                print(f"  eBay:    {title[:100]}")
+                print(f"           https://www.ebay.com/itm/{numeric_id}")
+                print(f"  Closest: [{best_variant.get('parallel','Base')}] ${float(best_variant.get('ungraded',0)):.2f} (color_dist={best_dist})")
+                if len(variant_scores) > 1:
+                    print(f"  Others:  {', '.join(f'[{v.get("parallel","Base")}] d={d:.0f}' for d, v, _ in variant_scores[1:4])}")
+
+                # Now run the layered comparator on the BEST match
+                from backend.services.card_comparator import compare_cards
+                result = compare_cards(best_scp_img, ebay_full, verbose=False)
+                same_card = result.get('same_card', False)
+                stats['ce_calls'] += 1
+
+                layer = result.get('layer', '?')
+                reason = result.get('reason', '?')[:80]
+                print(f"  Verify:  same={same_card} | layer={layer} | {reason}")
+
+                if same_card:
+                    scp_match = best_variant
+                    scp_variant_used = best_variant
+                    stats['ce_matched'] += 1
+                else:
+                    stats['ce_failed'] += 1
 
                 time.sleep(1.0)  # CE rate limit
             elif not image_url:
