@@ -139,58 +139,10 @@ def search_ebay_auctions(scraper, query, hours=168):
 # ─── STEP 3: IDENTIFY WITH CE ───────────────────────────────────────────────
 
 def compare_cards_via_nova(ebay_image_url, scp_image_url):
-    """Send both images to Nova. Ask: are these the same card? Yes or no.
-
-    Returns (same_card: bool, nova_response: dict)
-    """
-    import boto3, base64, json as _json
-
-    try:
-        ebay_img = requests.get(ebay_image_url, timeout=15)
-        scp_img = requests.get(scp_image_url, timeout=15)
-        if ebay_img.status_code != 200 or scp_img.status_code != 200:
-            return False, {'error': 'image download failed'}
-
-        client = boto3.client('bedrock-runtime', region_name='us-east-1')
-        prompt = {
-            'messages': [{
-                'role': 'user',
-                'content': [
-                    {'image': {'format': 'jpeg', 'source': {'bytes': base64.b64encode(scp_img.content).decode()}}},
-                    {'image': {'format': 'jpeg', 'source': {'bytes': base64.b64encode(ebay_img.content).decode()}}},
-                    {'text': (
-                        'I am showing you two images of trading cards. '
-                        'Are these the SAME specific card (same player, same year, same set, same parallel/variant)? '
-                        'Or are they DIFFERENT cards? '
-                        'Answer with JSON: {"same_card": true/false, "confidence": "high"/"medium"/"low", '
-                        '"reason": "brief explanation"}'
-                    )}
-                ]
-            }],
-            'inferenceConfig': {'maxTokens': 200, 'temperature': 0.1}
-        }
-
-        response = client.invoke_model(
-            modelId='us.amazon.nova-lite-v1:0',
-            body=_json.dumps(prompt),
-            contentType='application/json',
-        )
-        result = _json.loads(response['body'].read())
-        text = result.get('output', {}).get('message', {}).get('content', [{}])[0].get('text', '')
-
-        # Parse JSON from response (may have markdown code fences)
-        clean = text.strip().strip('`').strip()
-        if clean.startswith('json'):
-            clean = clean[4:].strip()
-        try:
-            parsed = _json.loads(clean)
-            return bool(parsed.get('same_card', False)), parsed
-        except _json.JSONDecodeError:
-            return False, {'raw': text, 'error': 'parse_failed'}
-
-    except Exception as e:
-        log.warn(f'Nova comparison failed: {e}', category='nova_error')
-        return False, {'error': str(e)}
+    """Layered comparison: color gate first, AI only when borderline."""
+    from backend.services.card_comparator import compare_cards
+    result = compare_cards(scp_image_url, ebay_image_url, verbose=True)
+    return result.get('same_card', False), result
 
 
 def match_ce_to_scp(ce_identity, scp_variants):
@@ -372,39 +324,72 @@ def main():
 
             if not args.skip_ce and image_url:
                 # Get SCP product page image for visual comparison
+                # Check cache first (stored in variant JSONB), Selenium fallback
                 scp_image_url = None
                 scp_variant_used = None
                 for v in scp_variants:
-                    if v.get('url'):
-                        if not scp_scraper_instance:
-                            from backend.scrapers.sportscardspro_scraper import SportsCardsProScraper
-                            try:
-                                scp_scraper_instance = SportsCardsProScraper(headless=True)
-                            except Exception as e:
-                                print(f"  WARNING: Can't start SCP Selenium: {e}")
-                                scp_scraper_instance = False
-                        if scp_scraper_instance and scp_scraper_instance is not False:
-                            scp_image_url = scp_scraper_instance.get_product_image_url(v['url'])
-                            if scp_image_url:
-                                scp_variant_used = v
-                                break
+                    # Check if we already cached the CDN image URL
+                    cached_img = v.get('scp_image_url')
+                    if cached_img and cached_img.startswith('http'):
+                        scp_image_url = cached_img
+                        scp_variant_used = v
+                        break
+
+                # No cached URL -- scrape with Selenium and cache it
+                if not scp_image_url:
+                    for v in scp_variants:
+                        if v.get('url'):
+                            if not scp_scraper_instance:
+                                from backend.scrapers.sportscardspro_scraper import SportsCardsProScraper
+                                try:
+                                    scp_scraper_instance = SportsCardsProScraper(headless=True)
+                                except Exception as e:
+                                    print(f"  WARNING: Can't start SCP Selenium: {e}")
+                                    scp_scraper_instance = False
+                            if scp_scraper_instance and scp_scraper_instance is not False:
+                                scp_image_url = scp_scraper_instance.get_product_image_url(v['url'])
+                                if scp_image_url:
+                                    scp_variant_used = v
+                                    # Cache the CDN URL back into the DB for next run
+                                    try:
+                                        db.execute(
+                                            text(
+                                                "UPDATE scp_cache SET variants = "
+                                                "jsonb_set(variants, ('{' || :idx || ',scp_image_url}')::text[], to_jsonb(:img_url::text)) "
+                                                "WHERE player_name = :p AND card_year = :y AND card_number = :n"
+                                            ),
+                                            {
+                                                'idx': str(scp_variants.index(v)),
+                                                'img_url': scp_image_url,
+                                                'p': scp_card['player_name'],
+                                                'y': scp_card['card_year'],
+                                                'n': scp_card['card_number'],
+                                            },
+                                        )
+                                        db.commit()
+                                    except Exception:
+                                        db.rollback()
+                                    break
 
                 numeric_id = (auction.get('ebay_item_id') or '').split('|')[1] if '|' in (auction.get('ebay_item_id') or '') else auction.get('ebay_item_id', '')
 
                 if scp_image_url:
-                    # NOVA VISUAL COMPARISON: are these the same card?
-                    same_card, nova_result = compare_cards_via_nova(image_url, scp_image_url)
-                    stats['ce_calls'] += 1  # counting nova calls in same bucket
+                    # Use full-size eBay image for comparison (not 225px thumbnail)
+                    ebay_full = image_url.replace('/s-l225.', '/s-l1600.') if '/s-l225.' in image_url else image_url
+
+                    # LAYERED COMPARISON: color gate → AI deep check if borderline
+                    same_card, compare_result = compare_cards_via_nova(ebay_full, scp_image_url)
+                    stats['ce_calls'] += 1
 
                     print(f"\n  --- Card {i}/{len(all_auctions)} ---")
                     print(f"  eBay:    {title[:100]}")
                     print(f"           https://www.ebay.com/itm/{numeric_id}")
-                    print(f"  SCP:     {scp_variant_used.get('parallel','Base')} ${float(scp_variant_used.get('ungraded',0)):.2f}")
+                    print(f"  SCP:     {scp_variant_used.get('parallel','Base')} ${float(scp_variant_used.get('ungraded',0)):.2f} | vol: {scp_variant_used.get('volume','')}")
                     print(f"           {scp_variant_used.get('url','')}")
-                    confidence = nova_result.get('confidence', '?')
-                    reason = nova_result.get('reason', nova_result.get('error', '?'))
-                    print(f"  Nova:    same_card={same_card} confidence={confidence}")
-                    print(f"           {reason}")
+                    layer = compare_result.get('layer', '?')
+                    color_dist = compare_result.get('color_distance', '?')
+                    reason = compare_result.get('reason', '?')[:80]
+                    print(f"  Compare: same={same_card} | layer={layer} | color_dist={color_dist} | {reason}")
 
                     if same_card:
                         scp_match = scp_variant_used
@@ -539,6 +524,13 @@ def main():
                 except Exception as e:
                     db.rollback()
                     log.warn(f'DB write failed: {e}', category='db_error')
+
+        # Cleanup
+        if scp_scraper_instance and scp_scraper_instance is not False:
+            try:
+                scp_scraper_instance.close()
+            except Exception:
+                pass
 
         # Cleanup ended auctions
         if not args.dry_run:
