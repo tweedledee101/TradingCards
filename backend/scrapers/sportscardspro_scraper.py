@@ -282,6 +282,44 @@ class SportsCardsProScraper:
             logger.error(f"Error scraping product page {url}: {e}")
             return None
 
+    def get_product_image_url(self, url: str) -> Optional[str]:
+        """Get the card image URL from an SCP product page.
+
+        Loads the page with Selenium (Cloudflare), finds the main card image
+        on Google Cloud Storage CDN (storage.googleapis.com/images.pricecharting.com).
+        Returns the full-size (1600px) image URL or None.
+        """
+        self._init_driver()
+
+        try:
+            try:
+                self.driver.get(url)
+            except Exception:
+                pass
+
+            time.sleep(2)
+            soup = BeautifulSoup(self.driver.page_source, "html.parser")
+
+            # SCP card images are on Google Cloud Storage CDN
+            # Pattern: storage.googleapis.com/images.pricecharting.com/{hash}/1600.jpg
+            # The thumbnail (240.jpg) has class 'js-show-dialog'
+            # The full size (1600.jpg) is in the modal
+            for img in soup.find_all("img"):
+                src = img.get("src", "")
+                if "storage.googleapis.com/images.pricecharting.com" in src:
+                    # Prefer the 1600px version
+                    if "/1600." in src:
+                        return src
+                    # If we found the 240px thumbnail, convert to 1600
+                    if "/240." in src:
+                        return src.replace("/240.", "/1600.")
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Error getting image from {url}: {e}")
+            return None
+
     def _extract_first_price(self, td_element) -> Optional[float]:
         """Extract the main price from a td element (first span.price)"""
         price_span = td_element.find("span", class_="price")

@@ -138,33 +138,59 @@ def search_ebay_auctions(scraper, query, hours=168):
 
 # ─── STEP 3: IDENTIFY WITH CE ───────────────────────────────────────────────
 
-def identify_card_with_ce(image_url):
-    """Send card photo to Collectors Edge API. Returns structured identity."""
+def compare_cards_via_nova(ebay_image_url, scp_image_url):
+    """Send both images to Nova. Ask: are these the same card? Yes or no.
+
+    Returns (same_card: bool, nova_response: dict)
+    """
+    import boto3, base64, json as _json
+
     try:
-        from backend.utils.collectors_edge_result import call_ce_identify_api, ce_extracted_from_api_json
+        ebay_img = requests.get(ebay_image_url, timeout=15)
+        scp_img = requests.get(scp_image_url, timeout=15)
+        if ebay_img.status_code != 200 or scp_img.status_code != 200:
+            return False, {'error': 'image download failed'}
 
-        resp = requests.get(image_url, timeout=15)
-        if resp.status_code != 200:
-            return None
-
-        api_json = call_ce_identify_api(resp.content, timeout=120)
-        if not api_json:
-            return None
-
-        extracted = ce_extracted_from_api_json(api_json)
-        identity = extracted.get('identity', {})
-
-        return {
-            'player': identity.get('player'),
-            'year': identity.get('year'),
-            'set': identity.get('set'),
-            'card_number': identity.get('card_number'),
-            'parallel': identity.get('variant') or 'Base',
-            'ce_pricing': extracted.get('pricing', {}),
+        client = boto3.client('bedrock-runtime', region_name='us-east-1')
+        prompt = {
+            'messages': [{
+                'role': 'user',
+                'content': [
+                    {'image': {'format': 'jpeg', 'source': {'bytes': base64.b64encode(scp_img.content).decode()}}},
+                    {'image': {'format': 'jpeg', 'source': {'bytes': base64.b64encode(ebay_img.content).decode()}}},
+                    {'text': (
+                        'I am showing you two images of trading cards. '
+                        'Are these the SAME specific card (same player, same year, same set, same parallel/variant)? '
+                        'Or are they DIFFERENT cards? '
+                        'Answer with JSON: {"same_card": true/false, "confidence": "high"/"medium"/"low", '
+                        '"reason": "brief explanation"}'
+                    )}
+                ]
+            }],
+            'inferenceConfig': {'maxTokens': 200, 'temperature': 0.1}
         }
+
+        response = client.invoke_model(
+            modelId='us.amazon.nova-lite-v1:0',
+            body=_json.dumps(prompt),
+            contentType='application/json',
+        )
+        result = _json.loads(response['body'].read())
+        text = result.get('output', {}).get('message', {}).get('content', [{}])[0].get('text', '')
+
+        # Parse JSON from response (may have markdown code fences)
+        clean = text.strip().strip('`').strip()
+        if clean.startswith('json'):
+            clean = clean[4:].strip()
+        try:
+            parsed = _json.loads(clean)
+            return bool(parsed.get('same_card', False)), parsed
+        except _json.JSONDecodeError:
+            return False, {'raw': text, 'error': 'parse_failed'}
+
     except Exception as e:
-        log.warn(f'CE identification failed: {e}', category='ce_error')
-        return None
+        log.warn(f'Nova comparison failed: {e}', category='nova_error')
+        return False, {'error': str(e)}
 
 
 def match_ce_to_scp(ce_identity, scp_variants):
@@ -267,7 +293,7 @@ def main():
         consecutive_429 = 0
         queries_run = 0
 
-        tracker.update(total=len(queries))
+        tracker.update(processed=0, total=len(queries))
 
         for i, (query, card) in enumerate(queries, 1):
             if i % 50 == 0 or i == 1:
@@ -322,6 +348,7 @@ def main():
         print(f"\nStep 3+4: Identifying cards and checking profit ({len(all_auctions)} auctions)...")
 
         db = SessionLocal()
+        scp_scraper_instance = None  # Lazy init for SCP image fetching
         opportunities = []
         stats = {'ce_calls': 0, 'ce_matched': 0, 'ce_failed': 0,
                  'profitable': 0, 'not_profitable': 0, 'skipped_no_image': 0}
@@ -344,19 +371,55 @@ def main():
             ce_identity = None
 
             if not args.skip_ce and image_url:
-                # CE identifies the card from the photo
-                ce_identity = identify_card_with_ce(image_url)
-                stats['ce_calls'] += 1
+                # Get SCP product page image for visual comparison
+                scp_image_url = None
+                scp_variant_used = None
+                for v in scp_variants:
+                    if v.get('url'):
+                        if not scp_scraper_instance:
+                            from backend.scrapers.sportscardspro_scraper import SportsCardsProScraper
+                            try:
+                                scp_scraper_instance = SportsCardsProScraper(headless=True)
+                            except Exception as e:
+                                print(f"  WARNING: Can't start SCP Selenium: {e}")
+                                scp_scraper_instance = False
+                        if scp_scraper_instance and scp_scraper_instance is not False:
+                            scp_image_url = scp_scraper_instance.get_product_image_url(v['url'])
+                            if scp_image_url:
+                                scp_variant_used = v
+                                break
 
-                if ce_identity and ce_identity.get('player'):
-                    # Match CE result to SCP variant
-                    scp_match = match_ce_to_scp(ce_identity, scp_variants)
-                    if scp_match:
+                numeric_id = (auction.get('ebay_item_id') or '').split('|')[1] if '|' in (auction.get('ebay_item_id') or '') else auction.get('ebay_item_id', '')
+
+                if scp_image_url:
+                    # NOVA VISUAL COMPARISON: are these the same card?
+                    same_card, nova_result = compare_cards_via_nova(image_url, scp_image_url)
+                    stats['ce_calls'] += 1  # counting nova calls in same bucket
+
+                    print(f"\n  --- Card {i}/{len(all_auctions)} ---")
+                    print(f"  eBay:    {title[:100]}")
+                    print(f"           https://www.ebay.com/itm/{numeric_id}")
+                    print(f"  SCP:     {scp_variant_used.get('parallel','Base')} ${float(scp_variant_used.get('ungraded',0)):.2f}")
+                    print(f"           {scp_variant_used.get('url','')}")
+                    confidence = nova_result.get('confidence', '?')
+                    reason = nova_result.get('reason', nova_result.get('error', '?'))
+                    print(f"  Nova:    same_card={same_card} confidence={confidence}")
+                    print(f"           {reason}")
+
+                    if same_card:
+                        scp_match = scp_variant_used
                         stats['ce_matched'] += 1
                     else:
                         stats['ce_failed'] += 1
+
+                    time.sleep(0.5)
                 else:
-                    stats['ce_failed'] += 1
+                    # No SCP image -- skip this card
+                    print(f"\n  --- Card {i}/{len(all_auctions)} (no SCP image) ---")
+                    print(f"  eBay:  {title[:100]}")
+                    print(f"  SKIP:  Could not get SCP product image for comparison")
+                    stats['skipped_no_image'] += 1
+                    continue
 
                 time.sleep(1.0)  # CE rate limit
             elif not image_url:
@@ -503,6 +566,8 @@ def main():
         print(f"  CE calls:             {stats['ce_calls']}")
         print(f"  CE matched to SCP:    {stats['ce_matched']}")
         print(f"  CE failed/no match:   {stats['ce_failed']}")
+        print(f"  CE base card skips:   {stats.get('ce_base_skip', 0)}")
+        print(f"  CE wrong card #:      {stats.get('ce_wrong_card', 0)}")
         print(f"  Skipped (no image):   {stats['skipped_no_image']}")
         print(f"  Profitable:           {stats['profitable']}")
         print(f"  Not profitable:       {stats['not_profitable']}")
