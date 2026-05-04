@@ -7,6 +7,9 @@ import Watchlist from './pages/Watchlist';
 import Opportunities from './pages/Opportunities';
 import BusinessDashboard from './pages/BusinessDashboard';
 import Help from './pages/Help';
+import Shop from './pages/Shop';
+import Privacy from './pages/Privacy';
+import { EbayCallback, EbayDeclined } from './pages/EbayAuth';
 import AuthCallback from './pages/AuthCallback';
 import PrivateLayout from './components/PrivateLayout';
 import './index.css';
@@ -16,7 +19,11 @@ function App() {
     <Router>
       <Routes>
         <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/auth/ebay/callback" element={<EbayCallback />} />
+        <Route path="/auth/ebay/declined" element={<EbayDeclined />} />
         <Route path="/" element={<Landing />} />
+        <Route path="/shop" element={<Shop />} />
+        <Route path="/privacy" element={<Privacy />} />
         <Route element={<PrivateLayout />}>
           <Route path="/market" element={<Home />} />
           <Route path="/opportunities" element={<Opportunities />} />

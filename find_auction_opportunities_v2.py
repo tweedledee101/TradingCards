@@ -296,14 +296,14 @@ def main():
             tracker.complete(summary={'opportunities_found': 0, 'queries_run': queries_run})
             return
 
-        # ── STEP 3 & 4: IDENTIFY + PROFIT ──
-        print(f"\nStep 3+4: Identifying cards and checking profit ({len(all_auctions)} auctions)...")
+        # ── STEP 3 & 4: MATCH + VALIDATE + PROFIT ──
+        print(f"\nStep 3+4: Matching and validating ({len(all_auctions)} auctions)...")
 
         db = SessionLocal()
-        scp_scraper_instance = None  # Lazy init for SCP image fetching
+        from backend.services.match_engine import match_and_validate
         opportunities = []
-        stats = {'ce_calls': 0, 'ce_matched': 0, 'ce_failed': 0,
-                 'profitable': 0, 'not_profitable': 0, 'skipped_no_image': 0}
+        stats = {'accepted': 0, 'rejected': 0, 'recovered': 0,
+                 'not_profitable': 0, 'nova_calls': 0}
 
         for i, auction in enumerate(all_auctions, 1):
             if i % 25 == 0:
@@ -314,140 +314,88 @@ def main():
             shipping = auction.get('shipping', DEFAULT_SHIPPING)
             scp_card = auction['_scp_card']
             scp_variants = scp_card['variants']
-
-            # Get the best image URL
             image_urls = auction.get('image_urls') or []
             image_url = auction.get('image_url') or (image_urls[0] if image_urls else None)
+            ebay_item_id_full = auction.get('ebay_item_id', '')
+            numeric_id = ebay_item_id_full.split('|')[1] if '|' in ebay_item_id_full else ebay_item_id_full
 
-            scp_match = None
-            ce_identity = None
+            # Try each SCP variant, pick the best match
+            best_result = None
+            best_confidence = -999
 
-            if not args.skip_ce and image_url:
-                # Compare eBay image against ALL SCP variant images
-                # Pick the variant with the lowest color distance
-                ebay_full = image_url.replace('/s-l225.', '/s-l1600.') if '/s-l225.' in image_url else image_url
-                numeric_id = (auction.get('ebay_item_id') or '').split('|')[1] if '|' in (auction.get('ebay_item_id') or '') else auction.get('ebay_item_id', '')
+            # First try getItem for structured data
+            item_details = None
+            try:
+                item_details = scraper.get_full_item_details(ebay_item_id_full)
+            except Exception:
+                pass
 
-                # Download eBay image once
-                from backend.services.card_comparator import download_image, weighted_color_distance
-                ebay_bytes, ebay_img = download_image(ebay_full)
-                if not ebay_img:
-                    stats['skipped_no_image'] += 1
-                    continue
+            # If getItem gives us a parallel, find matching SCP variant
+            initial_variant = None
+            if item_details:
+                ebay_par = (item_details.get('parallel') or '').strip()
+                if ebay_par.startswith('[') and ebay_par.endswith(']'):
+                    ebay_par = ebay_par[1:-1]
+                if ebay_par:
+                    ep_lower = ebay_par.lower()
+                    for v in scp_variants:
+                        sp = (v.get('parallel') or 'Base').lower().strip()
+                        if sp == ep_lower:
+                            initial_variant = v
+                            break
 
-                # Score each SCP variant by color distance
-                variant_scores = []
-                for v in scp_variants:
-                    scp_img_url = v.get('scp_image_url')
-                    if not scp_img_url:
-                        # Try to scrape and cache it
-                        if v.get('url') and scp_scraper_instance and scp_scraper_instance is not False:
-                            scp_img_url = scp_scraper_instance.get_product_image_url(v['url'])
-                            if scp_img_url:
-                                try:
-                                    idx = scp_variants.index(v)
-                                    db.execute(
-                                        text(
-                                            "UPDATE scp_cache SET variants = "
-                                            "jsonb_set(variants, ('{' || :idx || ',scp_image_url}')::text[], to_jsonb(:img_url::text)) "
-                                            "WHERE player_name = :p AND card_year = :y AND card_number = :n"
-                                        ),
-                                        {'idx': str(idx), 'img_url': scp_img_url,
-                                         'p': scp_card['player_name'], 'y': scp_card['card_year'], 'n': scp_card['card_number']},
-                                    )
-                                    db.commit()
-                                except Exception:
-                                    db.rollback()
-                        elif not scp_scraper_instance:
-                            from backend.scrapers.sportscardspro_scraper import SportsCardsProScraper
-                            try:
-                                scp_scraper_instance = SportsCardsProScraper(headless=True)
-                                if v.get('url'):
-                                    scp_img_url = scp_scraper_instance.get_product_image_url(v['url'])
-                            except Exception:
-                                scp_scraper_instance = False
-
-                    if not scp_img_url:
-                        continue
-
-                    _, scp_img = download_image(scp_img_url)
-                    if not scp_img:
-                        continue
-
-                    avg_dist, _ = weighted_color_distance(scp_img, ebay_img)
-                    variant_scores.append((avg_dist, v, scp_img_url))
-
-                if not variant_scores:
-                    stats['skipped_no_image'] += 1
-                    print(f"\n  --- Card {i}/{len(all_auctions)} (no SCP images) ---")
-                    print(f"  eBay:  {title[:100]}")
-                    print(f"  SKIP:  No SCP variant images available")
-                    continue
-
-                # Sort by color distance -- closest match first
-                variant_scores.sort(key=lambda x: x[0])
-                best_dist, best_variant, best_scp_img = variant_scores[0]
-
-                print(f"\n  --- Card {i}/{len(all_auctions)} ---")
-                print(f"  eBay:    {title[:100]}")
-                print(f"           https://www.ebay.com/itm/{numeric_id}")
-                print(f"  Closest: [{best_variant.get('parallel','Base')}] ${float(best_variant.get('ungraded',0)):.2f} (color_dist={best_dist})")
-                if len(variant_scores) > 1:
-                    print(f"  Others:  {', '.join(f'[{v.get("parallel","Base")}] d={d:.0f}' for d, v, _ in variant_scores[1:4])}")
-
-                # Now run the layered comparator on the BEST match
-                from backend.services.card_comparator import compare_cards
-                result = compare_cards(best_scp_img, ebay_full, verbose=False)
-                same_card = result.get('same_card', False)
-                stats['ce_calls'] += 1
-
-                layer = result.get('layer', '?')
-                reason = result.get('reason', '?')[:80]
-                print(f"  Verify:  same={same_card} | layer={layer} | {reason}")
-
-                if same_card:
-                    scp_match = best_variant
-                    scp_variant_used = best_variant
-                    stats['ce_matched'] += 1
-                else:
-                    stats['ce_failed'] += 1
-
-                time.sleep(1.0)  # CE rate limit
-            elif not image_url:
-                stats['skipped_no_image'] += 1
-                continue
-            else:
-                # skip_ce mode: check if ANY variant is profitable (flag for verification)
+            # If no getItem match, use the first profitable variant as candidate
+            if not initial_variant:
                 best_profit = -999
-                best_variant = None
                 for v in scp_variants:
-                    p = calculate_profit(v.get('ungraded', 0), bid, shipping)
+                    p = calculate_profit(float(v.get('ungraded') or 0), bid, shipping)
                     if p > best_profit:
                         best_profit = p
-                        best_variant = v
-                if best_variant and best_profit >= args.min_profit:
-                    scp_match = best_variant
+                        initial_variant = v
 
+            if not initial_variant:
+                continue
+
+            # Run match engine
+            result = match_and_validate(
+                title, scp_card, initial_variant,
+                db=db, skip_nova=args.skip_ce,
+            )
+            stats['nova_calls'] += 1
+
+            if not result['matched']:
+                stats['rejected'] += 1
+                method = result['method']
+                if 'recover' not in method:
+                    print(f"\n  --- Card {i}/{len(all_auctions)} ---")
+                    print(f"  eBay:    {title[:100]}")
+                    print(f"           https://www.ebay.com/itm/{numeric_id}")
+                    print(f"  REJECT:  {method} (conf={result['confidence']}) {result.get('nova_reason', '')[:60]}")
+                continue
+
+            scp_match = result['scp_variant']
             if not scp_match:
                 continue
 
+            method = result['method']
+            if 'recover' in method:
+                stats['recovered'] += 1
+
             # STEP 4: Profit check
-            scp_price = float(scp_match.get('ungraded', 0))
+            scp_price = float(scp_match.get('ungraded') or 0)
+            if scp_price <= 0:
+                continue
             profit = calculate_profit(scp_price, bid, shipping)
 
             if profit < args.min_profit:
                 stats['not_profitable'] += 1
                 continue
 
-            stats['profitable'] += 1
+            stats['accepted'] += 1
             roi = round((profit / (bid + shipping)) * 100, 1) if (bid + shipping) > 0 else 0
 
-            # Extract eBay item ID
-            item_id = auction.get('ebay_item_id', '')
-            numeric_id = item_id.split('|')[1] if '|' in item_id else item_id
             url = f"https://www.ebay.com/itm/{numeric_id}" if numeric_id else ''
 
-            # End time
             end_time_dt = None
             end_time = auction.get('end_time')
             if end_time:
@@ -460,7 +408,7 @@ def main():
                     pass
 
             matched_parallel = scp_match.get('parallel', 'Base')
-            is_ce_verified = ce_identity is not None and not args.skip_ce
+            is_verified = result['confidence'] >= 80
 
             opp = {
                 'player_name': scp_card['player_name'],
@@ -486,13 +434,17 @@ def main():
                 'end_time': end_time_dt,
                 'listing_type': 'auction',
                 'price_source': 'scp_cache',
-                'flagged': not is_ce_verified,
-                'verification_status': 'ce_confirmed' if is_ce_verified else 'pending',
+                'flagged': not is_verified,
+                'verification_status': f'{method}',
             }
             opportunities.append(opp)
 
-            print(f"  {'[CE]' if is_ce_verified else '[?]'} ${profit:.2f} profit ({roi:.0f}% ROI) | ${bid:.2f} bid -> ${scp_price:.2f} SCP [{matched_parallel}]")
-            print(f"      {scp_card['player_name']} {scp_card['card_year']} #{scp_card['card_number']} | {url}")
+            print(f"\n  --- Card {i}/{len(all_auctions)} ---")
+            print(f"  eBay:    {title[:100]}")
+            print(f"           https://www.ebay.com/itm/{numeric_id}")
+            print(f"  Match:   [{matched_parallel}] ${scp_price:.2f} | {method} (conf={result['confidence']})")
+            print(f"  [{'OK' if is_verified else '?'}] ${profit:.2f} profit ({roi:.0f}% ROI) | ${bid:.2f} bid")
+            print(f"      {scp_card['player_name']} {scp_card['card_year']} #{scp_card['card_number']}")
 
             # Write to DB immediately
             if not args.dry_run:
@@ -561,14 +513,11 @@ def main():
         print(f"  Liquid cards loaded:  {len(liquid_cards)}")
         print(f"  eBay queries run:     {queries_run}")
         print(f"  Auctions found:       {len(all_auctions)}")
-        print(f"  CE calls:             {stats['ce_calls']}")
-        print(f"  CE matched to SCP:    {stats['ce_matched']}")
-        print(f"  CE failed/no match:   {stats['ce_failed']}")
-        print(f"  CE base card skips:   {stats.get('ce_base_skip', 0)}")
-        print(f"  CE wrong card #:      {stats.get('ce_wrong_card', 0)}")
-        print(f"  Skipped (no image):   {stats['skipped_no_image']}")
-        print(f"  Profitable:           {stats['profitable']}")
+        print(f"  Accepted:             {stats['accepted']}")
+        print(f"  Rejected:             {stats['rejected']}")
+        print(f"  Recovered:            {stats['recovered']}")
         print(f"  Not profitable:       {stats['not_profitable']}")
+        print(f"  Nova calls:           {stats['nova_calls']}")
         print(f"  OPPORTUNITIES STORED: {len(opportunities)}")
         if args.dry_run:
             print(f"  [DRY RUN - nothing written to DB]")
