@@ -473,7 +473,7 @@ def main():
                             bid_count=opp.get('bid_count', 0), end_time=opp.get('end_time'),
                             listing_type='auction', flagged=opp['flagged'],
                             verification_status=opp['verification_status'],
-                            verification_detail={'pipeline': 'v2', 'ce_verified': is_ce_verified},
+                            verification_detail={'pipeline': 'v2', 'matched_via': method},
                             sport=args.sport, price_source=opp['price_source'],
                             scan_id=tracker.run_id,
                         )
@@ -483,12 +483,6 @@ def main():
                     db.rollback()
                     log.warn(f'DB write failed: {e}', category='db_error')
 
-        # Cleanup
-        if scp_scraper_instance and scp_scraper_instance is not False:
-            try:
-                scp_scraper_instance.close()
-            except Exception:
-                pass
 
         # Cleanup ended auctions
         if not args.dry_run:

@@ -325,11 +325,11 @@ def recover_from_scp(
         return best
 
     # Filter to reasonable variants for Nova (priced, not superfractor/printing plate)
-    skip_parallels = {'superfractor', 'printing plate', 'rose gold', '1/1'}
+    skip_words = {'superfractor', 'printing plate', '1/1'}
     priced = [
         v for v in all_variants
         if v.get('ungraded') and float(v.get('ungraded', 0)) > 0
-        and (v.get('parallel') or '').lower() not in skip_parallels
+        and not any(sw in (v.get('parallel') or '').lower() for sw in skip_words)
     ]
     if priced:
         return nova_select_variant(ebay_title, priced)
@@ -343,8 +343,9 @@ def match_and_validate(
     scp_variant: Dict,
     db=None,
     skip_nova: bool = False,
+    bin_price: float = None,
 ) -> Dict:
-    """Full matching pipeline: score -> review -> recover.
+    """Full matching pipeline: score -> review -> recover -> BIN sanity check.
 
     Args:
         ebay_title: The eBay listing title
@@ -352,6 +353,7 @@ def match_and_validate(
         scp_variant: The initially matched SCP variant
         db: Database session (needed for recovery)
         skip_nova: Skip Nova calls (for testing)
+        bin_price: Buy It Now price from the listing (if hybrid auction/BIN)
 
     Returns:
         Dict with matched, scp_variant, confidence, method, breakdown
@@ -407,17 +409,17 @@ def match_and_validate(
                     result['matched'] = True
                     result['method'] = 'nova_reject_recovered'
                     result['confidence'] = 60
-            return result
+            return _apply_bin_check(result, bin_price)
         result['matched'] = True
         result['scp_variant'] = scp_variant
         result['method'] = 'score+nova_confirm'
-        return result
+        return _apply_bin_check(result, bin_price)
 
     if s >= AUTO_ACCEPT_THRESHOLD and skip_nova:
         result['matched'] = True
         result['scp_variant'] = scp_variant
         result['method'] = 'score_accept'
-        return result
+        return _apply_bin_check(result, bin_price)
 
     # Middle ground: Nova reviews
     if not skip_nova:
@@ -428,7 +430,7 @@ def match_and_validate(
             result['scp_variant'] = scp_variant
             result['method'] = 'nova_confirm'
             result['confidence'] = s + 20  # Nova boost
-            return result
+            return _apply_bin_check(result, bin_price)
         else:
             result['matched'] = False
             result['scp_variant'] = None
@@ -442,11 +444,55 @@ def match_and_validate(
                     result['matched'] = True
                     result['method'] = 'nova_reject_recovered'
                     result['confidence'] = 60
-            return result
+            return _apply_bin_check(result, bin_price)
 
     # No Nova, middle score = flag for review
     result['matched'] = True
     result['scp_variant'] = scp_variant
     result['method'] = 'score_flagged'
     result['flagged'] = True
+    return _apply_bin_check(result, bin_price)
+
+
+def _apply_bin_check(result: Dict, bin_price: float = None) -> Dict:
+    """Apply BIN price sanity check to a match result.
+
+    If the SCP price is way above the BIN price, flag it as suspicious.
+    Don't reject -- just flag so the user knows to verify.
+    """
+    if not result.get('matched') or not result.get('scp_variant') or not bin_price:
+        return result
+
+    scp_price = float(result['scp_variant'].get('ungraded') or 0)
+    if scp_price <= 0:
+        return result
+
+    suspicious, reason = bin_price_sanity_check(scp_price, bin_price)
+    if suspicious:
+        result['bin_warning'] = reason
+        result['flagged'] = True
+        result['confidence'] = max(result.get('confidence', 0) - 20, 0)
+
     return result
+
+
+def bin_price_sanity_check(scp_price: float, bin_price: float) -> Tuple[bool, str]:
+    """Check if the SCP price makes sense given the listing's BIN price.
+
+    If a seller offers BIN at $10 but SCP says $70, the SCP price is
+    likely stale or we matched the wrong variant. The seller who has
+    the card in hand knows the market better than our cache.
+
+    Returns (suspicious, reason).
+    """
+    if not bin_price or bin_price <= 0 or not scp_price or scp_price <= 0:
+        return False, ''
+
+    ratio = scp_price / bin_price
+
+    if ratio > 3.0:
+        return True, f'SCP ${scp_price:.2f} is {ratio:.1f}x the BIN ${bin_price:.2f} -- price likely stale or wrong variant'
+    if ratio > 2.0:
+        return True, f'SCP ${scp_price:.2f} is {ratio:.1f}x the BIN ${bin_price:.2f} -- verify SCP price'
+
+    return False, ''
