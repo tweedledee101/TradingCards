@@ -46,7 +46,24 @@ const Shop = () => {
   };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
+    <div className="min-h-screen bg-surface">
+      {/* Public nav for shop */}
+      <nav className="border-b border-surface-border bg-surface-card/80 backdrop-blur-sm sticky top-0 z-50">
+        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+          <a href="/" className="flex items-center gap-2">
+            <img src="/logo.png" alt="Ragnarok Gaming" className="w-10 h-10 object-contain" />
+            <span className="text-base font-display font-semibold text-frost-light tracking-wide uppercase">
+              Ragnarok <span className="text-ember">Gaming</span>
+            </span>
+          </a>
+          <div className="flex items-center gap-3">
+            <a href="/shop" className="text-sm text-ember font-medium">Shop</a>
+            <a href="/market" className="text-sm text-frost-dim hover:text-frost-light">Sign In</a>
+          </div>
+        </div>
+      </nav>
+
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 py-8">
       {/* Shop Header */}
       <div className="text-center mb-8">
         <h1 className="text-3xl font-display font-bold text-frost-light tracking-wide">
@@ -117,6 +134,7 @@ const Shop = () => {
           </button>
         </div>
       )}
+      </div>
     </div>
   );
 };

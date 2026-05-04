@@ -84,7 +84,7 @@ def _fetch_ebay_listings(token, page=1, per_page=25):
         currency = item.find('.//e:CurrentPrice', _EBAY_NS)
         currency_id = currency.get('currencyID', 'USD') if currency is not None else 'USD'
         qty = _text(item, 'e:QuantityAvailable')
-        pic = _text(item, './/e:PictureDetails/e:GalleryURL') or _text(item, './/e:GalleryURL')
+        image_url = (_text(item, './/e:PictureDetails/e:GalleryURL') or _text(item, './/e:GalleryURL') or '').replace('s-l140', 's-l400')
         url = f'https://www.ebay.com/itm/{item_id}' if item_id else None
 
         cards.append({
@@ -93,7 +93,7 @@ def _fetch_ebay_listings(token, page=1, per_page=25):
             'price': float(price) if price else None,
             'currency': currency_id,
             'quantity': int(qty) if qty else 1,
-            'image_url': pic,
+            'image_url': image_url or None,
             'ebay_url': url,
         })
 

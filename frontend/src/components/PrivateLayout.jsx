@@ -48,6 +48,9 @@ export default function PrivateLayout() {
             </span>
           </NavLink>
           <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-1 md:justify-end w-full md:w-auto min-w-0">
+            <NavLink to="/shop" className={navLinkClass}>
+              Shop
+            </NavLink>
             <NavLink to="/market" className={navLinkClass}>
               Market
             </NavLink>
