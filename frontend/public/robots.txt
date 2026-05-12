@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+Allow: /shop
+Allow: /privacy
+
+Disallow: /auth/
+Disallow: /market
+Disallow: /opportunities
+Disallow: /inventory
+Disallow: /watchlist
+Disallow: /business
+
+Sitemap: https://ragnarokgamez.com/sitemap.xml

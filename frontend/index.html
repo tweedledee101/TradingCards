@@ -3,11 +3,72 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="description" content="Ragnarok Gaming — trading cards for serious collectors." />
     <meta name="theme-color" content="#0f1117" />
     <link rel="icon" type="image/png" href="/favicon.png" />
-    <title>Ragnarok Gaming</title>
-    <!-- Fonts load in parallel; avoid @import in CSS so Tailwind is not blocked (Lighthouse/CI NO_FCP). -->
+    <link rel="canonical" href="https://ragnarokgamez.com/" />
+
+    <!-- SEO -->
+    <title>Ragnarok Gaming | Buy & Sell Trading Cards</title>
+    <meta name="description" content="Buy and sell sports trading cards at Ragnarok Gaming. Baseball, basketball, football cards. Verified pricing, fast shipping, eBay buyer protection. Shop now." />
+    <meta name="keywords" content="trading cards, baseball cards, sports cards, buy cards, sell cards, Topps, Bowman, Panini, Prizm, Chrome, refractor, rookie cards" />
+    <meta name="author" content="Ragnarok Gaming" />
+
+    <!-- Open Graph (Facebook, LinkedIn, Discord) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://ragnarokgamez.com/" />
+    <meta property="og:title" content="Ragnarok Gaming | Buy & Sell Trading Cards" />
+    <meta property="og:description" content="Buy and sell sports trading cards. Baseball, basketball, football. Verified pricing, fast shipping." />
+    <meta property="og:image" content="https://ragnarokgamez.com/logo.png" />
+    <meta property="og:site_name" content="Ragnarok Gaming" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Ragnarok Gaming | Buy & Sell Trading Cards" />
+    <meta name="twitter:description" content="Buy and sell sports trading cards. Verified pricing, fast shipping." />
+    <meta name="twitter:image" content="https://ragnarokgamez.com/logo.png" />
+
+    <!-- Structured Data (Organization) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      "name": "Ragnarok Gaming",
+      "url": "https://ragnarokgamez.com",
+      "logo": "https://ragnarokgamez.com/logo.png",
+      "description": "Buy and sell sports trading cards. Baseball, basketball, football cards with verified pricing.",
+      "sameAs": []
+    }
+    </script>
+
+    <!-- Structured Data (WebSite with SearchAction) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Ragnarok Gaming",
+      "url": "https://ragnarokgamez.com",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "https://ragnarokgamez.com/shop?search={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    }
+    </script>
+
+    <!-- Structured Data (Store) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Store",
+      "name": "Ragnarok Gaming",
+      "url": "https://ragnarokgamez.com/shop",
+      "description": "Trading cards for sale. Baseball, basketball, football. Fast shipping.",
+      "priceRange": "$1 - $500",
+      "image": "https://ragnarokgamez.com/logo.png"
+    }
+    </script>
+
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -24,7 +85,6 @@
     </noscript>
   </head>
   <body>
-    <!-- Inline shell so first paint does not wait on JS bundle (headless Lighthouse NO_FCP). -->
     <div id="root">
       <p
         style="
