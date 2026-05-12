@@ -65,10 +65,18 @@ def extract_volume_from_page(driver, url):
     common_keywords = [kw for kw, cnt in sorted(keywords.items(), key=lambda x: -x[1])
                        if cnt >= threshold]
 
+    avg_price = 0
+    if sold_prices:
+        # Use median to avoid outliers
+        sorted_prices = sorted(sold_prices)
+        mid = len(sorted_prices) // 2
+        avg_price = sorted_prices[mid] if len(sorted_prices) % 2 else (sorted_prices[mid-1] + sorted_prices[mid]) / 2
+
     return {
         'volume': volume,
         'sold_titles': sold_titles[:20],
         'sold_prices': sold_prices[:20],
+        'avg_price': avg_price,
         'common_keywords': common_keywords[:15],
         'sold_count': len(sold_titles),
     }
@@ -79,15 +87,29 @@ def main():
     parser.add_argument('--limit', type=int, default=100, help='Max pages to scrape')
     parser.add_argument('--min-price', type=float, default=20)
     parser.add_argument('--max-price', type=float, default=200)
+    parser.add_argument('--refresh', action='store_true',
+                        help='Refresh existing liquid cards (update prices + volume). '
+                             'Without this flag, only discovers NEW volume.')
+    parser.add_argument('--stale-days', type=int, default=7,
+                        help='In refresh mode, only update cards older than N days')
     args = parser.parse_args()
 
     db = SessionLocal()
 
-    # Get SCP cache entries with URLs in the sweet spot, no volume yet
-    rows = db.execute(text(
-        "SELECT id, player_name, card_year, card_number, variants FROM scp_cache "
-        "WHERE LENGTH(player_name) < 40 AND position(',' in player_name) = 0"
-    )).fetchall()
+    # Get SCP cache entries
+    if args.refresh:
+        # Refresh mode: target cards that already have volume but are stale
+        rows = db.execute(text(
+            "SELECT id, player_name, card_year, card_number, variants, created_at FROM scp_cache "
+            "WHERE LENGTH(player_name) < 40 AND position(',' in player_name) = 0 "
+            "AND created_at < NOW() - INTERVAL '" + str(args.stale_days) + " days'"
+        )).fetchall()
+    else:
+        # Discovery mode: target cards with no volume yet
+        rows = db.execute(text(
+            "SELECT id, player_name, card_year, card_number, variants FROM scp_cache "
+            "WHERE LENGTH(player_name) < 40 AND position(',' in player_name) = 0"
+        )).fetchall()
 
     # Extract URLs for cards in price range
     targets = []
@@ -99,14 +121,26 @@ def main():
             price = x.get('ungraded') or 0
             url = x.get('url') or ''
             vol = x.get('volume') or ''
-            if (price and args.min_price <= float(price) <= args.max_price
-                    and url and 'sportscardspro.com' in url and not vol):
-                targets.append({
-                    'cache_id': row.id, 'variant_idx': i, 'url': url,
-                    'player': row.player_name.strip(), 'year': row.card_year,
-                    'number': row.card_number, 'parallel': x.get('parallel', 'Base'),
-                    'price': float(price),
-                })
+            if not (price and url and 'sportscardspro.com' in url):
+                continue
+            if args.refresh:
+                # Refresh mode: only cards with existing volume (liquid cards)
+                if vol and any(kw in vol for kw in ['per day', 'per week', 'per month']):
+                    targets.append({
+                        'cache_id': row.id, 'variant_idx': i, 'url': url,
+                        'player': row.player_name.strip(), 'year': row.card_year,
+                        'number': row.card_number, 'parallel': x.get('parallel', 'Base'),
+                        'price': float(price), 'old_volume': vol,
+                    })
+            else:
+                # Discovery mode: only cards with no volume
+                if not vol and args.min_price <= float(price) <= args.max_price:
+                    targets.append({
+                        'cache_id': row.id, 'variant_idx': i, 'url': url,
+                        'player': row.player_name.strip(), 'year': row.card_year,
+                        'number': row.card_number, 'parallel': x.get('parallel', 'Base'),
+                        'price': float(price),
+                    })
 
     # Dedupe by URL
     seen = set()
@@ -142,8 +176,13 @@ def main():
         idx += 1
     unique = round_robin
 
-    print(f"SCP Volume Worm")
-    print(f"  Targets: {len(unique)} cards in ${args.min_price}-${args.max_price}")
+    mode = 'REFRESH' if args.refresh else 'DISCOVERY'
+    print(f"SCP Volume Worm ({mode})")
+    print(f"  Targets: {len(unique)} cards")
+    if args.refresh:
+        print(f"  Stale threshold: {args.stale_days} days")
+    else:
+        print(f"  Price range: ${args.min_price}-${args.max_price}")
     print(f"  Limit: {args.limit}")
     print()
 
@@ -188,9 +227,15 @@ def main():
                             vv['common_keywords'] = result['common_keywords']
                             vv['sold_titles_sample'] = result['sold_titles'][:5]
                             vv['sold_count_scp'] = result['sold_count']
+                            # Update price if we got sold data
+                            if result.get('avg_price') and result['avg_price'] > 0:
+                                old_price = float(vv.get('ungraded') or 0)
+                                vv['ungraded'] = round(result['avg_price'], 2)
+                                if old_price > 0 and abs(old_price - result['avg_price']) / old_price > 0.3:
+                                    print(f"           PRICE UPDATE: ${old_price:.2f} -> ${result['avg_price']:.2f}")
                             break
                     db.execute(text(
-                        "UPDATE scp_cache SET variants = :v WHERE id = :id"
+                        "UPDATE scp_cache SET variants = :v, created_at = NOW() WHERE id = :id"
                     ), {"v": json.dumps(variants), "id": entry['cache_id']})
                     db.commit()
             except Exception as e:

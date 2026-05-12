@@ -191,7 +191,21 @@ def nova_review(ebay_title: str, scp_desc: str, score: int, breakdown: List[str]
     for b in breakdown:
         prompt += f'  {b}\n'
     prompt += (
-        '\nIs this a CORRECT match? Check player, year, set, card number, variant.\n'
+        '\nIs this a CORRECT match? Check player, year, set, card number, variant.\n\n'
+        'IMPORTANT: eBay sellers use different names for the same parallel. These are EQUIVALENT:\n'
+        '- "Orange Chrome" = "Orange Bordered Chrome" = "Orange Chrome Parallel"\n'
+        '- "Blue Speckle" = "Blue Sparkle" = "Blue Speckle Chrome"\n'
+        '- "Silver Sparkle" = "Silver Sparkle Chrome" = "Chrome Silver Sparkle Refractor"\n'
+        '- "Refractor" = "Chrome Refractor" (in Heritage sets, Chrome IS the refractor)\n'
+        '- "Image Variation" = "Photo Variation" = "Cartoon Variation" (Heritage)\n'
+        '- "Mojo" and "Mojo Refractor" are the same thing\n'
+        '- "/25" or "/99" is the print run, not part of the variant name\n\n'
+        'If the ONLY difference is naming style (not a fundamentally different card), '
+        'it IS a correct match.\n\n'
+        'A WRONG match is when they are genuinely different products:\n'
+        '- "Gold Refractor" vs "Green Refractor" (different color = different card)\n'
+        '- "Base" vs "Refractor" (different product type)\n'
+        '- "Topps Series 1" vs "Panini Flawless" (different manufacturer/set)\n\n'
         'Answer JSON only: {"correct_match": true/false, "confidence": "high"/"medium"/"low", '
         '"reason": "brief explanation"}'
     )
@@ -232,7 +246,14 @@ def nova_select_variant(ebay_title: str, variants: List[Dict]) -> Optional[Dict]
     prompt = (
         f'eBay listing: "{ebay_title}"\n\n'
         f'Available SCP variants: {var_str}\n\n'
-        f'Which variant is the best match? If none match, say "none".\n'
+        f'Which variant is the best match? If none match, say "none".\n\n'
+        f'NOTE: eBay sellers use different names for the same parallel. Examples:\n'
+        f'- "Orange Chrome" = "Orange Bordered Chrome"\n'
+        f'- "Blue Speckle" = "Blue Sparkle Chrome"\n'
+        f'- "Mojo Refractor" = "Mojo"\n'
+        f'- Print runs like /25 or /99 are NOT part of the variant name\n\n'
+        f'Pick the variant that matches the card described in the eBay title. '
+        f'Do NOT pick expensive rare variants (Superfractor, 1/1) unless the title explicitly names them.\n\n'
         f'Answer JSON: {{"best_match": "exact variant name or none", "reason": "why"}}'
     )
 
