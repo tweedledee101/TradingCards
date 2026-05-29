@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""SCP Volume Worm - scrapes product pages for volume data.
+"""SCP Volume Worm - scrapes product pages for sale dates and volume data.
 
-Targets $20-$200 cards (sweet spot for arbitrage).
-Stores volume in scp_cache variants JSONB.
-No rate limit from SCP.
+Parses actual sale dates from SCP product pages to compute real velocity.
+A card needs 2+ sales in the current year to be considered "liquid."
+SCP's volume label is kept as a sanity check but NOT the primary signal.
 
 Usage:
     python3 worm_scp_volume.py --limit 100
     nohup python3 worm_scp_volume.py --limit 500 > /tmp/scp_volume.log 2>&1 &
 """
 import sys, os, json, re, time, argparse
+from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -19,8 +20,9 @@ from backend.utils.database import SessionLocal
 from sqlalchemy import text
 import shutil
 
+
 def extract_volume_from_page(driver, url):
-    """Load SCP product page and extract ungraded volume + sold title keywords."""
+    """Load SCP product page and extract volume label + dated sold records."""
     try:
         driver.get(url)
         time.sleep(2)
@@ -28,161 +30,144 @@ def extract_volume_from_page(driver, url):
         pass  # timeout OK, page may have partially loaded
 
     volume = ''
-    sold_titles = []
-    sold_prices = []
+    sales = []  # list of {date, title, price}
 
     try:
         body = driver.find_element(By.TAG_NAME, 'body').text
-        # Volume: first value is ungraded
+        # Volume label (SCP's own estimate - keep as sanity check)
         m = re.search(r'volume:\s*(.+?)(?:\s*volume:|$)', body.lower())
         if m:
             volume = m.group(1).strip()
 
-        # Sold titles: lines that end with [eBay] and have a price
-        for line in body.split('\n'):
+        # Parse sold listings: date line followed by title+price line
+        lines = body.split('\n')
+        current_date = None
+        in_sold_section = False
+
+        for line in lines:
             line = line.strip()
-            if '[eBay]' in line:
-                # Extract title (everything before the card number reference)
-                title = re.sub(r'\s*#\d+\s*\[eBay\]\s*$', '', line).strip()
+            if 'Sale Date' in line:
+                in_sold_section = True
+                continue
+            if not in_sold_section:
+                continue
+            if 'See an incorrect' in line:
+                break
+
+            # Date line: YYYY-MM-DD
+            date_m = re.match(r'^(\d{4}-\d{2}-\d{2})$', line)
+            if date_m:
+                current_date = date_m.group(1)
+                continue
+
+            # Sold listing line: title [eBay] $price
+            if '[eBay]' in line and current_date:
+                price_m = re.search(r'\$(\d[\d,]*\.\d{2})', line)
+                price = float(price_m.group(1).replace(',', '')) if price_m else 0
+                title = re.sub(r'\s*\[eBay\].*$', '', line).strip()
                 if title and len(title) > 10:
-                    sold_titles.append(title)
-            # Extract sold prices
-            price_m = re.match(r'^\$([\d,]+\.\d{2})\s*$', line)
-            if price_m:
-                sold_prices.append(float(price_m.group(1).replace(',', '')))
+                    sales.append({'date': current_date, 'title': title, 'price': price})
+                current_date = None
     except:
         pass
 
-    # Extract common keywords from sold titles
+    # Compute real velocity from dates
+    now = datetime.now()
+    current_year = now.year
+    sales_this_year = [s for s in sales if s['date'].startswith(str(current_year))]
+    sales_last_90d = [s for s in sales
+                      if (now - datetime.strptime(s['date'], '%Y-%m-%d')).days <= 90]
+
+    # Median price from this year's sales (or all if none this year)
+    price_source = sales_this_year or sales
+    prices = sorted(s['price'] for s in price_source if s['price'] > 0)
+    median_price = 0
+    if prices:
+        mid = len(prices) // 2
+        median_price = prices[mid] if len(prices) % 2 else (prices[mid-1] + prices[mid]) / 2
+
+    # Common keywords from sold titles
     keywords = {}
-    for title in sold_titles:
-        words = set(w.lower() for w in re.split(r'[^a-zA-Z0-9]+', title) if len(w) >= 3)
+    for s in sales:
+        words = set(w.lower() for w in re.split(r'[^a-zA-Z0-9]+', s['title']) if len(w) >= 3)
         for w in words:
             keywords[w] = keywords.get(w, 0) + 1
-
-    # Keywords that appear in 50%+ of sold titles are reliable search terms
-    threshold = max(len(sold_titles) * 0.5, 2)
+    threshold = max(len(sales) * 0.5, 2)
     common_keywords = [kw for kw, cnt in sorted(keywords.items(), key=lambda x: -x[1])
                        if cnt >= threshold]
 
-    avg_price = 0
-    if sold_prices:
-        # Use median to avoid outliers
-        sorted_prices = sorted(sold_prices)
-        mid = len(sorted_prices) // 2
-        avg_price = sorted_prices[mid] if len(sorted_prices) % 2 else (sorted_prices[mid-1] + sorted_prices[mid]) / 2
-
     return {
         'volume': volume,
-        'sold_titles': sold_titles[:20],
-        'sold_prices': sold_prices[:20],
-        'avg_price': avg_price,
+        'sales': sales[:30],
+        'sales_this_year': len(sales_this_year),
+        'sales_last_90d': len(sales_last_90d),
+        'sold_count': len(sales),
+        'median_price': median_price,
         'common_keywords': common_keywords[:15],
-        'sold_count': len(sold_titles),
+        'newest_sale': sales[0]['date'] if sales else None,
+        'oldest_sale': sales[-1]['date'] if sales else None,
     }
 
 
 def main():
     parser = argparse.ArgumentParser(description='SCP Volume Worm')
-    parser.add_argument('--limit', type=int, default=100, help='Max pages to scrape')
-    parser.add_argument('--min-price', type=float, default=20)
-    parser.add_argument('--max-price', type=float, default=200)
-    parser.add_argument('--refresh', action='store_true',
-                        help='Refresh existing liquid cards (update prices + volume). '
-                             'Without this flag, only discovers NEW volume.')
+    parser.add_argument('--limit', type=int, default=500, help='Max pages to scrape')
     parser.add_argument('--stale-days', type=int, default=7,
-                        help='In refresh mode, only update cards older than N days')
+                        help='Only scrape cards not updated in N days')
     args = parser.parse_args()
 
     db = SessionLocal()
 
-    # Get SCP cache entries
-    if args.refresh:
-        # Refresh mode: target cards that already have volume but are stale
-        rows = db.execute(text(
-            "SELECT id, player_name, card_year, card_number, variants, created_at FROM scp_cache "
-            "WHERE LENGTH(player_name) < 40 AND position(',' in player_name) = 0 "
-            "AND created_at < NOW() - INTERVAL '" + str(args.stale_days) + " days'"
-        )).fetchall()
-    else:
-        # Discovery mode: target cards with no volume yet
-        rows = db.execute(text(
-            "SELECT id, player_name, card_year, card_number, variants FROM scp_cache "
-            "WHERE LENGTH(player_name) < 40 AND position(',' in player_name) = 0"
-        )).fetchall()
+    # Load stale 2020-2026 cache entries and extract variant URLs
+    print("Loading targets from SCP cache (2020-2026, stale)...")
+    rows = db.execute(text(
+        "SELECT id, player_name, card_year, card_number, variants FROM scp_cache "
+        "WHERE card_year BETWEEN 2020 AND 2026 "
+        "AND LENGTH(player_name) < 40 AND position(',' in player_name) = 0 "
+        "AND created_at < NOW() - INTERVAL '" + str(args.stale_days) + " days' "
+        "ORDER BY player_name"
+    )).fetchall()
+    print(f"  Loaded {len(rows)} cache rows")
 
-    # Extract URLs for cards in price range
-    targets = []
+    # Extract variant URLs grouped by player
+    from collections import defaultdict
+    from itertools import zip_longest
+
+    by_player = defaultdict(list)
+    seen_urls = set()
     for row in rows:
         v = row.variants
         if isinstance(v, str): v = json.loads(v)
         if not isinstance(v, list): continue
-        for i, x in enumerate(v):
-            price = x.get('ungraded') or 0
+        player = row.player_name.strip()
+        for x in v:
             url = x.get('url') or ''
-            vol = x.get('volume') or ''
-            if not (price and url and 'sportscardspro.com' in url):
-                continue
-            if args.refresh:
-                # Refresh mode: only cards with existing volume (liquid cards)
-                if vol and any(kw in vol for kw in ['per day', 'per week', 'per month']):
-                    targets.append({
-                        'cache_id': row.id, 'variant_idx': i, 'url': url,
-                        'player': row.player_name.strip(), 'year': row.card_year,
-                        'number': row.card_number, 'parallel': x.get('parallel', 'Base'),
-                        'price': float(price), 'old_volume': vol,
-                    })
-            else:
-                # Discovery mode: only cards with no volume
-                if not vol and args.min_price <= float(price) <= args.max_price:
-                    targets.append({
-                        'cache_id': row.id, 'variant_idx': i, 'url': url,
-                        'player': row.player_name.strip(), 'year': row.card_year,
-                        'number': row.card_number, 'parallel': x.get('parallel', 'Base'),
-                        'price': float(price),
-                    })
+            if url and 'sportscardspro.com' in url and url not in seen_urls:
+                seen_urls.add(url)
+                by_player[player].append({
+                    'cache_id': row.id, 'url': url,
+                    'player': player, 'year': row.card_year,
+                    'number': row.card_number, 'parallel': x.get('parallel', 'Base'),
+                    'price': float(x.get('ungraded') or 0),
+                })
 
-    # Dedupe by URL
-    seen = set()
-    unique = []
-    for t in targets:
-        if t['url'] not in seen:
-            seen.add(t['url'])
-            unique.append(t)
-
-    # Round-robin across players so we don't exhaust one player before touching others
-    from collections import defaultdict
-    by_player = defaultdict(list)
-    for t in unique:
-        by_player[t['player']].append(t)
-    
-    # Sort each player's cards by price (mid-range first)
-    for p in by_player:
-        by_player[p].sort(key=lambda x: abs(x['price'] - 75))
-    
-    # Round-robin: take 1 card from each player, repeat
+    # Interleave players (one card per player per round)
     players_list = sorted(by_player.keys(), key=lambda p: -len(by_player[p]))
-    round_robin = []
-    idx = 0
-    while len(round_robin) < len(unique):
-        added = False
-        for p in players_list:
-            cards = by_player[p]
-            if idx < len(cards):
-                round_robin.append(cards[idx])
-                added = True
-        if not added:
-            break
-        idx += 1
-    unique = round_robin
+    player_iters = [iter(by_player[p]) for p in players_list]
+    unique = []
+    while player_iters:
+        next_round = []
+        for it in player_iters:
+            card = next(it, None)
+            if card:
+                unique.append(card)
+                next_round.append(it)
+        player_iters = next_round
 
-    mode = 'REFRESH' if args.refresh else 'DISCOVERY'
-    print(f"SCP Volume Worm ({mode})")
-    print(f"  Targets: {len(unique)} cards")
-    if args.refresh:
-        print(f"  Stale threshold: {args.stale_days} days")
-    else:
-        print(f"  Price range: ${args.min_price}-${args.max_price}")
+    del rows, by_player, seen_urls  # free memory
+
+    print(f"SCP Volume Worm")
+    print(f"  Targets: {len(unique)} cards (stale > {args.stale_days} days)")
     print(f"  Limit: {args.limit}")
     print()
 
@@ -201,19 +186,19 @@ def main():
     found_volume = 0
     liquid = 0
     errors = 0
+    current_year = datetime.now().year
 
     for entry in unique[:args.limit]:
         result = extract_volume_from_page(driver, entry['url'])
         scraped += 1
-        vol = result['volume']
 
-        if vol:
+        sales_count = result['sold_count']
+        sales_yr = result['sales_this_year']
+
+        if sales_count > 0:
             found_volume += 1
-            entry['volume'] = vol
-            entry['common_keywords'] = result['common_keywords']
-            entry['sold_count_scp'] = result['sold_count']
 
-            # Update the SCP cache with volume + keywords
+            # Update the SCP cache with real sale data
             try:
                 cache_row = db.execute(text(
                     "SELECT id, variants FROM scp_cache WHERE id = :id"
@@ -223,16 +208,24 @@ def main():
                     if isinstance(variants, str): variants = json.loads(variants)
                     for vv in variants:
                         if vv.get('url') == entry['url']:
-                            vv['volume'] = vol
+                            vv['volume'] = result['volume']
                             vv['common_keywords'] = result['common_keywords']
-                            vv['sold_titles_sample'] = result['sold_titles'][:5]
-                            vv['sold_count_scp'] = result['sold_count']
-                            # Update price if we got sold data
-                            if result.get('avg_price') and result['avg_price'] > 0:
+                            vv['sold_count_scp'] = sales_count
+                            vv['sales_this_year'] = sales_yr
+                            vv['sales_last_90d'] = result['sales_last_90d']
+                            vv['newest_sale'] = result['newest_sale']
+                            vv['oldest_sale'] = result['oldest_sale']
+                            # Store the actual sale records (dates + prices)
+                            vv['sold_history'] = [
+                                {'date': s['date'], 'price': s['price']}
+                                for s in result['sales'][:20]
+                            ]
+                            # Update price from median of this year's sales
+                            if result['median_price'] > 0:
                                 old_price = float(vv.get('ungraded') or 0)
-                                vv['ungraded'] = round(result['avg_price'], 2)
-                                if old_price > 0 and abs(old_price - result['avg_price']) / old_price > 0.3:
-                                    print(f"           PRICE UPDATE: ${old_price:.2f} -> ${result['avg_price']:.2f}")
+                                vv['ungraded'] = round(result['median_price'], 2)
+                                if old_price > 0 and abs(old_price - result['median_price']) / old_price > 0.3:
+                                    print(f"           PRICE UPDATE: ${old_price:.2f} -> ${result['median_price']:.2f}")
                             break
                     db.execute(text(
                         "UPDATE scp_cache SET variants = :v, created_at = NOW() WHERE id = :id"
@@ -241,14 +234,17 @@ def main():
             except Exception as e:
                 errors += 1
 
-            is_liquid = any(kw in vol for kw in ['per day', 'per week'])
+            # Liquid = 2+ sales this year
+            is_liquid = sales_yr >= 2
             if is_liquid:
                 liquid += 1
                 kws = ', '.join(result['common_keywords'][:5])
-                print(f"  [{scraped}] LIQUID: ${entry['price']:.2f} {entry['player']} #{entry['number']} [{entry['parallel']}] | {vol}")
-                print(f"           Keywords: {kws}")
-            elif scraped <= 20 or scraped % 25 == 0:
-                print(f"  [{scraped}] {vol}: ${entry['price']:.2f} {entry['player']} #{entry['number']}")
+                print(f"  [{scraped}] LIQUID ({sales_yr} sales {current_year}): ${entry['price']:.2f} {entry['player']} #{entry['number']} [{entry['parallel']}]")
+                print(f"           vol_label=\"{result['volume']}\" | median=${result['median_price']:.2f} | keywords: {kws}")
+            elif scraped <= 20 or scraped % 50 == 0:
+                print(f"  [{scraped}] {sales_yr} sales {current_year} (total={sales_count}): ${entry['price']:.2f} {entry['player']} #{entry['number']}")
+        elif scraped <= 10 or scraped % 100 == 0:
+            print(f"  [{scraped}] no sales: {entry['player']} #{entry['number']} [{entry['parallel']}]")
 
     driver.quit()
     db.close()
@@ -256,8 +252,8 @@ def main():
     print(f"\n{'=' * 60}")
     print(f"SCP Volume Worm Complete")
     print(f"  Scraped: {scraped}")
-    print(f"  Volume found: {found_volume}")
-    print(f"  Liquid (daily/weekly): {liquid}")
+    print(f"  Has sold data: {found_volume}")
+    print(f"  Liquid (2+ sales {current_year}): {liquid}")
     print(f"  Errors: {errors}")
     print(f"{'=' * 60}")
 

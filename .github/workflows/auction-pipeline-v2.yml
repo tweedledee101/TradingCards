@@ -2,7 +2,7 @@ name: Auction Pipeline V2
 
 on:
   schedule:
-    - cron: '30 7 * * *'   # 7:30 AM UTC = 2:30 AM CT (right after eBay quota reset)
+    - cron: '30 12 * * *'   # 12:30 PM UTC = 7:30 AM CT (after V1 auction finishes)
   workflow_dispatch:
     inputs:
       liquid_limit:

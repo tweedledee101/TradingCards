@@ -67,8 +67,8 @@ GRADED_PATTERNS = ['psa ', 'bgs ', 'sgc ', 'cgc ', 'gem mint', 'graded ',
 def load_liquid_cards(db, min_price=5.0, max_price=1000.0, limit=800):
     """Load cards with proven sales velocity from SCP cache.
 
-    Only returns cards where volume indicates real demand:
-    daily, weekly, or monthly sales. Rejects 'rare', '1 sale per year', etc.
+    Liquid = 2+ actual sales in the current year (from dated sold records).
+    NOT based on SCP's volume label — based on real sale dates we scraped.
     """
     rows = db.execute(text("""
         SELECT DISTINCT ON (sc.player_name, sc.card_year, sc.card_number)
@@ -76,17 +76,9 @@ def load_liquid_cards(db, min_price=5.0, max_price=1000.0, limit=800):
                sc.variants
         FROM scp_cache sc, jsonb_array_elements(sc.variants) v
         WHERE (v->>'ungraded')::numeric BETWEEN :min_p AND :max_p
-          AND v->>'volume' IS NOT NULL AND v->>'volume' != ''
-          AND (LOWER(v->>'volume') LIKE '%per day%'
-               OR LOWER(v->>'volume') LIKE '%per week%'
-               OR LOWER(v->>'volume') LIKE '%per month%')
-          AND LOWER(v->>'volume') NOT LIKE '%rare%'
-          AND LOWER(v->>'volume') NOT LIKE '%1 sale per year%'
-          AND LOWER(v->>'volume') NOT LIKE '%2 sales per year%'
+          AND (v->>'sales_this_year')::int >= 2
         ORDER BY sc.player_name, sc.card_year, sc.card_number,
-                 CASE WHEN LOWER(v->>'volume') LIKE '%per day%' THEN 0
-                      WHEN LOWER(v->>'volume') LIKE '%per week%' THEN 1
-                      ELSE 2 END,
+                 (v->>'sales_this_year')::int DESC,
                  (v->>'ungraded')::numeric DESC
         LIMIT :lim
     """), {'min_p': min_price, 'max_p': max_price, 'lim': limit}).fetchall()
@@ -94,12 +86,12 @@ def load_liquid_cards(db, min_price=5.0, max_price=1000.0, limit=800):
     cards = []
     for r in rows:
         variants = r[3] if isinstance(r[3], list) else json.loads(r[3])
-        # Only keep variants with acceptable volume AND price
+        # Only keep variants with 2+ sales this year AND price in range
         good_variants = []
         for v in variants:
-            vol = (v.get('volume') or '').lower()
             price = float(v.get('ungraded') or 0)
-            if price > 0 and any(av in vol for av in ACCEPTABLE_VOLUMES):
+            sales_yr = int(v.get('sales_this_year') or 0)
+            if price >= min_price and price <= max_price and sales_yr >= 2:
                 good_variants.append(v)
         if good_variants:
             cards.append({
@@ -107,6 +99,7 @@ def load_liquid_cards(db, min_price=5.0, max_price=1000.0, limit=800):
                 'card_year': r[1],
                 'card_number': r[2],
                 'variants': good_variants,
+                '_all_variants': variants,
             })
     return cards
 
@@ -183,6 +176,88 @@ def calculate_profit(scp_price, bid, shipping):
     """Simple math. SCP * 0.87 - bid - shipping."""
     net = float(scp_price) * (1 - FEE_RATE)
     return round(net - float(bid) - float(shipping), 2)
+
+
+# ─── VARIANT IDENTIFICATION HELPERS ─────────────────────────────────────────
+
+def _extract_parallel_from_title(title: str, scp_card: dict) -> str:
+    """Extract parallel name from eBay title by matching against known SCP variants.
+
+    Strategy: check if any SCP variant's parallel words appear in the title.
+    Pick the longest (most specific) match.
+    """
+    tl = title.lower()
+    # Normalize common misspellings in titles
+    tl = tl.replace('lazer', 'laser').replace('colour', 'color')
+    all_variants = scp_card.get('_all_variants') or scp_card.get('variants', [])
+
+    best_par = ''
+    best_word_count = 0
+
+    for v in all_variants:
+        par = (v.get('parallel') or '').strip()
+        if not par or par.lower() == 'base':
+            continue
+        par_words = par.lower().split()
+        if len(par_words) < 1:
+            continue
+        # All words of the parallel must appear in the title
+        if all(w in tl for w in par_words):
+            if len(par_words) > best_word_count:
+                best_word_count = len(par_words)
+                best_par = par
+
+    return best_par
+
+
+def _find_variant_in_full_cache(db, player_name: str, card_year: int, card_number: str, ebay_par: str):
+    """Look up the exact variant in the FULL SCP cache (not just liquid subset).
+
+    Uses fuzzy matching: all words from the shorter name must appear in the longer one.
+    """
+    if not ebay_par:
+        return None
+
+    rows = db.execute(text("""
+        SELECT variants FROM scp_cache
+        WHERE LOWER(player_name) = LOWER(:player)
+          AND card_year = :year
+          AND LOWER(card_number) = LOWER(:num)
+        LIMIT 1
+    """), {'player': player_name, 'year': card_year, 'num': card_number}).fetchall()
+
+    if not rows:
+        return None
+
+    variants = rows[0][0] if isinstance(rows[0][0], list) else json.loads(rows[0][0])
+    ep_lower = ebay_par.lower().strip()
+    ep_words = set(ep_lower.split())
+
+    # Pass 1: exact string match
+    for v in variants:
+        sp = (v.get('parallel') or 'Base').lower().strip()
+        if sp == ep_lower:
+            return v
+
+    # Pass 2: all words from the shorter name appear in the longer one
+    best = None
+    best_score = 0
+    for v in variants:
+        sp = (v.get('parallel') or 'Base').lower().strip()
+        if sp == 'base':
+            continue
+        sp_words = set(sp.split())
+
+        # Check both directions: eBay words in SCP, or SCP words in eBay
+        shorter, longer = (sp_words, ep_words) if len(sp_words) <= len(ep_words) else (ep_words, sp_words)
+        if shorter and shorter.issubset(longer):
+            # Score by how specific the match is (more words = better)
+            score = len(shorter)
+            if score > best_score:
+                best_score = score
+                best = v
+
+    return best
 
 
 # ─── MAIN PIPELINE ──────────────────────────────────────────────────────────
@@ -319,44 +394,61 @@ def main():
             ebay_item_id_full = auction.get('ebay_item_id', '')
             numeric_id = ebay_item_id_full.split('|')[1] if '|' in ebay_item_id_full else ebay_item_id_full
 
-            # Try each SCP variant, pick the best match
-            best_result = None
-            best_confidence = -999
-
-            # First try getItem for structured data
+            # ── IDENTIFY: what is this eBay card actually? ──
+            # Get structured data from eBay (parallel, set, year, card number)
             item_details = None
             try:
                 item_details = scraper.get_full_item_details(ebay_item_id_full)
             except Exception:
                 pass
 
-            # If getItem gives us a parallel, find matching SCP variant
-            initial_variant = None
+            # Determine the real parallel from getItem or title
+            ebay_par = ''
             if item_details:
                 ebay_par = (item_details.get('parallel') or '').strip()
                 if ebay_par.startswith('[') and ebay_par.endswith(']'):
                     ebay_par = ebay_par[1:-1]
-                if ebay_par:
-                    ep_lower = ebay_par.lower()
-                    for v in scp_variants:
-                        sp = (v.get('parallel') or 'Base').lower().strip()
-                        if sp == ep_lower:
-                            initial_variant = v
-                            break
 
-            # If no getItem match, use the first profitable variant as candidate
-            if not initial_variant:
-                best_profit = -999
+            # If getItem returns generic/empty, extract from title
+            generic_parallels = {'base', 'chrome', '', 'standard'}
+            if ebay_par.lower() in generic_parallels:
+                ebay_par = _extract_parallel_from_title(title, scp_card)
+
+            # ── MATCH: find this exact variant in FULL SCP cache ──
+            # Look in the full cache, not just the liquid-filtered subset
+            matched_variant = _find_variant_in_full_cache(
+                db, scp_card['player_name'], scp_card['card_year'],
+                scp_card['card_number'], ebay_par
+            )
+
+            # If no match in full cache, try the liquid subset (exact match only)
+            if not matched_variant and ebay_par:
+                ep_lower = ebay_par.lower().strip()
                 for v in scp_variants:
-                    p = calculate_profit(float(v.get('ungraded') or 0), bid, shipping)
-                    if p > best_profit:
-                        best_profit = p
-                        initial_variant = v
+                    sp = (v.get('parallel') or 'Base').lower().strip()
+                    if sp == ep_lower:
+                        matched_variant = v
+                        break
 
-            if not initial_variant:
+            # No match found -- skip. NEVER guess a different variant.
+            if not matched_variant:
+                stats['rejected'] += 1
                 continue
 
-            # Run match engine
+            # Check liquidity: variant must have 2+ sales this year
+            sales_yr = int(matched_variant.get('sales_this_year') or 0)
+            if sales_yr < 2:
+                stats['not_profitable'] += 1
+                continue
+
+            # Check price exists
+            scp_price = float(matched_variant.get('ungraded') or 0)
+            if scp_price <= 0:
+                continue
+
+            initial_variant = matched_variant
+
+            # Run match engine for confidence scoring + Nova validation
             result = match_and_validate(
                 title, scp_card, initial_variant,
                 db=db, skip_nova=args.skip_ce,
@@ -366,20 +458,15 @@ def main():
             if not result['matched']:
                 stats['rejected'] += 1
                 method = result['method']
-                if 'recover' not in method:
-                    print(f"\n  --- Card {i}/{len(all_auctions)} ---")
-                    print(f"  eBay:    {title[:100]}")
-                    print(f"           https://www.ebay.com/itm/{numeric_id}")
-                    print(f"  REJECT:  {method} (conf={result['confidence']}) {result.get('nova_reason', '')[:60]}")
+                print(f"\n  --- Card {i}/{len(all_auctions)} ---")
+                print(f"  eBay:    {title[:100]}")
+                print(f"           https://www.ebay.com/itm/{numeric_id}")
+                print(f"  REJECT:  {method} (conf={result['confidence']}) {result.get('nova_reason', '')[:60]}")
                 continue
 
-            scp_match = result['scp_variant']
-            if not scp_match:
-                continue
-
+            # Use the variant WE identified, not whatever the match engine recovered
+            scp_match = initial_variant
             method = result['method']
-            if 'recover' in method:
-                stats['recovered'] += 1
 
             # STEP 4: Profit check
             scp_price = float(scp_match.get('ungraded') or 0)
