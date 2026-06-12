@@ -464,6 +464,38 @@ class CapitalTransaction(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 
+class WeeklySnapshot(Base):
+    """Weekly performance snapshots pulled from eBay API"""
+    __tablename__ = 'weekly_snapshots'
+
+    id = Column(Integer, primary_key=True)
+    account_id = Column(Integer, ForeignKey('accounts.id'), nullable=False, default=1)
+    week_start = Column(Date, nullable=False)
+    week_end = Column(Date, nullable=False)
+    active_listings = Column(Integer, default=0)
+    total_inventory_ask = Column(DECIMAL(10, 2), default=0)
+    listings_under_5 = Column(Integer, default=0)
+    listings_5_to_25 = Column(Integer, default=0)
+    listings_25_to_100 = Column(Integer, default=0)
+    listings_over_100 = Column(Integer, default=0)
+    median_listing_price = Column(DECIMAL(10, 2), default=0)
+    items_sold = Column(Integer, default=0)
+    total_revenue = Column(DECIMAL(10, 2), default=0)
+    avg_sale_price = Column(DECIMAL(10, 2), default=0)
+    sell_through_pct = Column(DECIMAL(5, 1), default=0)
+    items_bought = Column(Integer, default=0)
+    total_spent = Column(DECIMAL(10, 2), default=0)
+    avg_buy_price = Column(DECIMAL(10, 2), default=0)
+    bids_won = Column(Integer, default=0)
+    bids_lost = Column(Integer, default=0)
+    win_rate_pct = Column(DECIMAL(5, 1), default=0)
+    watchlist_count = Column(Integer, default=0)
+    net_profit_est = Column(DECIMAL(10, 2), default=0)
+    inventory_value_change = Column(DECIMAL(10, 2), default=0)
+    raw_data = Column(JSONB, default={})
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
 class MarketRate(Base):
     """Market rates from SportsCardsPro (Ungraded, Grade 9, PSA 10)"""
     __tablename__ = 'market_rates'
@@ -476,4 +508,41 @@ class MarketRate(Base):
     psa_10_price = Column(DECIMAL(10, 2))
     scp_product_url = Column(Text)
     date_recorded = Column(Date, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class MarketplaceListing(Base):
+    __tablename__ = 'marketplace_listings'
+
+    id = Column(Integer, primary_key=True)
+    seller_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    title = Column(String(500), nullable=False)
+    description = Column(Text)
+    price_cents = Column(Integer, nullable=False)
+    category = Column(String(100), nullable=False)
+    condition = Column(String(50))
+    shipping_cents = Column(Integer, nullable=False, default=0)
+    image_urls = Column(JSONB, default=[])
+    status = Column(String(20), nullable=False, default='active')
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
+
+
+class MarketplaceOrder(Base):
+    __tablename__ = 'marketplace_orders'
+
+    id = Column(Integer, primary_key=True)
+    listing_id = Column(Integer, ForeignKey('marketplace_listings.id'), nullable=False)
+    buyer_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    seller_id = Column(Integer, ForeignKey('users.id'), nullable=False)
+    price_cents = Column(Integer, nullable=False)
+    shipping_cents = Column(Integer, nullable=False, default=0)
+    platform_fee_cents = Column(Integer, nullable=False, default=100)
+    stripe_payment_intent_id = Column(String(255))
+    stripe_checkout_session_id = Column(String(255))
+    status = Column(String(20), nullable=False, default='paid')
+    shipping_address = Column(JSONB)
+    tracking_number = Column(String(255))
+    shipped_at = Column(TIMESTAMP)
+    delivered_at = Column(TIMESTAMP)
     created_at = Column(TIMESTAMP, server_default=func.now())

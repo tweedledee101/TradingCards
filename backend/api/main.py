@@ -7,7 +7,7 @@ import uuid
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from backend.api.routes import trending, cards, health, inventory, watchlist, webhooks, ebay_compliance, opportunities, sourcing, scheduled_bids, business, auth, storefront, ebay_storefront
+from backend.api.routes import trending, cards, health, inventory, watchlist, webhooks, ebay_compliance, opportunities, sourcing, scheduled_bids, business, auth, storefront, ebay_storefront, market, market, marketplace
 from backend.utils.logger import get_logger, set_request_id, clear_request_id
 
 log = get_logger('api')
@@ -85,3 +85,6 @@ app.include_router(business.router, prefix="/api", tags=["Business"])
 app.include_router(auth.router, prefix="/api", tags=["Auth"])
 app.include_router(storefront.router, prefix="/api", tags=["Storefront"])  # Public, no auth
 app.include_router(ebay_storefront.router, prefix="/api", tags=["eBay Storefront"])  # Public, live eBay data
+app.include_router(market.router, prefix="/api", tags=["Market"])  # Volume leaders from SCP cache
+app.include_router(market.router, prefix="/api", tags=["Market"])
+app.include_router(marketplace.router, prefix="/api", tags=["Marketplace"])

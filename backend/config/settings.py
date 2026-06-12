@@ -60,6 +60,12 @@ class Config:
     COGNITO_USER_POOL_ID = os.getenv('COGNITO_USER_POOL_ID', '')
     COGNITO_CLIENT_ID = os.getenv('COGNITO_CLIENT_ID', '')
 
+    # Stripe
+    STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', '')
+    STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY', '')
+    STRIPE_WEBHOOK_SECRET = os.getenv('STRIPE_WEBHOOK_SECRET', '')
+    STRIPE_PLATFORM_FEE_CENTS = 100  # $1 per transaction
+
     # Scraping settings
     USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     REQUEST_DELAY = 2  # seconds between requests
