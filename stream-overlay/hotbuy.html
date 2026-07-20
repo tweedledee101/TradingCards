@@ -1,0 +1,84 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Ragnarok Gamez — Hot Buy Alert</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 1920px;
+    height: 1080px;
+    background: transparent;
+    overflow: hidden;
+    font-family: 'Segoe UI', Arial, sans-serif;
+  }
+
+  .stage {
+    position: absolute;
+    left: 50%;
+    top: 78%;
+    transform: translate(-50%, -50%) scale(0.6);
+    opacity: 0;
+    text-align: center;
+    animation: pop 4.5s ease-out forwards;
+  }
+
+  .burst {
+    display: inline-block;
+    padding: 22px 48px;
+    background: linear-gradient(135deg, #e8590c, #ff6b1a);
+    border-radius: 18px;
+    box-shadow: 0 0 50px rgba(232, 89, 12, 0.65);
+    color: #0f1117;
+  }
+
+  .label {
+    font-size: 30px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+  }
+
+  .title {
+    font-size: 56px;
+    font-weight: 900;
+    color: #0f1117;
+    margin-top: 6px;
+    white-space: nowrap;
+  }
+
+  .sub {
+    font-size: 26px;
+    font-weight: 700;
+    color: #1a1d27;
+    margin-top: 4px;
+  }
+
+  @keyframes pop {
+    0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.4) rotate(-4deg); }
+    12%  { opacity: 1; transform: translate(-50%, -50%) scale(1.08) rotate(2deg); }
+    20%  { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+    85%  { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(0.85) rotate(0deg); }
+  }
+</style>
+</head>
+<body>
+  <div class="stage" id="stage">
+    <div class="burst">
+      <div class="label">🔥 Hot Buy 🔥</div>
+      <div class="title" id="title">SOLD!</div>
+      <div class="sub" id="sub"></div>
+    </div>
+  </div>
+
+  <script>
+    // Set text via URL params so you never have to edit this file mid-show, e.g.:
+    // hotbuy.html?title=Kurtz%20Auto&sub=%24225
+    const params = new URLSearchParams(location.search);
+    document.getElementById('title').textContent = params.get('title') || 'SOLD!';
+    document.getElementById('sub').textContent = params.get('sub') || '';
+  </script>
+</body>
+</html>
