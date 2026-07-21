@@ -8,7 +8,7 @@ _ROOT = Path(__file__).resolve().parents[2]
 
 
 def _load():
-    path = _ROOT / "scripts" / "vision_retry_scp_from_images.py"
+    path = _ROOT / "scripts" / "dev" / "vision_retry_scp_from_images.py"
     spec = importlib.util.spec_from_file_location("vision_retry_scp_from_images", path)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
