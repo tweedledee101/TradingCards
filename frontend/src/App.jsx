@@ -11,6 +11,7 @@ import Help from './pages/Help';
 import Shop from './pages/Shop';
 import SellerDashboard from './pages/SellerDashboard';
 import Privacy from './pages/Privacy';
+import Terms from './pages/Terms';
 import { EbayCallback, EbayDeclined } from './pages/EbayAuth';
 import AuthCallback from './pages/AuthCallback';
 import PrivateLayout from './components/PrivateLayout';
@@ -25,8 +26,8 @@ function App() {
         <Route path="/auth/ebay/declined" element={<EbayDeclined />} />
         <Route path="/" element={<Landing />} />
         <Route path="/shop" element={<Shop />} />
-        <Route path="/sell" element={<SellerDashboard />} />
         <Route path="/privacy" element={<Privacy />} />
+        <Route path="/terms" element={<Terms />} />
         <Route element={<PrivateLayout />}>
           <Route path="/market" element={<Market />} />
           <Route path="/trending" element={<Home />} />
@@ -35,6 +36,7 @@ function App() {
           <Route path="/inventory" element={<Inventory />} />
           <Route path="/watchlist" element={<Watchlist />} />
           <Route path="/business" element={<BusinessDashboard />} />
+          <Route path="/sell" element={<SellerDashboard />} />
           <Route path="/help" element={<Help />} />
         </Route>
       </Routes>

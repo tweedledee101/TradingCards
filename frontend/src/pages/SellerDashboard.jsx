@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useAuth } from '../auth/AuthContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : 'https://api.ragnarokgamez.com');
 
@@ -8,19 +9,45 @@ const SellerDashboard = () => {
   const [orders, setOrders] = useState([]);
   const [tab, setTab] = useState('listings');
   const [showForm, setShowForm] = useState(false);
-  const sellerId = 1; // TODO: get from auth context
+  const [payoutsReady, setPayoutsReady] = useState(null); // null = still loading
+  const [connecting, setConnecting] = useState(false);
+  const { getToken } = useAuth();
 
-  useEffect(() => { fetchData(); }, []);
+  const authHeaders = () => {
+    const token = getToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  };
+
+  useEffect(() => { fetchData(); fetchMe(); }, []);
+
+  const fetchMe = async () => {
+    try {
+      const resp = await axios.get(`${API_BASE}/api/auth/me`, { headers: authHeaders() });
+      setPayoutsReady(!!resp.data.user?.payouts_ready);
+    } catch (err) { console.error(err); setPayoutsReady(false); }
+  };
 
   const fetchData = async () => {
     try {
+      const headers = authHeaders();
       const [listResp, orderResp] = await Promise.all([
-        axios.get(`${API_BASE}/api/marketplace/listings`, { params: { seller_id: sellerId } }),
-        axios.get(`${API_BASE}/api/marketplace/orders`, { params: { seller_id: sellerId } }),
+        axios.get(`${API_BASE}/api/marketplace/listings`, { headers }),
+        axios.get(`${API_BASE}/api/marketplace/orders`, { headers }),
       ]);
       setListings(listResp.data.listings || []);
       setOrders(orderResp.data.orders || []);
     } catch (err) { console.error(err); }
+  };
+
+  const connectStripe = async () => {
+    setConnecting(true);
+    try {
+      const resp = await axios.post(`${API_BASE}/api/marketplace/seller/onboard`, {}, { headers: authHeaders() });
+      window.location.href = resp.data.url;
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Could not start Stripe onboarding');
+      setConnecting(false);
+    }
   };
 
   return (
@@ -36,6 +63,23 @@ const SellerDashboard = () => {
       </nav>
 
       <div className="max-w-5xl mx-auto px-4 py-8">
+        {/* Stripe Connect gate */}
+        {payoutsReady === false && (
+          <div className="card-surface p-5 mb-6 border-ember/40 flex items-center justify-between gap-4 flex-wrap">
+            <div>
+              <div className="text-sm font-medium text-frost-light">Connect Stripe to start selling</div>
+              <div className="text-xs text-frost-dim mt-1">
+                Payouts run through Stripe Connect. You'll need this before you can create listings or get paid.
+                In test mode you can use Stripe's test values (e.g. phone 000-000-0000, DOB 01/01/1901, routing
+                110000000 / account 000123456789) — no real bank/identity info needed to finish onboarding.
+              </div>
+            </div>
+            <button onClick={connectStripe} disabled={connecting} className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium bg-ember text-white disabled:opacity-50">
+              {connecting ? 'Redirecting...' : 'Connect Stripe'}
+            </button>
+          </div>
+        )}
+
         {/* Tabs */}
         <div className="flex gap-4 mb-6">
           <button onClick={() => setTab('listings')} className={`px-4 py-2 rounded-lg text-sm font-medium ${tab === 'listings' ? 'bg-ember text-white' : 'bg-surface-card text-frost-dim border border-surface-border'}`}>
@@ -44,7 +88,12 @@ const SellerDashboard = () => {
           <button onClick={() => setTab('orders')} className={`px-4 py-2 rounded-lg text-sm font-medium ${tab === 'orders' ? 'bg-ember text-white' : 'bg-surface-card text-frost-dim border border-surface-border'}`}>
             Orders ({orders.length})
           </button>
-          <button onClick={() => setShowForm(true)} className="ml-auto px-4 py-2 rounded-lg text-sm font-medium bg-gain text-white">
+          <button
+            onClick={() => setShowForm(true)}
+            disabled={!payoutsReady}
+            title={!payoutsReady ? 'Connect Stripe first' : ''}
+            className="ml-auto px-4 py-2 rounded-lg text-sm font-medium bg-gain text-white disabled:opacity-40 disabled:cursor-not-allowed"
+          >
             + New Listing
           </button>
         </div>
@@ -78,26 +127,25 @@ const SellerDashboard = () => {
             {orders.length === 0 ? (
               <p className="text-frost-dim text-sm py-8 text-center">No orders yet.</p>
             ) : orders.map(o => (
-              <OrderCard key={o.id} order={o} onUpdate={fetchData} />
+              <OrderCard key={o.id} order={o} onUpdate={fetchData} authHeaders={authHeaders} />
             ))}
           </div>
         )}
 
         {/* Listing Form Modal */}
-        {showForm && <ListingForm sellerId={sellerId} onClose={() => { setShowForm(false); fetchData(); }} />}
+        {showForm && <ListingForm authHeaders={authHeaders} onClose={() => { setShowForm(false); fetchData(); }} />}
       </div>
     </div>
   );
 };
 
-const OrderCard = ({ order, onUpdate }) => {
+const OrderCard = ({ order, onUpdate, authHeaders }) => {
   const [tracking, setTracking] = useState('');
-  const sellerId = 1;
 
   const submitTracking = async () => {
     if (!tracking.trim()) return;
     try {
-      await axios.put(`${API_BASE}/api/marketplace/orders/${order.id}/tracking`, { tracking_number: tracking }, { params: { seller_id: sellerId } });
+      await axios.put(`${API_BASE}/api/marketplace/orders/${order.id}/tracking`, { tracking_number: tracking }, { headers: authHeaders() });
       onUpdate();
     } catch (err) { alert('Error updating tracking'); }
   };
@@ -131,7 +179,7 @@ const OrderCard = ({ order, onUpdate }) => {
   );
 };
 
-const ListingForm = ({ sellerId, onClose }) => {
+const ListingForm = ({ authHeaders, onClose }) => {
   const [form, setForm] = useState({ title: '', description: '', price: '', category: 'Baseball', condition: 'Near Mint', shipping: '4.00', image_url: '' });
   const [submitting, setSubmitting] = useState(false);
 
@@ -147,7 +195,7 @@ const ListingForm = ({ sellerId, onClose }) => {
         condition: form.condition,
         shipping_cents: Math.round(parseFloat(form.shipping || 0) * 100),
         image_urls: form.image_url ? [form.image_url] : [],
-      }, { params: { seller_id: sellerId } });
+      }, { headers: authHeaders() });
       onClose();
     } catch (err) {
       alert(err.response?.data?.detail || 'Error creating listing');

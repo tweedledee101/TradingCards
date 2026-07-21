@@ -35,6 +35,8 @@ def get_me(current_user: User = Depends(require_auth)):
             "email": current_user.email,
             "display_name": current_user.display_name,
             "role": current_user.role,
+            "is_seller": current_user.is_seller,
+            "payouts_ready": bool(current_user.stripe_connect_id),
         },
         "account": {
             "id": current_user.account_id,

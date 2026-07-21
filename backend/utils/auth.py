@@ -172,23 +172,31 @@ async def require_auth(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: Session = Depends(get_db),
 ) -> User:
-    """Strict auth -- falls back to default user when Cognito is not configured (local dev)."""
-    if not _cognito_configured():
-        # Local dev: no Cognito configured, use default account user
-        user = db.query(User).filter(User.account_id == 1).first()
-        if user:
-            return user
-        user = User(account_id=1, email="default@ragnarokgamez.com", display_name="Default", role="owner")
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-        return user
-
+    """Strict auth -- falls back to default user when Cognito is not configured AND no
+    token was presented (local dev, unauthenticated flows). A token that IS presented
+    always has to actually verify - if Cognito isn't configured in that case, that's a
+    server misconfiguration (503), not a silent pass-through as the default user."""
     if not credentials:
+        if not _cognito_configured():
+            # Local dev: no Cognito configured, no token given - use default account user
+            user = db.query(User).filter(User.account_id == 1).first()
+            if user:
+                return user
+            user = User(account_id=1, email="default@ragnarokgamez.com", display_name="Default", role="owner")
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+            return user
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not _cognito_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication is not configured (set COGNITO_USER_POOL_ID and COGNITO_CLIENT_ID)",
         )
 
     try:

@@ -44,7 +44,7 @@ export default function PrivateLayout() {
               <img src="/logo.png" alt="Ragnarok Games" className="w-full h-full object-contain" />
             </div>
             <span className="text-base sm:text-lg font-display font-semibold text-frost-light tracking-wide uppercase truncate">
-              Ragnarok <span className="text-ember">Gaming</span>
+              Ragnarok <span className="text-ember">Gamez</span>
             </span>
           </NavLink>
           <div className="flex flex-wrap items-center justify-center gap-1 sm:gap-1 md:justify-end w-full md:w-auto min-w-0">
@@ -65,6 +65,9 @@ export default function PrivateLayout() {
             </NavLink>
             <NavLink to="/business" className={navLinkClass}>
               Business
+            </NavLink>
+            <NavLink to="/sell" className={navLinkClass}>
+              Sell
             </NavLink>
             <NavLink to="/help" className={navLinkClass}>
               Help

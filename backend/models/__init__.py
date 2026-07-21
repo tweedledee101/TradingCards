@@ -32,6 +32,8 @@ class User(Base):
     display_name = Column(String(255))
     role = Column(String(20), nullable=False, default='owner')
     is_active = Column(Boolean, nullable=False, default=True)
+    is_seller = Column(Boolean, nullable=False, default=False)
+    stripe_connect_id = Column(String(255))
     last_login_at = Column(TIMESTAMP)
     created_at = Column(TIMESTAMP, nullable=False, server_default=func.now())
     updated_at = Column(TIMESTAMP, nullable=False, server_default=func.now(), onupdate=func.now())

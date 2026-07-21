@@ -15,7 +15,9 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-def test_require_auth_no_credentials_returns_401():
+def test_require_auth_no_credentials_returns_401(monkeypatch):
+    monkeypatch.setattr(auth_utils, "COGNITO_USER_POOL_ID", "us-east-1_fake")
+    monkeypatch.setattr(auth_utils, "COGNITO_CLIENT_ID", "fakeclient")
     db = MagicMock()
     with pytest.raises(HTTPException) as exc:
         _run(require_auth(credentials=None, db=db))
