@@ -497,4 +497,14 @@ class BusinessPlanner:
                 "cost_basis": float(snapshot.inventory_cost_basis or 0),
             },
             "trajectory": trajectory,
+            "goal": {
+                "annual_income_target": float(goal.annual_income_target),
+                "starting_capital": float(goal.starting_capital),
+                "weekly_hours_weekday": float(goal.weekly_hours_weekday),
+                "weekly_hours_weekend": float(goal.weekly_hours_weekend),
+                "target_margin_pct": float(goal.target_margin_pct),
+                "platform_fee_pct": float(goal.platform_fee_pct),
+                "reinvest_pct": float(goal.reinvest_pct),
+                "goal_start_date": goal.goal_start_date.isoformat(),
+            },
         }

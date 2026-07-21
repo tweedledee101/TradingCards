@@ -221,7 +221,7 @@ const BusinessDashboard = () => {
         </button>
         {showGoalForm && (
           <div className="mt-4">
-            <GoalForm onSave={() => { setShowGoalForm(false); fetchAll(); }} />
+            <GoalForm initialGoal={d.goal} onSave={() => { setShowGoalForm(false); fetchAll(); }} />
           </div>
         )}
       </div>
@@ -533,8 +533,12 @@ const TrajectoryTooltip = ({ active, payload }) => {
 };
 
 
-const GoalForm = ({ onSave }) => {
-  const [form, setForm] = useState({
+const GoalForm = ({ onSave, initialGoal }) => {
+  // When editing an existing goal, pre-fill from its real current values -
+  // otherwise saving without touching anything would silently overwrite it
+  // with these first-run defaults (this has real teeth: the actual target
+  // was deliberately dropped from $120k to $3,600 for the Phase 1 plan).
+  const [form, setForm] = useState(initialGoal || {
     annual_income_target: 120000,
     starting_capital: 1000,
     weekly_hours_weekday: 12.5,
