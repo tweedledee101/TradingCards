@@ -11,7 +11,7 @@ export default function LoginGate() {
         Ragnarok <span className="text-ember">Gamez</span>
       </h1>
       <p className="text-frost-dim text-sm text-center max-w-sm mb-8">
-        Sign in to access the trading desk. Accounts are invite-only or self-sign-up per your Cognito pool settings.
+        Sign in to access the trading desk.
       </p>
       <button
         type="button"
