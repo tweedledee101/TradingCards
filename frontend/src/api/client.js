@@ -212,4 +212,20 @@ export const getBusinessHistory = async (days = 30) => {
   return response.data;
 };
 
+export const getWeeklyScorecard = async () => {
+  const response = await api.get('/api/business/weekly-scorecard');
+  return response.data;
+};
+
+export const getWeeklyHistory = async (weeks = 8) => {
+  const response = await api.get('/api/business/weekly-history', { params: { weeks } });
+  return response.data;
+};
+
+// Market - Liquid cards sorted by velocity
+export const getMarketCards = async (params = {}) => {
+  const response = await api.get('/api/market', { params });
+  return response.data;
+};
+
 export default api;

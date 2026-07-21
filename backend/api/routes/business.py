@@ -12,6 +12,7 @@ from backend.utils.database import get_db
 from backend.utils.auth import require_auth
 from backend.models import BusinessGoal, CapitalTransaction, DailySnapshot, User
 from backend.services.business_planner import BusinessPlanner
+from backend.services.weekly_scorecard import generate_weekly_scorecard, get_scorecard_history
 
 router = APIRouter()
 planner = BusinessPlanner()
@@ -117,6 +118,22 @@ def record_capital(data: CapitalTransactionCreate, db: Session = Depends(get_db)
         "amount": float(txn.amount),
         "available_capital": round(capital, 2),
     }
+
+
+@router.get("/business/weekly-scorecard")
+def get_weekly_scorecard(db: Session = Depends(get_db), user: User = Depends(require_auth)):
+    """Pull live eBay data and compute this week's performance scorecard."""
+    return generate_weekly_scorecard(db, account_id=user.account_id)
+
+
+@router.get("/business/weekly-history")
+def get_weekly_history(
+    weeks: int = Query(default=8, ge=1, le=52),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_auth),
+):
+    """Historical weekly snapshots for trending charts."""
+    return get_scorecard_history(db, weeks=weeks, account_id=user.account_id)
 
 
 @router.get("/business/history")

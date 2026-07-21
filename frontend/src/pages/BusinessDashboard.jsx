@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react';
-import { getBusinessDashboard, getBusinessPlan, setBusinessGoal, recordCapitalTransaction } from '../api/client';
+import { getBusinessDashboard, getBusinessPlan, setBusinessGoal, recordCapitalTransaction, getWeeklyScorecard, getWeeklyHistory } from '../api/client';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 
 const BusinessDashboard = () => {
   const [dashboard, setDashboard] = useState(null);
   const [plan, setPlan] = useState(null);
+  const [scorecard, setScorecard] = useState(null);
+  const [weeklyHistory, setWeeklyHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showGoalForm, setShowGoalForm] = useState(false);
   const [showCapitalForm, setShowCapitalForm] = useState(false);
   const [hoursOverride, setHoursOverride] = useState('');
+  const [activeTab, setActiveTab] = useState('overview');
 
   useEffect(() => { fetchAll(); }, []);
 
@@ -23,6 +26,13 @@ const BusinessDashboard = () => {
         const p = await getBusinessPlan();
         setPlan(p);
       }
+      // Weekly scorecard (non-blocking)
+      try {
+        const sc = await getWeeklyScorecard();
+        setScorecard(sc);
+        const hist = await getWeeklyHistory(8);
+        setWeeklyHistory(hist);
+      } catch (e) { /* scorecard is optional */ }
     } catch (err) {
       setError('Failed to load business dashboard');
     } finally {
@@ -88,6 +98,23 @@ const BusinessDashboard = () => {
         </div>
       </div>
 
+      {/* Tab Navigation */}
+      <div className="flex gap-1 mb-6 border-b border-surface-border">
+        <button onClick={() => setActiveTab('overview')}
+          className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+            activeTab === 'overview' ? 'bg-surface-card text-frost-light border-b-2 border-ember' : 'text-frost-dim hover:text-frost-light'
+          }`}>Overview</button>
+        <button onClick={() => setActiveTab('scorecard')}
+          className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+            activeTab === 'scorecard' ? 'bg-surface-card text-frost-light border-b-2 border-ember' : 'text-frost-dim hover:text-frost-light'
+          }`}>Weekly Scorecard</button>
+      </div>
+
+      {activeTab === 'scorecard' && (
+        <WeeklyScorecard scorecard={scorecard} history={weeklyHistory} />
+      )}
+
+      {activeTab === 'overview' && (<>
       {/* Capital Transaction Form */}
       {showCapitalForm && (
         <div className="card-surface p-4 mb-6">
@@ -198,6 +225,196 @@ const BusinessDashboard = () => {
           </div>
         )}
       </div>
+      </>)}
+    </div>
+  );
+};
+
+
+const WeeklyScorecard = ({ scorecard, history }) => {
+  if (!scorecard || scorecard.error) {
+    return (
+      <div className="card-surface p-6 text-center">
+        <p className="text-frost-dim text-sm">{scorecard?.error || 'Loading weekly scorecard...'}</p>
+      </div>
+    );
+  }
+
+  const Delta = ({ data, prefix = '$', suffix = '' }) => {
+    if (!data) return null;
+    const change = data.change;
+    const color = change > 0 ? 'text-gain' : change < 0 ? 'text-loss' : 'text-frost-dim';
+    const arrow = change > 0 ? '+' : '';
+    return (
+      <div className="flex items-baseline gap-2">
+        <span className="text-lg font-mono font-semibold text-frost-light">
+          {prefix}{data.current?.toLocaleString(undefined, { minimumFractionDigits: prefix === '$' ? 2 : 0, maximumFractionDigits: 2 })}{suffix}
+        </span>
+        {scorecard.has_previous && (
+          <span className={`text-xs font-mono ${color}`}>
+            {arrow}{prefix === '$' ? '$' : ''}{change?.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 })}{suffix}
+          </span>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-display font-semibold text-frost-light">Weekly Scorecard</h2>
+          <p className="text-xs text-frost-dim">Week of {scorecard.week_start} to {scorecard.week_end}</p>
+        </div>
+        {!scorecard.has_previous && (
+          <span className="text-xs bg-surface-card text-frost-dim px-2 py-1 rounded">First week - no comparison yet</span>
+        )}
+      </div>
+
+      {/* Inventory Health */}
+      <div className="card-surface p-4">
+        <h3 className="text-sm font-semibold text-frost-light mb-3">Inventory</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <div className="text-[10px] text-frost-dim uppercase mb-1">Active Listings</div>
+            <Delta data={scorecard.inventory.active_listings} prefix="" />
+          </div>
+          <div>
+            <div className="text-[10px] text-frost-dim uppercase mb-1">Total Ask Value</div>
+            <Delta data={scorecard.inventory.total_ask_value} />
+          </div>
+          <div>
+            <div className="text-[10px] text-frost-dim uppercase mb-1">Median Price</div>
+            <Delta data={scorecard.inventory.median_price} />
+          </div>
+          <div>
+            <div className="text-[10px] text-frost-dim uppercase mb-1">Tier Breakdown</div>
+            <div className="text-xs text-frost-dim space-y-0.5">
+              <div>&lt;$5: {scorecard.inventory.tiers.under_5}</div>
+              <div>$5-25: {scorecard.inventory.tiers.tier_5_25}</div>
+              <div>$25-100: {scorecard.inventory.tiers.tier_25_100}</div>
+              <div className="text-gain font-semibold">$100+: {scorecard.inventory.tiers.over_100}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Sales Performance */}
+      <div className="card-surface p-4">
+        <h3 className="text-sm font-semibold text-frost-light mb-3">Sales</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <div className="text-[10px] text-frost-dim uppercase mb-1">Items Sold</div>
+            <Delta data={scorecard.sales.items_sold} prefix="" />
+          </div>
+          <div>
+            <div className="text-[10px] text-frost-dim uppercase mb-1">Revenue</div>
+            <Delta data={scorecard.sales.total_revenue} />
+          </div>
+          <div>
+            <div className="text-[10px] text-frost-dim uppercase mb-1">Avg Sale Price</div>
+            <Delta data={scorecard.sales.avg_sale_price} />
+          </div>
+          <div>
+            <div className="text-[10px] text-frost-dim uppercase mb-1">Sell-Through</div>
+            <Delta data={scorecard.sales.sell_through_pct} prefix="" suffix="%" />
+          </div>
+        </div>
+      </div>
+
+      {/* Buying Activity */}
+      <div className="card-surface p-4">
+        <h3 className="text-sm font-semibold text-frost-light mb-3">Buying</h3>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <div className="text-[10px] text-frost-dim uppercase mb-1">Items Bought</div>
+            <Delta data={scorecard.buying.items_bought} prefix="" />
+          </div>
+          <div>
+            <div className="text-[10px] text-frost-dim uppercase mb-1">Total Spent</div>
+            <Delta data={scorecard.buying.total_spent} />
+          </div>
+          <div>
+            <div className="text-[10px] text-frost-dim uppercase mb-1">Avg Buy Price</div>
+            <Delta data={scorecard.buying.avg_buy_price} />
+          </div>
+          <div>
+            <div className="text-[10px] text-frost-dim uppercase mb-1">Win Rate</div>
+            <Delta data={scorecard.buying.win_rate_pct} prefix="" suffix="%" />
+          </div>
+        </div>
+      </div>
+
+      {/* Net Profit */}
+      <div className="card-surface p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-[10px] text-frost-dim uppercase mb-1">Est. Net Profit (Revenue*0.87 - Purchases)</div>
+            <Delta data={scorecard.net_profit_est} />
+          </div>
+          <div className="text-right">
+            <div className="text-[10px] text-frost-dim uppercase mb-1">Watchlist</div>
+            <div className="text-lg font-mono text-frost-light">{scorecard.watchlist_count}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Top Listings */}
+      {scorecard.top_listings?.length > 0 && (
+        <div className="card-surface p-4">
+          <h3 className="text-sm font-semibold text-frost-light mb-3">Top 10 Listings (by price)</h3>
+          <div className="space-y-1.5">
+            {scorecard.top_listings.map((item, i) => (
+              <div key={i} className="flex items-center gap-3 text-xs bg-surface-raised rounded-lg px-3 py-2">
+                <span className="text-frost-dim w-4">{i + 1}.</span>
+                <span className="text-frost-light flex-1 truncate">{item.title}</span>
+                <span className="font-mono text-gain shrink-0">${item.price?.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Weekly Trend Chart */}
+      {history?.length > 1 && (
+        <div className="card-surface p-4">
+          <h3 className="text-sm font-semibold text-frost-light mb-3">Inventory Value Trend</h3>
+          <ResponsiveContainer width="100%" height={200}>
+            <LineChart data={history}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#2e3345" />
+              <XAxis dataKey="week_start" tick={{ fill: '#7b93ab', fontSize: 10 }}
+                tickFormatter={w => w.slice(5)} />
+              <YAxis tick={{ fill: '#7b93ab', fontSize: 10 }}
+                tickFormatter={v => `$${v}`} />
+              <Tooltip content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                const d = payload[0]?.payload;
+                return (
+                  <div className="bg-surface-card border border-surface-border rounded-lg px-3 py-2 text-xs">
+                    <div className="text-frost-light font-semibold mb-1">Week of {d.week_start}</div>
+                    <div className="text-ember-light">Inventory: ${d.total_inventory_ask?.toFixed(2)}</div>
+                    <div className="text-gain">Revenue: ${d.total_revenue?.toFixed(2)}</div>
+                    <div className="text-frost-dim">$100+ cards: {d.listings_over_100}</div>
+                  </div>
+                );
+              }} />
+              <Line type="monotone" dataKey="total_inventory_ask" stroke="#e8590c"
+                strokeWidth={2} dot={{ r: 3 }} name="Inventory Value" />
+              <Line type="monotone" dataKey="total_revenue" stroke="#22c55e"
+                strokeWidth={2} dot={{ r: 3 }} name="Revenue" />
+            </LineChart>
+          </ResponsiveContainer>
+          <div className="flex items-center justify-center gap-6 mt-2 text-xs text-frost-dim">
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-0.5 bg-ember inline-block rounded" /> Inventory Value
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-0.5 bg-gain inline-block rounded" /> Revenue
+            </span>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
