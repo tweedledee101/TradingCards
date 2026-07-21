@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom';
+import { SOCIAL_LINKS } from '../config/social';
 
 const sep = <span className="text-surface-border select-none px-1" aria-hidden>·</span>;
 
@@ -30,13 +31,13 @@ export default function SiteFooter() {
             Help
           </Link>
           {sep}
-          <span className="opacity-50 px-1 py-1 cursor-default" title="Coming soon">
+          <Link to="/privacy" className="hover:text-frost-light transition-colors px-1 py-1 min-h-[40px] sm:min-h-0 inline-flex items-center">
             Privacy
-          </span>
+          </Link>
           {sep}
-          <span className="opacity-50 px-1 py-1 cursor-default" title="Coming soon">
+          <Link to="/terms" className="hover:text-frost-light transition-colors px-1 py-1 min-h-[40px] sm:min-h-0 inline-flex items-center">
             Terms
-          </span>
+          </Link>
           {sep}
           <a
             href="https://ragnarokgamez.com"
@@ -46,9 +47,25 @@ export default function SiteFooter() {
           >
             ragnarokgamez.com
           </a>
+          {(SOCIAL_LINKS.discord || SOCIAL_LINKS.tiktok || SOCIAL_LINKS.whatnot) && sep}
+          {SOCIAL_LINKS.discord && (
+            <a href={SOCIAL_LINKS.discord} target="_blank" rel="noopener noreferrer" className="hover:text-frost-light transition-colors px-1 py-1 min-h-[40px] sm:min-h-0 inline-flex items-center">
+              Discord
+            </a>
+          )}
+          {SOCIAL_LINKS.tiktok && (
+            <a href={SOCIAL_LINKS.tiktok} target="_blank" rel="noopener noreferrer" className="hover:text-frost-light transition-colors px-1 py-1 min-h-[40px] sm:min-h-0 inline-flex items-center">
+              TikTok
+            </a>
+          )}
+          {SOCIAL_LINKS.whatnot && (
+            <a href={SOCIAL_LINKS.whatnot} target="_blank" rel="noopener noreferrer" className="hover:text-frost-light transition-colors px-1 py-1 min-h-[40px] sm:min-h-0 inline-flex items-center">
+              Whatnot
+            </a>
+          )}
         </nav>
         <p className="mt-3 text-[10px] sm:text-[11px] text-frost-dim/85 leading-relaxed max-w-xl mx-auto sm:mx-0">
-          © {year} Ragnarok Gaming. All rights reserved. Card names and images belong to their owners.
+          © {year} Ragnarok Gamez. All rights reserved. Card names and images belong to their owners.
         </p>
       </div>
     </footer>
