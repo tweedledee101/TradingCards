@@ -11,9 +11,24 @@ from xml.etree import ElementTree
 from fastapi import APIRouter, Query
 from typing import Optional
 
+from backend.utils.player_extractor import player_extractor
+
 router = APIRouter()
 
 _EBAY_NS = {'e': 'urn:ebay:apis:eBLBaseComponents'}
+
+
+def _guess_player_name(title: str) -> Optional[str]:
+    """Match a listing title against the tracked-player list (targets.yaml).
+
+    Only returns a name if it's one we actually track, so a hit here always
+    has real Card/Sale data behind it - no point showing a stats section
+    for a player we don't follow.
+    """
+    if not title:
+        return None
+    match = player_extractor.extract_player(title)
+    return match[0] if match else None
 
 
 def _get_user_token():
@@ -145,4 +160,64 @@ def get_ebay_stats():
     return {
         'cards_listed': total,
         'total_ask_value': round(total_value, 2),
+    }
+
+
+@router.get("/shop/ebay/{item_id}")
+def get_ebay_item_detail(item_id: str):
+    """Public endpoint: full detail for a single eBay listing (for the Shop detail view)."""
+    token = _get_user_token()
+    if not token:
+        return {'error': 'eBay connection not configured'}
+
+    resp = requests.post(
+        'https://api.ebay.com/ws/api.dll',
+        headers={
+            'X-EBAY-API-IAF-TOKEN': token,
+            'X-EBAY-API-CALL-NAME': 'GetItem',
+            'X-EBAY-API-SITEID': '0',
+            'X-EBAY-API-COMPATIBILITY-LEVEL': '1209',
+            'Content-Type': 'text/xml',
+        },
+        data=f'''<?xml version="1.0" encoding="utf-8"?>
+        <GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+            <Version>1209</Version>
+            <ItemID>{item_id}</ItemID>
+            <IncludeWatchCount>true</IncludeWatchCount>
+            <DetailLevel>ReturnAll</DetailLevel>
+        </GetItemRequest>''',
+        timeout=15,
+    )
+    if resp.status_code != 200:
+        return {'error': 'Could not load listing'}
+
+    root = ElementTree.fromstring(resp.text)
+    item = root.find('.//e:Item', _EBAY_NS)
+    if item is None:
+        return {'error': 'Listing not found'}
+
+    specifics = {}
+    for ns_el in item.findall('.//e:ItemSpecifics/e:NameValueList', _EBAY_NS):
+        name = _text(ns_el, 'e:Name')
+        value = _text(ns_el, 'e:Value')
+        if name:
+            specifics[name] = value
+
+    images = [
+        el.text for el in item.findall('.//e:PictureDetails/e:PictureURL', _EBAY_NS)
+        if el.text
+    ]
+
+    title = _text(item, 'e:Title')
+    return {
+        'id': item_id,
+        'title': title,
+        'description': _text(item, 'e:Description'),
+        'condition': _text(item, 'e:ConditionDisplayName') or specifics.get('Card Condition'),
+        'watch_count': _text(item, 'e:WatchCount'),
+        'quantity_available': _text(item, 'e:QuantityAvailable'),
+        'images': images,
+        'specifics': specifics,
+        'ebay_url': f'https://www.ebay.com/itm/{item_id}',
+        'guessed_player_name': _guess_player_name(title),
     }

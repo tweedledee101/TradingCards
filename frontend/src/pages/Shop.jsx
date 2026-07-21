@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
+import { useAuth } from '../auth/AuthContext';
+import ShopDetailModal from '../components/ShopDetailModal';
 
 const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : 'https://api.ragnarokgamez.com');
 
@@ -10,6 +12,8 @@ const Shop = () => {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [page, setPage] = useState(1);
+  const [selectedItem, setSelectedItem] = useState(null);
+  const { authenticated, login, getToken } = useAuth();
 
   useEffect(() => { fetchAll(); }, [page, category]);
 
@@ -40,15 +44,18 @@ const Shop = () => {
       <nav className="border-b border-surface-border bg-surface-card/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
           <a href="/" className="flex items-center gap-2">
-            <img src="/logo.png" alt="Ragnarok Gaming" className="w-10 h-10 object-contain" />
+            <img src="/logo.png" alt="Ragnarok Gamez" className="w-10 h-10 object-contain" />
             <span className="text-base font-display font-semibold text-frost-light tracking-wide uppercase">
               Ragnarok <span className="text-ember">Gamez</span>
             </span>
           </a>
           <div className="flex items-center gap-4">
             <a href="/shop" className="text-sm text-ember font-medium">Shop</a>
-            <a href="/sell" className="text-sm text-frost-dim hover:text-frost-light transition-colors">Sell</a>
-            <a href="/market" className="text-sm text-frost-dim hover:text-frost-light transition-colors">Sign In</a>
+            {authenticated ? (
+              <a href="/market" className="text-sm text-frost-dim hover:text-frost-light transition-colors">Dashboard</a>
+            ) : (
+              <button type="button" onClick={() => login()} className="px-4 py-2 rounded-lg bg-ember hover:bg-ember-glow text-white text-sm font-medium transition-colors">Sign In</button>
+            )}
           </div>
         </div>
       </nav>
@@ -95,15 +102,34 @@ const Shop = () => {
           <div className="text-center py-16"><p className="text-frost-dim text-sm">Nothing here yet.</p></div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-            {allCards.map((card, i) => <ShopCard key={`${card.source}-${card.id}-${i}`} card={card} />)}
+            {allCards.map((card, i) => (
+              <ShopCard
+                key={`${card.source}-${card.id}-${i}`}
+                card={card}
+                authenticated={authenticated}
+                login={login}
+                getToken={getToken}
+                onOpen={() => setSelectedItem(card)}
+              />
+            ))}
           </div>
         )}
       </div>
+
+      {selectedItem && (
+        <ShopDetailModal
+          item={selectedItem}
+          onClose={() => setSelectedItem(null)}
+          authenticated={authenticated}
+          login={login}
+          getToken={getToken}
+        />
+      )}
     </div>
   );
 };
 
-const ShopCard = ({ card }) => {
+const ShopCard = ({ card, authenticated, login, getToken, onOpen }) => {
   const [buying, setBuying] = useState(false);
 
   const handleBuy = async (e) => {
@@ -112,12 +138,17 @@ const ShopCard = ({ card }) => {
       window.open(card.ebay_url, '_blank');
       return;
     }
+    if (!authenticated) {
+      login();
+      return;
+    }
     setBuying(true);
     try {
-      const resp = await axios.post(`${import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : 'https://api.ragnarokgamez.com')}/api/marketplace/checkout`, {
+      const token = getToken();
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const resp = await axios.post(`${API_BASE}/api/marketplace/checkout`, {
         listing_id: card.id,
-        buyer_id: 1, // TODO: get from auth
-      });
+      }, { headers });
       window.location.href = resp.data.checkout_url;
     } catch (err) {
       alert(err.response?.data?.detail || 'Checkout error');
@@ -130,7 +161,13 @@ const ShopCard = ({ card }) => {
 
   return (
     <div className="card-surface overflow-hidden hover:border-ember/30 transition-all group">
-      <div className="aspect-[2.5/3.5] bg-surface-raised relative overflow-hidden">
+      <div
+        className="aspect-[2.5/3.5] bg-surface-raised relative overflow-hidden cursor-pointer"
+        onClick={onOpen}
+        role="button"
+        tabIndex={0}
+        onKeyDown={e => { if (e.key === 'Enter') onOpen(); }}
+      >
         {imageUrl ? (
           <img src={imageUrl} alt={card.title} loading="lazy" className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" onError={e => { e.target.style.display = 'none'; }} />
         ) : (
@@ -143,12 +180,17 @@ const ShopCard = ({ card }) => {
         )}
         {card.source === 'ragnarok' && (
           <div className="absolute top-2 left-2 bg-ember/90 rounded-md px-2 py-0.5">
-            <span className="text-[10px] font-bold text-white">BUY DIRECT</span>
+            <span className="text-[10px] font-bold text-white">RAGNAROK EXCLUSIVE</span>
           </div>
         )}
       </div>
       <div className="p-2.5">
-        <div className="text-xs font-medium text-frost-light line-clamp-2 leading-relaxed">{card.title}</div>
+        <div
+          className="text-xs font-medium text-frost-light line-clamp-2 leading-relaxed cursor-pointer hover:text-ember-light transition-colors"
+          onClick={onOpen}
+        >
+          {card.title}
+        </div>
         <div className="mt-2 flex items-center justify-between">
           {card.source === 'ragnarok' ? (
             <button onClick={handleBuy} disabled={buying} className="text-[10px] bg-ember/90 hover:bg-ember text-white px-3 py-1 rounded-full font-medium disabled:opacity-50">
