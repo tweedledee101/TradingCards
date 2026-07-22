@@ -48,6 +48,28 @@ Parameters:
     Type: String
     Description: ACM certificate ARN in us-east-1 (must include ApiHostname as SAN)
 
+  StripeSecretKey:
+    Type: String
+    NoEcho: true
+    Default: ''
+
+  StripePublishableKey:
+    Type: String
+    Default: ''
+
+  StripeWebhookSecret:
+    Type: String
+    NoEcho: true
+    Default: ''
+
+  FrontendUrl:
+    Type: String
+    Default: https://ragnarokgamez.com
+
+  UploadsBucket:
+    Type: String
+    Default: ragnarok-uploads-635601810497-us-east-1
+
 Resources:
   LambdaExecutionRole:
     Type: AWS::IAM::Role
@@ -61,6 +83,16 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ShipmentPhotoUploads
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                Resource: !Sub arn:aws:s3:::${UploadsBucket}/shipment-photos/*
 
   ApiFunction:
     Type: AWS::Lambda::Function
@@ -88,6 +120,11 @@ Resources:
           EBAY_APP_ID: !Ref EbayClientId
           EBAY_CERT_ID: !Ref EbayClientSecret
           CORS_ALLOW_ORIGINS: !Ref CorsAllowOrigins
+          STRIPE_SECRET_KEY: !Ref StripeSecretKey
+          STRIPE_PUBLISHABLE_KEY: !Ref StripePublishableKey
+          STRIPE_WEBHOOK_SECRET: !Ref StripeWebhookSecret
+          FRONTEND_URL: !Ref FrontendUrl
+          UPLOADS_BUCKET: !Ref UploadsBucket
 
   HttpApi:
     Type: AWS::ApiGatewayV2::Api

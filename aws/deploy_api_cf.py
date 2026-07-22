@@ -96,6 +96,16 @@ def main() -> int:
     client = os.environ.get("COGNITO_CLIENT_ID", "7lbcmb2cg1o9c0n2s4tuvftjdk")
     creg = os.environ.get("COGNITO_REGION", "us-east-1")
 
+    stripe_secret = os.environ.get("STRIPE_SECRET_KEY", "")
+    stripe_pub = os.environ.get("STRIPE_PUBLISHABLE_KEY", "")
+    stripe_webhook = os.environ.get("STRIPE_WEBHOOK_SECRET", "")
+    if not stripe_secret:
+        print(
+            "Warning: STRIPE_SECRET_KEY not set in backend/.env - marketplace checkout "
+            "will be deployed non-functional (empty key) until it's set.",
+            file=sys.stderr,
+        )
+
     template = Path(__file__).parent / "cloudformation" / args.template
     if not template.is_file():
         print(f"Template not found: {template}", file=sys.stderr)
@@ -112,6 +122,9 @@ def main() -> int:
         f"ApiHostname={args.api_hostname}",
         f"HostedZoneId={args.hosted_zone_id}",
         f"AcmCertificateArn={args.acm_cert_arn}",
+        f"StripeSecretKey={stripe_secret}",
+        f"StripePublishableKey={stripe_pub}",
+        f"StripeWebhookSecret={stripe_webhook}",
     ]
     if args.cors_origins:
         overrides.append(f"CorsAllowOrigins={args.cors_origins}")

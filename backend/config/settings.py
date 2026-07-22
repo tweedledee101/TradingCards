@@ -63,6 +63,9 @@ class Config:
     # Frontend (for redirect targets - Stripe onboarding, checkout success/cancel)
     FRONTEND_URL = os.getenv('FRONTEND_URL', 'https://ragnarokgamez.com')
 
+    # S3 bucket for user-uploaded content (shipment proof photos, etc.)
+    UPLOADS_BUCKET = os.getenv('UPLOADS_BUCKET', 'ragnarok-uploads-635601810497-us-east-1')
+
     # Stripe
     STRIPE_SECRET_KEY = os.getenv('STRIPE_SECRET_KEY', '')
     STRIPE_PUBLISHABLE_KEY = os.getenv('STRIPE_PUBLISHABLE_KEY', '')

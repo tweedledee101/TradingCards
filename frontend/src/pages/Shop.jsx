@@ -63,7 +63,10 @@ const Shop = () => {
       {/* Success Banner */}
       {purchased && (
         <div className="bg-gain/20 border-b border-gain/30 py-3 text-center">
-          <span className="text-sm text-gain font-medium">🎉 Purchase complete! The seller will ship your card soon.</span>
+          <span className="text-sm text-gain font-medium">
+            🎉 Purchase complete! Ships within 3 business days —{' '}
+            <a href="/orders" className="underline hover:no-underline">track it on your Orders page</a>.
+          </span>
         </div>
       )}
 

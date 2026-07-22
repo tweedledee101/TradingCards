@@ -21,6 +21,8 @@ const Opportunities = lazy(() => import('./pages/Opportunities'));
 const BusinessDashboard = lazy(() => import('./pages/BusinessDashboard'));
 const Help = lazy(() => import('./pages/Help'));
 const SellerDashboard = lazy(() => import('./pages/SellerDashboard'));
+const Orders = lazy(() => import('./pages/Orders'));
+const ShipConfirm = lazy(() => import('./pages/ShipConfirm'));
 
 const RouteFallback = () => (
   <div className="min-h-screen bg-surface flex items-center justify-center">
@@ -40,6 +42,7 @@ function App() {
           <Route path="/shop" element={<Shop />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
+          <Route path="/ship/:orderId" element={<ShipConfirm />} />
           <Route element={<PrivateLayout />}>
             <Route path="/market" element={<Market />} />
             <Route path="/trending" element={<Home />} />
@@ -49,6 +52,7 @@ function App() {
             <Route path="/watchlist" element={<Watchlist />} />
             <Route path="/business" element={<BusinessDashboard />} />
             <Route path="/sell" element={<SellerDashboard />} />
+            <Route path="/orders" element={<Orders />} />
             <Route path="/help" element={<Help />} />
           </Route>
         </Routes>

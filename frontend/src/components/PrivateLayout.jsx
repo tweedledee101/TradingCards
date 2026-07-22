@@ -69,6 +69,9 @@ export default function PrivateLayout() {
             <NavLink to="/sell" className={navLinkClass}>
               Sell
             </NavLink>
+            <NavLink to="/orders" className={navLinkClass}>
+              Orders
+            </NavLink>
             <NavLink to="/help" className={navLinkClass}>
               Help
             </NavLink>
