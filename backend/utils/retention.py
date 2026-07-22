@@ -37,7 +37,6 @@ def run_cleanup() -> dict:
     try:
         result = db.execute(text("SELECT run_retention_cleanup()")).scalar()
         db.commit()
-        _last_run = datetime.now()
         if result:
             total = sum(v for k, v in result.items() if k != 'ran_at')
             if total > 0:
@@ -47,6 +46,10 @@ def run_cleanup() -> dict:
         log.error(f'Retention cleanup failed: {e}', category='retention_error')
         return {}
     finally:
+        # Mark as attempted even on failure - otherwise a persistently failing
+        # cleanup (e.g. a stale FK violation) retries on every single caller
+        # (every /health check) forever instead of backing off for max_age_hours.
+        _last_run = datetime.now()
         db.close()
 
 
