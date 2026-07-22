@@ -542,7 +542,9 @@ class MarketplaceOrder(Base):
     shipping_cents = Column(Integer, nullable=False, default=0)
     platform_fee_cents = Column(Integer, nullable=False, default=100)
     stripe_payment_intent_id = Column(String(255))
-    stripe_checkout_session_id = Column(String(255))
+    # Unique: one order per Stripe checkout session, so a re-delivered webhook
+    # can't mint a duplicate order for the same payment.
+    stripe_checkout_session_id = Column(String(255), unique=True)
     status = Column(String(20), nullable=False, default='paid')
     shipping_address = Column(JSONB)
     tracking_number = Column(String(255))
@@ -551,4 +553,6 @@ class MarketplaceOrder(Base):
     shipment_photo_url = Column(Text)
     shipped_at = Column(TIMESTAMP)
     delivered_at = Column(TIMESTAMP)
+    # Set when escrowed funds are transferred to the seller (on delivery confirmation).
+    funds_released_at = Column(TIMESTAMP)
     created_at = Column(TIMESTAMP, server_default=func.now())

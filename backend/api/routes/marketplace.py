@@ -8,8 +8,9 @@ Handles:
 - Shipping: method selection, 3-day ship-by SLA, photo-verified shipment
   confirmation, buyer-facing order status
 """
+import io
 import uuid
-from datetime import date, timedelta, datetime
+from datetime import date, timedelta, datetime, timezone
 
 import boto3
 import stripe
@@ -56,6 +57,30 @@ CARRIER_TRACKING_URLS = {
     'USPS': 'https://tools.usps.com/go/TrackConfirmAction?tLabels={tracking}',
     'UPS': 'https://www.ups.com/track?tracknum={tracking}',
     'FedEx': 'https://www.fedex.com/fedextrack/?trknbr={tracking}',
+}
+
+# Shipment-photo upload limits. The bucket serves shipment-photos/* publicly, so
+# we must never store attacker-controlled Content-Type: derive it from the file's
+# actual magic bytes, not from the client-supplied filename or content_type.
+MAX_PHOTO_BYTES = 10 * 1024 * 1024  # 10 MB
+
+
+def _sniff_image(b: bytes) -> Optional[str]:
+    """Return a normalized image extension from magic bytes, or None if not an
+    image we accept. Ignores whatever the client claimed the file was."""
+    if b[:3] == b'\xff\xd8\xff':
+        return 'jpg'
+    if b[:8] == b'\x89PNG\r\n\x1a\n':
+        return 'png'
+    if b[:4] == b'RIFF' and b[8:12] == b'WEBP':
+        return 'webp'
+    if b[4:8] == b'ftyp' and b[8:12] in (b'heic', b'heix', b'hevc', b'mif1', b'heim', b'heis', b'hevx'):
+        return 'heic'
+    return None
+
+
+_IMAGE_CONTENT_TYPES = {
+    'jpg': 'image/jpeg', 'png': 'image/png', 'webp': 'image/webp', 'heic': 'image/heic',
 }
 
 
@@ -224,23 +249,38 @@ def confirm_shipment(
     order = db.query(MarketplaceOrder).filter(MarketplaceOrder.id == order_id, MarketplaceOrder.seller_id == user.id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
+    # Only a paid order can be shipped. Blocks shipping an unpaid/refunded order
+    # and prevents replay (a second call finds status='shipped', not 'paid').
+    if order.status != "paid":
+        raise HTTPException(status_code=409, detail=f"Order cannot be shipped from status '{order.status}'")
     if carrier and carrier not in CARRIER_TRACKING_URLS:
         raise HTTPException(status_code=400, detail=f"carrier must be one of {list(CARRIER_TRACKING_URLS)}")
 
-    ext = (photo.filename or '').rsplit('.', 1)[-1].lower() if '.' in (photo.filename or '') else 'jpg'
-    if ext not in ('jpg', 'jpeg', 'png', 'webp', 'heic'):
-        ext = 'jpg'
-    key = f"shipment-photos/order-{order_id}-{uuid.uuid4().hex[:10]}.{ext}"
+    # Read with a hard cap and validate the actual bytes are an image we accept.
+    # The extension and Content-Type are derived from the magic bytes, never from
+    # the client, so a text/html payload can't be stored and served as HTML.
+    data = photo.file.read(MAX_PHOTO_BYTES + 1)
+    if len(data) > MAX_PHOTO_BYTES:
+        raise HTTPException(status_code=413, detail="Photo too large (max 10 MB)")
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    kind = _sniff_image(data)
+    if kind is None:
+        raise HTTPException(status_code=400, detail="File must be a JPEG, PNG, WEBP, or HEIC image")
 
+    key = f"shipment-photos/order-{order_id}-{uuid.uuid4().hex[:10]}.{kind}"
     s3 = boto3.client('s3')
-    s3.upload_fileobj(photo.file, config.UPLOADS_BUCKET, key, ExtraArgs={'ContentType': photo.content_type or 'image/jpeg'})
+    s3.upload_fileobj(
+        io.BytesIO(data), config.UPLOADS_BUCKET, key,
+        ExtraArgs={'ContentType': _IMAGE_CONTENT_TYPES[kind]},
+    )
     photo_url = f"https://{config.UPLOADS_BUCKET}.s3.amazonaws.com/{key}"
 
     order.shipment_photo_url = photo_url
     order.tracking_number = tracking_number or order.tracking_number
     order.carrier = carrier or order.carrier
     order.status = "shipped"
-    order.shipped_at = datetime.utcnow()
+    order.shipped_at = datetime.now(timezone.utc)
     db.commit()
 
     return {
@@ -253,13 +293,39 @@ def confirm_shipment(
 
 @router.post("/marketplace/orders/{order_id}/delivered")
 def confirm_delivered(order_id: int, user: User = Depends(require_auth), db: Session = Depends(get_db)):
-    """Buyer: self-confirm receipt. Requires authentication as the order's buyer."""
+    """Buyer: self-confirm receipt. Requires authentication as the order's buyer.
+    Releases the escrowed funds to the seller (see checkout: funds are held on the
+    platform until delivery, not transferred at payment time)."""
     order = db.query(MarketplaceOrder).filter(MarketplaceOrder.id == order_id, MarketplaceOrder.buyer_id == user.id).first()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    order.delivered_at = datetime.utcnow()
+    if order.status != "shipped":
+        raise HTTPException(status_code=409, detail="Order must be shipped before it can be marked delivered")
+
+    order.status = "delivered"
+    order.delivered_at = datetime.now(timezone.utc)
+
+    # Release escrow: transfer the item + shipping to the seller; the platform
+    # keeps the platform fee. Idempotent via funds_released_at. Don't fail the
+    # buyer's confirmation if the transfer hiccups - leave it unreleased so a
+    # retry/cron can settle it later.
+    if order.funds_released_at is None:
+        seller = db.query(User).filter(User.id == order.seller_id).first()
+        if seller and seller.stripe_connect_id:
+            try:
+                stripe.Transfer.create(
+                    amount=order.price_cents + order.shipping_cents,
+                    currency="usd",
+                    destination=seller.stripe_connect_id,
+                    transfer_group=f"order-{order.id}",
+                    metadata={"order_id": str(order.id)},
+                )
+                order.funds_released_at = datetime.now(timezone.utc)
+            except Exception:
+                pass
+
     db.commit()
-    return {"status": "delivered"}
+    return {"status": "delivered", "funds_released": order.funds_released_at is not None}
 
 
 # --- Seller Onboarding ---
@@ -305,6 +371,9 @@ def create_checkout_session(req: CheckoutRequest, user: User = Depends(require_a
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found or already sold")
 
+    if listing.seller_id == user.id:
+        raise HTTPException(status_code=400, detail="You can't buy your own listing")
+
     seller = db.query(User).filter(User.id == listing.seller_id).first()
     if not seller or not seller.stripe_connect_id:
         raise HTTPException(status_code=400, detail="Seller not configured for payments")
@@ -312,6 +381,11 @@ def create_checkout_session(req: CheckoutRequest, user: User = Depends(require_a
     total_cents = listing.price_cents + listing.shipping_cents + config.STRIPE_PLATFORM_FEE_CENTS
     base_url = config.FRONTEND_URL.rstrip('/')
 
+    # Escrow model: charge the full amount to the PLATFORM account (no
+    # transfer_data.destination). Funds are held until the buyer confirms
+    # delivery, at which point confirm_delivered transfers the item+shipping to
+    # the seller and the platform keeps the fee. This is what gives the ship-by
+    # SLA and delivery confirmation actual financial teeth.
     session = stripe.checkout.Session.create(
         mode="payment",
         line_items=[{
@@ -322,10 +396,6 @@ def create_checkout_session(req: CheckoutRequest, user: User = Depends(require_a
             },
             "quantity": 1,
         }],
-        payment_intent_data={
-            "application_fee_amount": config.STRIPE_PLATFORM_FEE_CENTS,
-            "transfer_data": {"destination": seller.stripe_connect_id},
-        },
         shipping_address_collection={"allowed_countries": ["US"]},
         metadata={
             "listing_id": str(listing.id),
@@ -347,29 +417,58 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     payload = await request.body()
     sig = request.headers.get("stripe-signature")
 
-    if config.STRIPE_WEBHOOK_SECRET:
-        try:
-            event = stripe.Webhook.construct_event(payload, sig, config.STRIPE_WEBHOOK_SECRET)
-        except (ValueError, stripe.error.SignatureVerificationError):
-            raise HTTPException(status_code=400, detail="Invalid webhook signature")
-    else:
-        import json
-        event = json.loads(payload)
+    # Fail closed. Without the signing secret we cannot prove the event came from
+    # Stripe, and an unsigned handler lets anyone POST a forged
+    # checkout.session.completed to mint a "paid" order for free. Refuse rather
+    # than trust the body.
+    if not config.STRIPE_WEBHOOK_SECRET:
+        raise HTTPException(status_code=503, detail="Webhook signing secret not configured")
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, config.STRIPE_WEBHOOK_SECRET)
+    except (ValueError, stripe.error.SignatureVerificationError):
+        raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         meta = session.get("metadata", {})
-        listing_id = int(meta.get("listing_id", 0))
-        buyer_id = int(meta.get("buyer_id", 0))
-        seller_id = int(meta.get("seller_id", 0))
+        try:
+            listing_id = int(meta.get("listing_id", 0))
+            buyer_id = int(meta.get("buyer_id", 0))
+            seller_id = int(meta.get("seller_id", 0))
+        except (TypeError, ValueError):
+            # Malformed metadata - ack so Stripe stops retrying, but do nothing.
+            return {"status": "ok", "ignored": "bad_metadata"}
 
-        if listing_id:
-            # Mark listing as sold
+        session_id = session.get("id")
+        payment_intent = session.get("payment_intent")
+
+        if listing_id and session_id:
+            # Idempotency: a redelivered webhook for the same session is a no-op.
+            existing = db.query(MarketplaceOrder).filter(
+                MarketplaceOrder.stripe_checkout_session_id == session_id
+            ).first()
+            if existing:
+                return {"status": "ok", "duplicate": True}
+
+            # Oversell guard for one-of-one inventory: if another buyer already
+            # has a live order for this listing, this second payment lost the
+            # race - refund it rather than create a duplicate claim on one card.
+            already = db.query(MarketplaceOrder).filter(
+                MarketplaceOrder.listing_id == listing_id,
+                MarketplaceOrder.status.in_(("paid", "shipped", "delivered")),
+            ).first()
+            if already:
+                if payment_intent:
+                    try:
+                        stripe.Refund.create(payment_intent=payment_intent)
+                    except Exception:
+                        pass
+                return {"status": "ok", "oversold_refunded": True}
+
             listing = db.query(MarketplaceListing).filter(MarketplaceListing.id == listing_id).first()
             if listing:
                 listing.status = "sold"
 
-            # Create order record
             shipping = session.get("shipping_details", {}).get("address")
             order = MarketplaceOrder(
                 listing_id=listing_id,
@@ -378,13 +477,19 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
                 price_cents=listing.price_cents if listing else 0,
                 shipping_cents=listing.shipping_cents if listing else 0,
                 platform_fee_cents=config.STRIPE_PLATFORM_FEE_CENTS,
-                stripe_checkout_session_id=session.get("id"),
-                stripe_payment_intent_id=session.get("payment_intent"),
+                stripe_checkout_session_id=session_id,
+                stripe_payment_intent_id=payment_intent,
                 status="paid",
                 shipping_address=shipping,
                 ship_by_date=date.today() + timedelta(days=SHIP_BY_DAYS),
             )
             db.add(order)
-            db.commit()
+            try:
+                db.commit()
+            except Exception:
+                # Unique constraint tripped by a concurrent delivery of the same
+                # session - treat as the duplicate it is.
+                db.rollback()
+                return {"status": "ok", "duplicate": True}
 
     return {"status": "ok"}

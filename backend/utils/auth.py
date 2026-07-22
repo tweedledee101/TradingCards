@@ -135,20 +135,15 @@ async def get_current_user(
 ) -> User:
     """FastAPI dependency: extract and validate JWT, return User.
 
-    Returns default account user (id=1) when no token is provided,
-    so existing unauthenticated flows keep working during migration.
+    Strict: a request with no token is rejected. Identical behavior in local and
+    production - there is no default-user fallback.
     """
     if not credentials:
-        # No token -- fall back to default account for backward compat
-        user = db.query(User).filter(User.account_id == 1).first()
-        if user:
-            return user
-        # No default user yet -- create one for the default account
-        user = User(account_id=1, email="default@ragnarokgamez.com", display_name="Default", role="owner")
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-        return user
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     if not _cognito_configured():
         raise HTTPException(
@@ -172,21 +167,12 @@ async def require_auth(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: Session = Depends(get_db),
 ) -> User:
-    """Strict auth -- falls back to default user when Cognito is not configured AND no
-    token was presented (local dev, unauthenticated flows). A token that IS presented
-    always has to actually verify - if Cognito isn't configured in that case, that's a
-    server misconfiguration (503), not a silent pass-through as the default user."""
+    """Strict auth. A request with no token is rejected (401); if a token is
+    present but Cognito isn't configured that's a server misconfiguration (503).
+    No default-user fallback - local and prod behave identically."""
     if not credentials:
-        if not _cognito_configured():
-            # Local dev: no Cognito configured, no token given - use default account user
-            user = db.query(User).filter(User.account_id == 1).first()
-            if user:
-                return user
-            user = User(account_id=1, email="default@ragnarokgamez.com", display_name="Default", role="owner")
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-            return user
+        # No dev bypass: local and prod behave identically. A request with no
+        # token is rejected everywhere.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication required",
