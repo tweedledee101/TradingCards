@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth/AuthContext';
 import ShopDetailModal from '../components/ShopDetailModal';
+import SiteHeader from '../components/SiteHeader';
 
 const API_BASE = import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:8000' : 'https://api.ragnarokgamez.com');
 
@@ -12,6 +13,7 @@ const Shop = () => {
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState('featured');
   const [selectedItem, setSelectedItem] = useState(null);
   const { authenticated, login, getToken } = useAuth();
 
@@ -37,28 +39,17 @@ const Shop = () => {
     ...ebayCards.map(c => ({ ...c, source: 'ebay' })),
   ];
 
+  const sortedCards = [...allCards].sort((a, b) => {
+    if (sort === 'price_asc') return (a.price || 0) - (b.price || 0);
+    if (sort === 'price_desc') return (b.price || 0) - (a.price || 0);
+    return 0; // featured: Ragnarok listings first (source order preserved)
+  });
+
   const purchased = new URLSearchParams(window.location.search).get('purchased');
 
   return (
     <div className="min-h-screen bg-surface">
-      <nav className="border-b border-surface-border bg-surface-card/80 backdrop-blur-sm sticky top-0 z-50">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
-          <a href="/" className="flex items-center gap-2">
-            <img src="/logo.png" alt="Ragnarok Gamez" className="w-10 h-10 object-contain" />
-            <span className="text-base font-display font-semibold text-frost-light tracking-wide uppercase">
-              Ragnarok <span className="text-ember">Gamez</span>
-            </span>
-          </a>
-          <div className="flex items-center gap-4">
-            <a href="/shop" className="text-sm text-ember font-medium">Shop</a>
-            {authenticated ? (
-              <a href="/market" className="text-sm text-frost-dim hover:text-frost-light transition-colors">Dashboard</a>
-            ) : (
-              <button type="button" onClick={() => login()} className="px-4 py-2 rounded-lg bg-ember hover:bg-ember-glow text-white text-sm font-medium transition-colors">Sign In</button>
-            )}
-          </div>
-        </div>
-      </nav>
+      <SiteHeader />
 
       {/* Success Banner */}
       {purchased && (
@@ -74,7 +65,7 @@ const Shop = () => {
       <div className="border-b border-surface-border bg-gradient-to-b from-surface-card to-surface">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
           <h1 className="text-4xl sm:text-5xl font-display font-bold text-frost-light tracking-wide">
-            The Shop That <span className="text-ember">Roks</span>
+            The Market That <span className="text-ember">Roks</span>
           </h1>
           <p className="text-frost-dim mt-3 text-sm max-w-lg">
             Cards and collectibles from verified sellers. Buy direct — fast shipping, no auction fees.
@@ -89,6 +80,19 @@ const Shop = () => {
               <option value="">All Categories</option>
               <option>Baseball</option><option>Football</option><option>Basketball</option><option>Pokémon</option><option>Hockey</option><option>Soccer</option><option>Other</option>
             </select>
+            <select value={sort} onChange={e => setSort(e.target.value)} className="px-3 py-2.5 rounded-lg text-sm bg-surface border border-surface-border text-frost-light">
+              <option value="featured">Featured</option>
+              <option value="price_asc">Price: Low to High</option>
+              <option value="price_desc">Price: High to Low</option>
+            </select>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-frost-dim">
+            <span>🛡️ Buyer protection with escrow</span>
+            <span className="text-surface-border">•</span>
+            <span>Flat $1 marketplace fee</span>
+            <span className="text-surface-border">•</span>
+            <span>Ships within 3 business days</span>
           </div>
         </div>
       </div>
@@ -101,11 +105,11 @@ const Shop = () => {
 
         {loading ? (
           <div className="text-center py-16 text-frost-dim text-sm">Loading...</div>
-        ) : allCards.length === 0 ? (
+        ) : sortedCards.length === 0 ? (
           <div className="text-center py-16"><p className="text-frost-dim text-sm">Nothing here yet.</p></div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-            {allCards.map((card, i) => (
+            {sortedCards.map((card, i) => (
               <ShopCard
                 key={`${card.source}-${card.id}-${i}`}
                 card={card}

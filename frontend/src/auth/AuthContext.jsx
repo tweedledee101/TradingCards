@@ -5,25 +5,41 @@ import {
   clearTokens,
 } from './tokenStorage';
 import { redirectToHostedLogin, refreshAccessToken, redirectToLogout } from './cognitoOAuth';
+import { getMe } from '../api/client';
 
 const AuthContext = createContext(null);
+
+const OPERATOR_ROLES = ['owner', 'admin'];
 
 export function AuthProvider({ children }) {
   const [ready, setReady] = useState(false);
   const [authenticated, setAuthenticated] = useState(false);
+  const [role, setRole] = useState(null);
 
   const bootstrap = useCallback(async () => {
     try {
-      if (hasFreshAccessToken()) {
-        setAuthenticated(true);
-        setReady(true);
-        return;
+      let ok = hasFreshAccessToken();
+      if (!ok) {
+        ok = await refreshAccessToken();
       }
-      const ok = await refreshAccessToken();
       setAuthenticated(ok);
+
+      if (ok) {
+        // Fetch the user's role so the UI can gate the private operator surface.
+        // A failure here degrades safely to "no role" (treated as non-operator).
+        try {
+          const me = await getMe();
+          setRole(me?.role ?? null);
+        } catch {
+          setRole(null);
+        }
+      } else {
+        setRole(null);
+      }
     } catch {
       clearTokens();
       setAuthenticated(false);
+      setRole(null);
     } finally {
       setReady(true);
     }
@@ -47,12 +63,14 @@ export function AuthProvider({ children }) {
     () => ({
       ready,
       authenticated,
+      role,
+      isOperator: OPERATOR_ROLES.includes(role),
       login,
       logout,
       getToken,
       refreshSession: bootstrap,
     }),
-    [ready, authenticated, login, logout, getToken, bootstrap]
+    [ready, authenticated, role, login, logout, getToken, bootstrap]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

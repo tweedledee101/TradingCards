@@ -9,6 +9,13 @@ const ShopDetailModal = ({ item, onClose, authenticated, login, getToken }) => {
   const [stats, setStats] = useState(null);
   const [statsLoading, setStatsLoading] = useState(false);
   const [buying, setBuying] = useState(false);
+  const [feeCents, setFeeCents] = useState(100);
+
+  useEffect(() => {
+    axios.get(`${API_BASE}/api/marketplace/fees`)
+      .then(r => setFeeCents(r.data.platform_fee_cents ?? 100))
+      .catch(() => {});
+  }, []);
 
   const handleBuy = async () => {
     if (!authenticated) { login(); return; }
@@ -40,7 +47,7 @@ const ShopDetailModal = ({ item, onClose, authenticated, login, getToken }) => {
       const playerName = resp.data.guessed_player_name;
       if (playerName) {
         setStatsLoading(true);
-        axios.get(`${API_BASE}/api/players/${encodeURIComponent(playerName)}/stats`)
+        axios.get(`${API_BASE}/api/market/card-stats`, { params: { player: playerName } })
           .then(r => { if (active) setStats({ ...r.data, matched_name: playerName }); })
           .catch(() => {})
           .finally(() => { if (active) setStatsLoading(false); });
@@ -100,6 +107,21 @@ const ShopDetailModal = ({ item, onClose, authenticated, login, getToken }) => {
                     <InfoRow label="Shipping" value={`$${(item.shipping_cents / 100).toFixed(2)}`} />
                   )}
                 </div>
+
+                {item.source === 'ragnarok' && (
+                  <div className="mt-3 rounded-lg bg-surface-raised/50 border border-surface-border p-2.5 text-xs space-y-1">
+                    <div className="flex justify-between"><span className="text-frost-dim">Item</span><span className="font-mono text-frost-light">${(item.price || 0).toFixed(2)}</span></div>
+                    {item.shipping_cents > 0 && (
+                      <div className="flex justify-between"><span className="text-frost-dim">Shipping</span><span className="font-mono text-frost-light">${(item.shipping_cents / 100).toFixed(2)}</span></div>
+                    )}
+                    <div className="flex justify-between"><span className="text-frost-dim">Marketplace fee</span><span className="font-mono text-frost-light">${(feeCents / 100).toFixed(2)}</span></div>
+                    <div className="flex justify-between border-t border-surface-border pt-1 mt-1">
+                      <span className="text-frost-light font-medium">Total</span>
+                      <span className="font-mono font-bold text-gain">${((item.price || 0) + (item.shipping_cents || 0) / 100 + feeCents / 100).toFixed(2)}</span>
+                    </div>
+                    <div className="text-[10px] text-frost-dim pt-0.5">🛡️ Protected by escrow — funds release to the seller only after delivery.</div>
+                  </div>
+                )}
 
                 <div className="mt-4">
                   {item.source === 'ragnarok' ? (

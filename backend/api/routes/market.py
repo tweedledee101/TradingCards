@@ -15,6 +15,19 @@ from sqlalchemy.orm import Session
 router = APIRouter()
 
 
+@router.get("/market/card-stats")
+def get_card_stats(player: str, db: Session = Depends(get_db)):
+    """Public, consumer-safe sold-comp stats for a product page. Reuses the
+    operator stats computation but strips edge-only fields, so buyers get trust
+    data (avg sale, sell-through) without exposing the opportunity engine.
+    Lazy import avoids any module load-order coupling with the opportunities router."""
+    from backend.api.routes.opportunities import get_player_stats
+    data = get_player_stats(player, db)
+    if isinstance(data, dict):
+        data.pop("opportunities", None)
+    return data
+
+
 @router.get("/market/volume-leaders")
 def get_volume_leaders(
     sport: Optional[str] = Query(default=None),

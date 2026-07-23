@@ -116,12 +116,19 @@ def _get_or_create_user(db: Session, claims: dict) -> User:
     db.add(account)
     db.flush()
 
+    # Role bootstrap: the very first user to ever sign in becomes the operator
+    # ("owner"). Every public signup after that defaults to "buyer" -- a
+    # marketplace consumer with NO access to the private operator surface
+    # (Opportunities, Business, Inventory, Watchlist, Sourcing). Sellers/admins
+    # are promoted explicitly. This is what keeps your edge private once signup
+    # is open; see require_operator below for the enforced boundary.
+    is_first_user = db.query(User.id).first() is None
     user = User(
         account_id=account.id,
         cognito_sub=sub,
         email=email,
         display_name=display_name,
-        role="owner",
+        role="owner" if is_first_user else "buyer",
     )
     db.add(user)
     db.commit()
@@ -195,3 +202,22 @@ async def require_auth(
         )
 
     return _get_or_create_user(db, claims)
+
+
+# Roles that may reach the private operator surface. Everything a public
+# marketplace user gets ("buyer", "seller") is intentionally excluded.
+OPERATOR_ROLES = ("owner", "admin")
+
+
+async def require_operator(current_user: User = Depends(require_auth)) -> User:
+    """Operator-only boundary. Requires a valid token (via require_auth) AND an
+    operator role. Non-operators get 403. This is the enforced lock on the
+    private surface (Opportunities, Business, Inventory, Watchlist, Sourcing,
+    Scheduled Bids) -- hiding nav links on the frontend is cosmetic and must
+    never be the only thing standing between a consumer account and this data."""
+    if current_user.role not in OPERATOR_ROLES:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operator access required",
+        )
+    return current_user

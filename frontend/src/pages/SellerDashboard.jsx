@@ -64,7 +64,7 @@ const SellerDashboard = () => {
             <img src="/logo.png" alt="Ragnarok" className="w-10 h-10" />
             <span className="text-base font-display font-semibold text-frost-light">Seller Dashboard</span>
           </a>
-          <a href="/shop" className="text-sm text-frost-dim hover:text-ember">← Back to Shop</a>
+          <a href="/market" className="text-sm text-frost-dim hover:text-ember">← Back to Market</a>
         </div>
       </nav>
 
@@ -225,6 +225,9 @@ const ListingForm = ({ authHeaders, onClose }) => {
     shipping_method: 'single_card', shipping: '', image_url: '',
   });
   const [submitting, setSubmitting] = useState(false);
+  const [feeCents, setFeeCents] = useState(100);
+  const [guidance, setGuidance] = useState(null);
+  const [checkingPrice, setCheckingPrice] = useState(false);
 
   useEffect(() => {
     axios.get(`${API_BASE}/api/marketplace/shipping-methods`).then(resp => {
@@ -233,7 +236,25 @@ const ListingForm = ({ authHeaders, onClose }) => {
       const first = list.find(m => m.code === 'single_card') || list[0];
       if (first) setForm(f => ({ ...f, shipping_method: first.code, shipping: (first.default_cents / 100).toFixed(2) }));
     }).catch(() => {});
+    axios.get(`${API_BASE}/api/marketplace/fees`)
+      .then(r => setFeeCents(r.data.platform_fee_cents ?? 100))
+      .catch(() => {});
   }, []);
+
+  const runPriceCheck = async () => {
+    if (form.title.trim().length < 3) return;
+    setCheckingPrice(true);
+    try {
+      const resp = await axios.get(`${API_BASE}/api/marketplace/pricing-guidance`, {
+        params: { query: form.title }, headers: authHeaders(),
+      });
+      setGuidance(resp.data);
+    } catch {
+      setGuidance({ sample_size: 0, message: 'Could not fetch pricing right now.' });
+    } finally {
+      setCheckingPrice(false);
+    }
+  };
 
   const handleMethodChange = (code) => {
     const method = methods.find(m => m.code === code);
@@ -269,7 +290,39 @@ const ListingForm = ({ authHeaders, onClose }) => {
         <div className="grid gap-3">
           <input required placeholder="Title" value={form.title} onChange={e => setForm({...form, title: e.target.value})} className="px-3 py-2 rounded-lg text-sm bg-surface border border-surface-border text-frost-light" />
           <textarea placeholder="Description" value={form.description} onChange={e => setForm({...form, description: e.target.value})} className="px-3 py-2 rounded-lg text-sm bg-surface border border-surface-border text-frost-light h-20" />
-          <input required type="number" step="0.01" min="2" placeholder="Price ($)" value={form.price} onChange={e => setForm({...form, price: e.target.value})} className="px-3 py-2 rounded-lg text-sm bg-surface border border-surface-border text-frost-light" />
+          <div>
+            <div className="flex gap-2">
+              <input required type="number" step="0.01" min="2" placeholder="Price ($)" value={form.price} onChange={e => setForm({...form, price: e.target.value})} className="flex-1 px-3 py-2 rounded-lg text-sm bg-surface border border-surface-border text-frost-light" />
+              <button type="button" onClick={runPriceCheck} disabled={checkingPrice || form.title.trim().length < 3} title="See recent sold-comp pricing for a card like this" className="shrink-0 px-3 py-2 rounded-lg text-xs font-medium bg-ember/15 text-ember-light border border-ember/25 hover:bg-ember/25 disabled:opacity-40">
+                {checkingPrice ? '…' : '💡 Price check'}
+              </button>
+            </div>
+            {guidance && (
+              <div className="mt-2 rounded-lg border border-surface-border bg-surface-raised/60 p-3 text-xs">
+                {guidance.sample_size > 0 ? (
+                  <>
+                    <div className="flex items-center justify-between">
+                      <span className="text-frost-dim">Recent sold comps</span>
+                      <span className="text-frost-dim">{guidance.sample_size} sales / 90d</span>
+                    </div>
+                    <div className="mt-1.5 grid grid-cols-3 gap-2 text-center">
+                      <div><div className="text-[10px] text-frost-dim">Avg 30d</div><div className="font-mono font-semibold text-frost-light">{guidance.avg_sale_price_30d ? `$${guidance.avg_sale_price_30d}` : '—'}</div></div>
+                      <div><div className="text-[10px] text-frost-dim">Range 90d</div><div className="font-mono font-semibold text-frost-light">${guidance.low_90d}–${guidance.high_90d}</div></div>
+                      <div><div className="text-[10px] text-frost-dim">~Days/sale</div><div className="font-mono font-semibold text-frost-light">{guidance.typical_days_between_sales ?? '—'}</div></div>
+                    </div>
+                    {guidance.recommended_price && (
+                      <button type="button" onClick={() => setForm(f => ({ ...f, price: String(guidance.recommended_price) }))} className="mt-2 w-full px-2 py-1.5 rounded-md text-[11px] font-medium bg-ember/90 hover:bg-ember text-white">
+                        Use suggested ${guidance.recommended_price}
+                      </button>
+                    )}
+                    <div className="mt-1.5 text-[9px] text-frost-dim leading-snug">{guidance.disclaimer}</div>
+                  </>
+                ) : (
+                  <span className="text-frost-dim">{guidance.message || 'No comps found for that card yet.'}</span>
+                )}
+              </div>
+            )}
+          </div>
 
           <div>
             <label className="text-[10px] text-frost-dim uppercase tracking-wider block mb-1">Shipping Method</label>
@@ -290,6 +343,21 @@ const ListingForm = ({ authHeaders, onClose }) => {
           </div>
           <input placeholder="Image URL" value={form.image_url} onChange={e => setForm({...form, image_url: e.target.value})} className="px-3 py-2 rounded-lg text-sm bg-surface border border-surface-border text-frost-light" />
         </div>
+
+        {form.price && (
+          <div className="mt-4 rounded-lg bg-gain/10 border border-gain/20 p-3 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-frost-dim">You receive</span>
+              <span className="font-mono font-bold text-gain">
+                ${(parseFloat(form.price || 0) + parseFloat(form.shipping || 0)).toFixed(2)}
+              </span>
+            </div>
+            <div className="mt-1 text-[10px] text-frost-dim leading-snug">
+              Buyers pay a flat ${(feeCents / 100).toFixed(2)} marketplace fee — you keep 100% of your sale price. No percentage cut.
+            </div>
+          </div>
+        )}
+
         <div className="flex gap-3 mt-5">
           <button type="button" onClick={onClose} className="flex-1 px-4 py-2 rounded-lg text-sm bg-surface border border-surface-border text-frost-dim">Cancel</button>
           <button type="submit" disabled={submitting} className="flex-1 px-4 py-2 rounded-lg text-sm bg-ember text-white font-medium disabled:opacity-50">

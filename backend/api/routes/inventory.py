@@ -9,11 +9,11 @@ from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Query, Depends, File, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import desc, func
-from backend.utils.auth import require_auth
+from backend.utils.auth import require_auth, require_operator
 from backend.utils.database import SessionLocal
 from backend.models import Inventory, InventorySale, Card, PriceTrend, User
 
-router = APIRouter(dependencies=[Depends(require_auth)])
+router = APIRouter(dependencies=[Depends(require_operator)])
 
 MAX_CSV_ROWS = 500
 

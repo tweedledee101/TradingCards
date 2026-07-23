@@ -7,10 +7,10 @@ from sqlalchemy.orm import Session
 from typing import Optional
 from datetime import datetime
 from backend.utils.database import get_db
-from backend.utils.auth import require_auth
+from backend.utils.auth import require_auth, require_operator
 from backend.models import ScheduledBid
 
-router = APIRouter(dependencies=[Depends(require_auth)])
+router = APIRouter(dependencies=[Depends(require_operator)])
 
 
 class ScheduleBidRequest(BaseModel):

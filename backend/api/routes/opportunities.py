@@ -8,11 +8,11 @@ from typing import Optional
 from datetime import datetime, timedelta, date
 import unicodedata
 from backend.utils.database import get_db
-from backend.utils.auth import require_auth
+from backend.utils.auth import require_auth, require_operator
 from backend.models import Opportunity, JobRun, Card, Sale, ActiveListing, MarketRate, User
 from backend.services.business_planner import BusinessPlanner
 
-router = APIRouter(dependencies=[Depends(require_auth)])
+router = APIRouter(dependencies=[Depends(require_operator)])
 
 
 @router.get("/opportunities")

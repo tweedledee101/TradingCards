@@ -29,7 +29,7 @@ export default function Landing() {
             </span>
           </div>
           <nav className="flex items-center gap-4">
-            <a href="/shop" className="text-sm text-frost-dim hover:text-frost-light transition-colors">Shop</a>
+            <a href="/market" className="text-sm text-frost-dim hover:text-frost-light transition-colors">Market</a>
             <button
               type="button"
               onClick={() => login()}
@@ -57,10 +57,10 @@ export default function Landing() {
             </p>
             <div className="mt-8 flex flex-wrap gap-3 justify-center lg:justify-start">
               <a
-                href="/shop"
+                href="/market"
                 className="px-6 py-3 rounded-xl bg-ember hover:bg-ember-glow text-white font-semibold text-sm transition-colors"
               >
-                Browse the Shop
+                Browse the Market
               </a>
               <button
                 type="button"

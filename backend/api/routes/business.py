@@ -9,12 +9,12 @@ from datetime import date
 from decimal import Decimal
 
 from backend.utils.database import get_db
-from backend.utils.auth import require_auth
+from backend.utils.auth import require_auth, require_operator
 from backend.models import BusinessGoal, CapitalTransaction, DailySnapshot, User
 from backend.services.business_planner import BusinessPlanner
 from backend.services.weekly_scorecard import generate_weekly_scorecard, get_scorecard_history
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_operator)])
 planner = BusinessPlanner()
 
 

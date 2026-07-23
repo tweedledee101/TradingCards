@@ -228,4 +228,10 @@ export const getMarketCards = async (params = {}) => {
   return response.data;
 };
 
+// Auth / identity
+export const getMe = async () => {
+  const response = await api.get('/api/auth/me');
+  return response.data;
+};
+
 export default api;

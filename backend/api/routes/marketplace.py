@@ -23,7 +23,7 @@ from backend.config.settings import config
 from backend.utils.database import get_db
 from backend.utils.auth import require_auth
 from backend.utils.player_extractor import player_extractor
-from backend.models import User, MarketplaceListing, MarketplaceOrder
+from backend.models import User, MarketplaceListing, MarketplaceOrder, Card, Sale
 
 stripe.api_key = config.STRIPE_SECRET_KEY
 router = APIRouter()
@@ -101,6 +101,64 @@ class ListingCreate(BaseModel):
     shipping_cents: int = 0
     shipping_method: str = 'single_card'
     image_urls: list = []
+
+
+@router.get("/marketplace/fees")
+def get_fees():
+    """Public fee disclosure. The platform fee is a flat per-transaction charge
+    paid by the BUYER on top of the item + shipping -- sellers keep 100% of their
+    listed price. Surfaced in the UI for transparency (a wedge vs percentage fees)."""
+    return {
+        "platform_fee_cents": config.STRIPE_PLATFORM_FEE_CENTS,
+        "fee_model": "flat_per_transaction",
+        "paid_by": "buyer",
+        "seller_keeps_full_price": True,
+    }
+
+
+@router.get("/marketplace/pricing-guidance")
+def pricing_guidance(query: str, user: User = Depends(require_auth), db: Session = Depends(get_db)):
+    """Seller-facing pricing guidance from recent sold comps. Exposes ONLY summary
+    stats derived from public sale history -- never opportunity/edge internals --
+    so a seller can price competitively. Matches cards by player name."""
+    q = (query or "").strip()
+    if len(q) < 3:
+        return {"query": q, "sample_size": 0, "message": "Type at least 3 characters for a price check."}
+
+    like = f"%{q}%"
+    card_ids = db.query(Card.id).filter(Card.player_name.ilike(like)).subquery()
+    d30 = datetime.now() - timedelta(days=30)
+    d90 = datetime.now() - timedelta(days=90)
+
+    prices_90 = [
+        float(p) for (p,) in db.query(Sale.sale_price).filter(
+            Sale.card_id.in_(card_ids), Sale.sale_date >= d90, Sale.sale_price.isnot(None)
+        ).all()
+    ]
+    if not prices_90:
+        return {"query": q, "sample_size": 0, "message": "No recent sold comps for a card like that yet."}
+
+    prices_30 = [
+        float(p) for (p,) in db.query(Sale.sale_price).filter(
+            Sale.card_id.in_(card_ids), Sale.sale_date >= d30, Sale.sale_price.isnot(None)
+        ).all()
+    ]
+
+    avg90 = round(sum(prices_90) / len(prices_90), 2)
+    avg30 = round(sum(prices_30) / len(prices_30), 2) if prices_30 else None
+    sample = len(prices_90)
+    return {
+        "query": q,
+        "sample_size": sample,
+        "sales_30d": len(prices_30),
+        "avg_sale_price_30d": avg30,
+        "avg_sale_price_90d": avg90,
+        "recommended_price": avg30 or avg90,
+        "low_90d": round(min(prices_90), 2),
+        "high_90d": round(max(prices_90), 2),
+        "typical_days_between_sales": round(90 / sample, 1) if sample else None,
+        "disclaimer": "Based on recent sold comps for similar cards. Actual results depend on condition, grade, and timing.",
+    }
 
 
 @router.get("/marketplace/listings")
