@@ -1,0 +1,321 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Ragnarok Gamez — Team Break Board</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: 1920px;
+    height: 1080px;
+    background: transparent;
+    overflow: hidden;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    user-select: none;
+  }
+
+  /* ---- CONFIG: edit the TEAMS array at the bottom of this file, not here ---- */
+
+  .wrap {
+    position: absolute;
+    inset: 0;
+    padding: 24px;
+    box-sizing: border-box;
+  }
+
+  .grid {
+    display: grid;
+    gap: 10px;
+    width: 100%;
+    height: 100%;
+  }
+
+  .slot {
+    position: relative;
+    background: rgba(26, 29, 39, 0.88);
+    border: 2px solid #2e3345;
+    border-radius: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+    overflow: hidden;
+  }
+  .slot:hover { border-color: #ff6b1a; }
+
+  .slot .num {
+    position: absolute;
+    top: 6px;
+    left: 8px;
+    font-size: 14px;
+    font-weight: 800;
+    color: #7b93ab;
+  }
+
+  .slot img {
+    width: 46%;
+    max-height: 46%;
+    object-fit: contain;
+    margin-bottom: 6px;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.4));
+  }
+
+  .slot .name {
+    color: #e8eaed;
+    font-weight: 800;
+    font-size: 15px;
+    text-align: center;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    line-height: 1.15;
+  }
+
+  .slot .price {
+    color: #ff6b1a;
+    font-weight: 700;
+    font-size: 13px;
+    margin-top: 2px;
+  }
+
+  /* ---- SOLD state ---- */
+  .slot.sold {
+    background: rgba(15, 17, 23, 0.92);
+    border-color: #22c55e;
+    cursor: default;
+  }
+  .slot.sold img,
+  .slot.sold .name,
+  .slot.sold .price { opacity: 0.35; }
+  .slot.sold .name { text-decoration: line-through; }
+
+  .slot.sold::after {
+    content: "SOLD";
+    position: absolute;
+    color: #22c55e;
+    font-weight: 900;
+    font-size: 20px;
+    letter-spacing: 2px;
+    border: 3px solid #22c55e;
+    border-radius: 8px;
+    padding: 2px 12px;
+    transform: rotate(-10deg);
+    background: rgba(15,17,23,0.6);
+  }
+
+  .slot.sold .buyer {
+    position: absolute;
+    bottom: 6px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #cbd5e1;
+    opacity: 1;
+  }
+
+  /* ---- flash animation on the instant a team is marked sold ---- */
+  .slot.flash {
+    animation: flashpop 1.1s ease-out;
+  }
+  @keyframes flashpop {
+    0%   { transform: scale(1); box-shadow: 0 0 0 rgba(232,89,12,0); }
+    15%  { transform: scale(1.12); box-shadow: 0 0 60px rgba(232,89,12,0.9); border-color: #ff6b1a; }
+    100% { transform: scale(1); box-shadow: 0 0 0 rgba(232,89,12,0); }
+  }
+
+  /* ---- big center burst, same language as hotbuy.html ---- */
+  .burst {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%) scale(0.4) rotate(-4deg);
+    opacity: 0;
+    text-align: center;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .burst.show { animation: pop 1.8s ease-out forwards; }
+  .burst .inner {
+    display: inline-flex;
+    align-items: center;
+    gap: 20px;
+    padding: 26px 56px;
+    background: linear-gradient(135deg, #e8590c, #ff6b1a);
+    border-radius: 18px;
+    box-shadow: 0 0 60px rgba(232, 89, 12, 0.7);
+  }
+  .burst img { width: 90px; height: 90px; object-fit: contain; }
+  .burst .txt { text-align: left; }
+  .burst .label {
+    font-size: 22px; font-weight: 800; letter-spacing: 2px;
+    text-transform: uppercase; color: #0f1117; opacity: 0.75;
+  }
+  .burst .team {
+    font-size: 46px; font-weight: 900; color: #0f1117; white-space: nowrap;
+  }
+  @keyframes pop {
+    0%   { opacity: 0; transform: translate(-50%, -50%) scale(0.4) rotate(-4deg); }
+    12%  { opacity: 1; transform: translate(-50%, -50%) scale(1.08) rotate(2deg); }
+    20%  { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+    80%  { opacity: 1; transform: translate(-50%, -50%) scale(1) rotate(0deg); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(0.9) rotate(0deg); }
+  }
+
+  /* ---- small status/help line, bottom-right; harmless if cropped by your capture ---- */
+  .hint {
+    position: absolute;
+    right: 20px;
+    bottom: 8px;
+    font-size: 13px;
+    color: #4b5563;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="grid" id="grid"></div>
+  </div>
+  <div class="burst" id="burst">
+    <div class="inner">
+      <img id="burstImg" src="" alt="">
+      <div class="txt">
+        <div class="label">Sold</div>
+        <div class="team" id="burstTeam"></div>
+      </div>
+    </div>
+  </div>
+  <div class="hint">click a slot to mark sold &middot; right-click to undo &middot; R = reset board</div>
+
+  <script>
+    // ---------------------------------------------------------------------
+    // EDIT THIS LIST per show. name/price/img are all you need per team.
+    // img is optional — leave "" to just show the team name text.
+    // ---------------------------------------------------------------------
+    const TEAMS = [
+      { name: "Yankees",   price: "$25", img: "" },
+      { name: "Dodgers",   price: "$25", img: "" },
+      { name: "Braves",    price: "$20", img: "" },
+      { name: "Astros",    price: "$20", img: "" },
+      { name: "Phillies",  price: "$20", img: "" },
+      { name: "Mets",      price: "$20", img: "" },
+      { name: "Orioles",   price: "$15", img: "" },
+      { name: "Rangers",   price: "$15", img: "" },
+      { name: "Guardians", price: "$15", img: "" },
+      { name: "Cubs",      price: "$15", img: "" },
+      { name: "Padres",    price: "$15", img: "" },
+      { name: "Tigers",    price: "$15", img: "" },
+      { name: "Red Sox",   price: "$15", img: "" },
+      { name: "Giants",    price: "$10", img: "" },
+      { name: "Brewers",   price: "$10", img: "" },
+      { name: "Diamondbacks", price: "$10", img: "" },
+      { name: "Cardinals", price: "$10", img: "" },
+      { name: "Mariners",  price: "$10", img: "" },
+      { name: "Blue Jays", price: "$10", img: "" },
+      { name: "Twins",     price: "$10", img: "" },
+    ];
+
+    // Grid shape auto-fits to however many teams are in the list above.
+    const COLS = Math.ceil(Math.sqrt(TEAMS.length * (1920/1080)));
+    const ROWS = Math.ceil(TEAMS.length / COLS);
+    document.getElementById('grid').style.gridTemplateColumns = `repeat(${COLS}, 1fr)`;
+    document.getElementById('grid').style.gridTemplateRows = `repeat(${ROWS}, 1fr)`;
+
+    // Board state persists in localStorage, keyed by the team list itself, so
+    // an OBS "refresh browser when scene becomes active" doesn't wipe your
+    // progress mid-show. Press R (with the source focused via OBS Interact)
+    // to clear it and start a fresh board.
+    const STATE_KEY = 'ragnarok_break_board_v1';
+    function loadState() {
+      try { return JSON.parse(localStorage.getItem(STATE_KEY)) || {}; }
+      catch (e) { return {}; }
+    }
+    function saveState(state) {
+      localStorage.setItem(STATE_KEY, JSON.stringify(state));
+    }
+    let state = loadState();
+
+    const grid = document.getElementById('grid');
+    const burst = document.getElementById('burst');
+    const burstImg = document.getElementById('burstImg');
+    const burstTeam = document.getElementById('burstTeam');
+    let burstTimer = null;
+
+    function render() {
+      grid.innerHTML = '';
+      TEAMS.forEach((t, i) => {
+        const sold = state[i];
+        const el = document.createElement('div');
+        el.className = 'slot' + (sold ? ' sold' : '');
+        el.dataset.idx = i;
+        el.innerHTML = `
+          <div class="num">${i + 1}</div>
+          ${t.img ? `<img src="${t.img}" alt="${t.name}">` : ''}
+          <div class="name">${t.name}</div>
+          <div class="price">${t.price || ''}</div>
+          ${sold ? `<div class="buyer">${sold.buyer || ''}</div>` : ''}
+        `;
+        grid.appendChild(el);
+      });
+    }
+
+    function markSold(idx, buyer) {
+      if (state[idx]) return; // already sold, ignore
+      state[idx] = { buyer: buyer || '', at: Date.now() };
+      saveState(state);
+      render();
+
+      const el = grid.querySelector(`[data-idx="${idx}"]`);
+      el.classList.add('flash');
+      setTimeout(() => el.classList.remove('flash'), 1200);
+
+      const t = TEAMS[idx];
+      burstImg.style.display = t.img ? '' : 'none';
+      burstImg.src = t.img || '';
+      burstTeam.textContent = t.name;
+      burst.classList.remove('show');
+      void burst.offsetWidth; // restart animation
+      burst.classList.add('show');
+      clearTimeout(burstTimer);
+      burstTimer = setTimeout(() => burst.classList.remove('show'), 1900);
+    }
+
+    function undoSlot(idx) {
+      if (!state[idx]) return;
+      delete state[idx];
+      saveState(state);
+      render();
+    }
+
+    grid.addEventListener('click', (e) => {
+      const slot = e.target.closest('.slot');
+      if (!slot) return;
+      const idx = Number(slot.dataset.idx);
+      // Optional: prompt for a buyer name/handle to show under the SOLD stamp.
+      // Comment out the prompt() line and pass '' to markSold to skip asking.
+      const buyer = window.prompt('Buyer name/handle (optional, blank = skip):', '') || '';
+      markSold(idx, buyer);
+    });
+
+    grid.addEventListener('contextmenu', (e) => {
+      const slot = e.target.closest('.slot');
+      if (!slot) return;
+      e.preventDefault();
+      undoSlot(Number(slot.dataset.idx));
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'r' || e.key === 'R') {
+        if (window.confirm('Reset the whole board for a new show?')) {
+          state = {};
+          saveState(state);
+          render();
+        }
+      }
+    });
+
+    render();
+  </script>
+</body>
+</html>

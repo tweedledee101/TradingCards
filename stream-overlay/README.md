@@ -12,10 +12,12 @@ local files.
    top of the cameras.
 3. **Hot Buy overlay** — `hotbuy.html`, its own Browser Source, hidden until
    triggered.
+4. **Team Break board** — `board.html`, only add this source for team-break
+   shows; it replaces the border/hot-buy for that segment (see section 6).
 
 ## 2. Adding the overlays in OBS
 
-For both `border.html` and `hotbuy.html`:
+For `border.html`, `hotbuy.html`, and `board.html`:
 
 - Add Source → Browser Source
 - Check "Local file", then browse to the file path
@@ -76,3 +78,38 @@ streaming enabled — check your Whatnot seller settings for a stream key. If
 it's mobile-app-only, the practical workaround is running the Whatnot app in
 an Android emulator on the same machine and feeding it OBS's Virtual Camera +
 Virtual Audio as the emulator's camera/mic input.
+
+## 6. Team Break board
+
+Whatnot has no concept of a "break board" — it's purely a live-shopping/
+checkout/chat layer with no idea what's on your video feed. Every break board
+you've seen is a streamer-side overlay, same as the border/hot-buy above.
+`board.html` is that overlay: a full-screen grid of team slots that flashes
+and marks itself sold as you go, no server or second app involved.
+
+**Setup**
+
+1. Open `board.html` in a text editor and edit the `TEAMS` array near the
+   bottom — one line per team (`name`, `price`, optional `img` logo path/URL).
+   The grid auto-sizes to however many teams you list.
+2. Add it as a Browser Source in OBS same as the others (Local file, 1920x1080).
+   Only enable this source for the break segment of your show — swap back to
+   the normal border/hot-buy sources once it's done.
+
+**Running it live**
+
+- Right-click the `board.html` source in OBS and choose **Interact**. This
+  opens a live window into the exact same rendered instance viewers are
+  seeing — clicks there update what's on stream in real time. No second app,
+  no state to sync.
+- **Click a team** when it's picked → it flashes an orange burst animation
+  center-screen (same visual language as the Hot Buy alert) and the slot
+  marks itself SOLD with a strikethrough. You'll get a small prompt to type
+  in the buyer's name/handle if you want it shown under the stamp — leave it
+  blank and hit Enter to skip.
+- **Right-click a slot** to undo a misclick.
+- **Press R** (with the Interact window focused) to wipe the whole board and
+  start fresh for the next show — useful since it's one reusable file.
+- Board progress is saved in the browser's local storage, so if OBS refreshes
+  the source mid-show (e.g. "Refresh browser when scene becomes active" is
+  checked) you won't lose which teams are already sold.
